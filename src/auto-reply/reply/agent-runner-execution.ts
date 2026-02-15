@@ -582,6 +582,10 @@ export async function runAgentTurnWithFallback(params: {
         sendMessageWhatsApp(FRANKCLAW_LOGS_GROUP, logMessage, { verbose: false }).catch((err) => {
           defaultRuntime.error(`Failed to send error to logs group: ${err}`);
         });
+        // Auto-reset on context overflow so next message works
+        if (isContextOverflow && params.sessionKey) {
+          await params.resetSessionAfterCompactionFailure(message).catch(() => {});
+        }
         return {
           kind: "final",
           payload: {
