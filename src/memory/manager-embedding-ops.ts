@@ -684,12 +684,14 @@ class MemoryManagerEmbeddingOps {
     options: { source: MemorySource; content?: string },
   ) {
     const content = options.content ?? (await fs.readFile(entry.absPath, "utf-8"));
-    const chunks = enforceEmbeddingMaxInputTokens(
-      this.provider,
-      chunkMarkdown(content, this.settings.chunking).filter(
-        (chunk) => chunk.text.trim().length > 0,
-      ),
+    const rawChunks = chunkMarkdown(content, this.settings.chunking).filter(
+      (chunk) => chunk.text.trim().length > 0,
     );
+    // Prepend file path to each chunk's text for better search recall
+    for (const chunk of rawChunks) {
+      chunk.text = `[${entry.path}]\n${chunk.text}`;
+    }
+    const chunks = enforceEmbeddingMaxInputTokens(this.provider, rawChunks);
     if (options.source === "sessions" && "lineMap" in entry) {
       remapChunkLines(chunks, entry.lineMap);
     }
