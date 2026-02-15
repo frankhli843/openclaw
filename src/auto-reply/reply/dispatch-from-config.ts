@@ -155,7 +155,11 @@ export async function dispatchReplyFromConfig(params: {
   // [frankclaw] Channel policy gate — block unknown/unauthorized channels before burning tokens
   {
     const surface = (ctx.Surface ?? ctx.Provider ?? "unknown").toLowerCase();
-    const policyChatId = ctx.From ?? ctx.To ?? "";
+    // Strip surface prefix from chat ID if already present (e.g. Telegram From = "telegram:123")
+    const rawChatId = ctx.From ?? ctx.To ?? "";
+    const policyChatId = rawChatId.startsWith(`${surface}:`)
+      ? rawChatId.slice(surface.length + 1)
+      : rawChatId;
     const wasMentioned = Boolean(ctx.WasMentioned);
     const decision = checkChannelPolicy(surface, policyChatId, wasMentioned);
 
