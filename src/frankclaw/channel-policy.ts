@@ -12,7 +12,7 @@ import { defaultRuntime } from "../runtime.js";
 
 export interface ChannelEntry {
   name?: string;
-  policy: "allow" | "block" | "mention-only";
+  policy: "allow" | "block" | "mention-only" | "view-only";
   /** Optional note about why this policy was set */
   note?: string;
   /** ISO timestamp of when this entry was added */
@@ -77,6 +77,7 @@ export function buildChannelKey(surface: string, chatId: string): string {
 export type PolicyDecision =
   | { action: "allow" }
   | { action: "mention-only" }
+  | { action: "view-only" }
   | { action: "block"; reason: string }
   | { action: "ask"; channelKey: string };
 
@@ -103,6 +104,8 @@ export function checkChannelPolicy(
           return { action: "allow" };
         }
         return { action: "mention-only" };
+      case "view-only":
+        return { action: "view-only" };
     }
   }
 
@@ -119,7 +122,7 @@ export function checkChannelPolicy(
  */
 export function addChannelPolicy(
   channelKey: string,
-  policy: "allow" | "block" | "mention-only",
+  policy: "allow" | "block" | "mention-only" | "view-only",
   name?: string,
   note?: string,
 ): void {

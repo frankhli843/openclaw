@@ -155,7 +155,7 @@ export async function dispatchReplyFromConfig(params: {
   // [frankclaw] Channel policy gate — block unknown/unauthorized channels before burning tokens
   {
     const surface = (ctx.Surface ?? ctx.Provider ?? "unknown").toLowerCase();
-    const policyChatId = ctx.To ?? ctx.From ?? "";
+    const policyChatId = ctx.From ?? ctx.To ?? "";
     const wasMentioned = Boolean(ctx.WasMentioned);
     const decision = checkChannelPolicy(surface, policyChatId, wasMentioned);
 
@@ -163,6 +163,15 @@ export async function dispatchReplyFromConfig(params: {
       logVerbose(`[frankclaw] Blocked message from ${surface}:${policyChatId}: ${decision.reason}`);
       recordProcessed("skipped", { reason: "channel-policy-blocked" });
       return { queuedFinal: false, counts: dispatcher.getQueuedCounts() };
+    }
+
+    if (decision.action === "view-only") {
+      // Agent processes the message (for memory/context) but reply is suppressed.
+      // We set a flag on ctx so the reply handler knows to discard any output.
+      (ctx as Record<string, unknown>).__frankclawViewOnly = true;
+      logVerbose(
+        `[frankclaw] View-only mode for ${surface}:${policyChatId} — agent will process but reply suppressed`,
+      );
     }
 
     if (decision.action === "mention-only") {
@@ -398,6 +407,15 @@ export async function dispatchReplyFromConfig(params: {
     );
 
     const replies = replyResult ? (Array.isArray(replyResult) ? replyResult : [replyResult]) : [];
+
+    // [frankclaw] View-only: suppress all outbound replies
+    const isViewOnly = (ctx as Record<string, unknown>).__frankclawViewOnly === true;
+    if (isViewOnly) {
+      logVerbose(`[frankclaw] View-only: suppressed ${replies.length} reply(ies)`);
+      recordProcessed("completed", { reason: "view-only-suppressed" });
+      markIdle("message_completed");
+      return { queuedFinal: false, counts: dispatcher.getQueuedCounts() };
+    }
 
     let queuedFinal = false;
     let routedFinalCount = 0;
