@@ -18,6 +18,7 @@ import {
   sanitizeUserFacingText,
 } from "../../agents/pi-embedded-helpers.js";
 import { runEmbeddedPiAgent } from "../../agents/pi-embedded.js";
+import { sendMessageWhatsApp } from "../../channel-web.js";
 import {
   resolveAgentIdFromSessionKey,
   resolveGroupSessionKey,
@@ -427,11 +428,21 @@ export async function runAgentTurnWithFallback(params: {
         (await params.resetSessionAfterCompactionFailure(embeddedError.message))
       ) {
         didResetAfterCompactionFailure = true;
+        const resetText =
+          "⚠️ Context limit exceeded. I've reset our conversation to start fresh - please try again.";
+        // [frankclaw] Redirect to logs group
+        const LOGS_GROUP_1 = process.env.FRANKCLAW_LOGS_GROUP;
+        if (LOGS_GROUP_1) {
+          sendMessageWhatsApp(
+            LOGS_GROUP_1,
+            `${resetText}\nSession: ${params.sessionKey ?? "unknown"}`,
+            { verbose: false },
+          ).catch(() => {});
+          return { kind: "final", payload: { text: SILENT_REPLY_TOKEN } };
+        }
         return {
           kind: "final",
-          payload: {
-            text: "⚠️ Context limit exceeded. I've reset our conversation to start fresh - please try again.\n\nTo prevent this, increase your compaction buffer by setting `agents.defaults.compaction.reserveTokensFloor` to 4000 or higher in your config.",
-          },
+          payload: { text: resetText },
         };
       }
       if (embeddedError?.kind === "role_ordering") {
@@ -550,6 +561,26 @@ export async function runAgentTurnWithFallback(params: {
         : isRoleOrderingError
           ? "⚠️ Message ordering conflict - please try again. If this persists, use /new to start a fresh session."
           : `⚠️ Agent failed before reply: ${trimmedMessage}.\nLogs: openclaw logs --follow`;
+
+      // [frankclaw] Redirect errors to logs group instead of the user-facing chat
+      const FRANKCLAW_LOGS_GROUP = process.env.FRANKCLAW_LOGS_GROUP;
+      if (FRANKCLAW_LOGS_GROUP) {
+        const sessionInfo = params.sessionKey ?? "unknown session";
+        const logMessage = `⚠️ Error in ${sessionInfo}\n${fallbackText}`;
+        sendMessageWhatsApp(FRANKCLAW_LOGS_GROUP, logMessage, { verbose: false }).catch((err) => {
+          defaultRuntime.error(`Failed to send error to logs group: ${err}`);
+        });
+        // Auto-reset on context overflow so next message works
+        if (isContextOverflow && params.sessionKey) {
+          await params.resetSessionAfterCompactionFailure(message).catch(() => {});
+        }
+        return {
+          kind: "final",
+          payload: {
+            text: SILENT_REPLY_TOKEN,
+          },
+        };
+      }
 
       return {
         kind: "final",
