@@ -304,6 +304,49 @@ Runbook: [iOS connect](https://docs.openclaw.ai/platforms/ios).
 - Exposes Canvas, Camera, and Screen capture commands.
 - Runbook: [Android connect](https://docs.openclaw.ai/platforms/android).
 
+## Memory search: shared vs isolated agents
+
+By default, each agent (main, subagent) gets its own SQLite embedding index at `~/.openclaw/memory/{agentId}.sqlite`. This means cron jobs and sub-agents start with an **empty index** and can't find knowledge files until their index is populated (which may never complete for short-lived sessions).
+
+**Fix:** Set a shared store path so all agents read from the same pre-populated index:
+
+```json5
+{
+  agents: {
+    defaults: {
+      memorySearch: {
+        store: {
+          path: "~/.openclaw/memory/main.sqlite",
+        },
+      },
+    },
+  },
+}
+```
+
+Now cron jobs and sub-agents share the main session's embedding index and can search all memory + knowledge files immediately.
+
+**Isolated agents:** If you need a sub-agent with its own clean memory (no access to existing knowledge), add an agent config with `{agentId}` in the store path:
+
+```json5
+{
+  agents: {
+    list: [
+      {
+        id: "isolated",
+        memorySearch: {
+          store: {
+            path: "~/.openclaw/memory/{agentId}.sqlite",
+          },
+        },
+      },
+    ],
+  },
+}
+```
+
+Then spawn with `agentId: "isolated"` to get a sandboxed memory store.
+
 ## Agent workspace + skills
 
 - Workspace root: `~/.openclaw/workspace` (configurable via `agents.defaults.workspace`).
