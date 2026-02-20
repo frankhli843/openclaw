@@ -59,8 +59,18 @@ function resolveBrowserExecutable(resolved: ResolvedBrowserConfig): BrowserExecu
   return resolveBrowserExecutableForPlatform(resolved, process.platform);
 }
 
-export function resolveOpenClawUserDataDir(profileName = DEFAULT_OPENCLAW_BROWSER_PROFILE_NAME) {
-  return path.join(CONFIG_DIR, "browser", profileName, "user-data");
+export function resolveOpenClawUserDataDir(
+  profileName = DEFAULT_OPENCLAW_BROWSER_PROFILE_NAME,
+  configuredUserDataDir?: string,
+) {
+  const override = (configuredUserDataDir ?? "").trim();
+  if (!override) {
+    return path.join(CONFIG_DIR, "browser", profileName, "user-data");
+  }
+  if (profileName === DEFAULT_OPENCLAW_BROWSER_PROFILE_NAME) {
+    return override;
+  }
+  return path.join(override, profileName);
 }
 
 function cdpUrlForPort(cdpPort: number) {
@@ -176,7 +186,7 @@ export async function launchOpenClawChrome(
     );
   }
 
-  const userDataDir = resolveOpenClawUserDataDir(profile.name);
+  const userDataDir = resolveOpenClawUserDataDir(profile.name, resolved.userDataDir);
   fs.mkdirSync(userDataDir, { recursive: true });
 
   const needsDecorate = !isProfileDecorated(

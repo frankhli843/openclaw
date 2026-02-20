@@ -27,6 +27,7 @@ export type ResolvedBrowserConfig = {
   remoteCdpHandshakeTimeoutMs: number;
   color: string;
   executablePath?: string;
+  userDataDir?: string;
   headless: boolean;
   noSandbox: boolean;
   attachOnly: boolean;
@@ -214,6 +215,7 @@ export function resolveBrowserConfig(
   const noSandbox = cfg?.noSandbox === true;
   const attachOnly = cfg?.attachOnly === true;
   const executablePath = cfg?.executablePath?.trim() || undefined;
+  const userDataDir = cfg?.userDataDir?.trim() || undefined;
 
   const defaultProfileFromConfig = cfg?.defaultProfile?.trim() || undefined;
   // Use legacy cdpUrl port for backward compatibility when no profiles configured
@@ -245,6 +247,7 @@ export function resolveBrowserConfig(
     remoteCdpHandshakeTimeoutMs,
     color: defaultColor,
     executablePath,
+    userDataDir,
     headless,
     noSandbox,
     attachOnly,
