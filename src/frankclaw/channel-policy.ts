@@ -88,17 +88,24 @@ export function checkChannelPolicy(
   surface: string,
   chatId: string,
   wasMentioned?: boolean,
+  options?: { aliases?: string[] },
 ): PolicyDecision {
   const config = loadChannelPolicy();
   const channelKey = buildChannelKey(surface, chatId);
+  const aliasKeys = (options?.aliases ?? []).map((entry) => String(entry).trim()).filter(Boolean);
+  const lookupOrder = [channelKey, ...aliasKeys];
 
-  const entry = config.channels[channelKey];
+  const matchedKey = lookupOrder.find((key) => Boolean(config.channels[key]));
+  const entry = matchedKey ? config.channels[matchedKey] : undefined;
   if (entry) {
     switch (entry.policy) {
       case "allow":
         return { action: "allow" };
       case "block":
-        return { action: "block", reason: `Channel explicitly blocked: ${channelKey}` };
+        return {
+          action: "block",
+          reason: `Channel explicitly blocked: ${matchedKey ?? channelKey}`,
+        };
       case "mention-only":
         if (wasMentioned) {
           return { action: "allow" };

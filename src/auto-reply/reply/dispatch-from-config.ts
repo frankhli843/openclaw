@@ -161,7 +161,16 @@ export async function dispatchReplyFromConfig(params: {
       ? rawChatId.slice(surface.length + 1)
       : rawChatId;
     const wasMentioned = Boolean(ctx.WasMentioned);
-    const decision = checkChannelPolicy(surface, policyChatId, wasMentioned);
+    const policyAliases: string[] = [];
+    if (surface === "discord") {
+      const guildId = String(ctx.GroupSpace ?? "").trim();
+      if (/^[0-9]+$/.test(guildId)) {
+        policyAliases.push(`discord:guild:${guildId}`);
+      }
+    }
+    const decision = checkChannelPolicy(surface, policyChatId, wasMentioned, {
+      aliases: policyAliases,
+    });
 
     if (decision.action === "block") {
       logVerbose(`[frankclaw] Blocked message from ${surface}:${policyChatId}: ${decision.reason}`);
