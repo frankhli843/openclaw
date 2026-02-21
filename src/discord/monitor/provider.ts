@@ -40,6 +40,7 @@ import { getDiscordGatewayEmitter, waitForDiscordGatewayStop } from "../monitor.
 import { fetchDiscordApplicationId } from "../probe.js";
 import { resolveDiscordChannelAllowlist } from "../resolve-channels.js";
 import { resolveDiscordUserAllowlist } from "../resolve-users.js";
+import { sendMessageDiscord } from "../send.js";
 import { normalizeDiscordToken } from "../token.js";
 import { createDiscordVoiceCommand } from "../voice/command.js";
 import { DiscordVoiceManager, DiscordVoiceReadyListener } from "../voice/manager.js";
@@ -58,6 +59,7 @@ import { resolveDiscordSlashCommandConfig } from "./commands.js";
 import { createExecApprovalButton, DiscordExecApprovalHandler } from "./exec-approvals.js";
 import { createDiscordGatewayPlugin } from "./gateway-plugin.js";
 import { registerGateway, unregisterGateway } from "./gateway-registry.js";
+import { createDiscordInboundDurableQueue } from "./inbound-durable-queue.js";
 import {
   DiscordMessageListener,
   DiscordPresenceListener,
@@ -66,6 +68,7 @@ import {
   registerDiscordListener,
 } from "./listeners.js";
 import { createDiscordMessageHandler } from "./message-handler.js";
+import { resolveDiscordMessageChannelId } from "./message-utils.js";
 import {
   createDiscordCommandArgFallbackButton,
   createDiscordModelPickerFallbackButton,
@@ -601,7 +604,7 @@ export async function monitorDiscordProvider(opts: MonitorDiscordOpts = {}) {
     registerDiscordListener(client.listeners, new DiscordVoiceReadyListener(voiceManager));
   }
 
-  const messageHandler = createDiscordMessageHandler({
+  const baseMessageHandler = createDiscordMessageHandler({
     cfg,
     discordConfig: discordCfg,
     accountId: account.accountId,
@@ -619,6 +622,69 @@ export async function monitorDiscordProvider(opts: MonitorDiscordOpts = {}) {
     allowFrom,
     guildEntries,
   });
+
+  const deadLetterAlertChannel =
+    (discordCfg as { deadLetterAlertChannel?: string | undefined }).deadLetterAlertChannel ??
+    "1474420675933638847";
+  const durableInboundQueue = createDiscordInboundDurableQueue({
+    accountId: account.accountId,
+    onDeadLetter: async (event, reason) => {
+      const target = deadLetterAlertChannel.trim();
+      if (!target) {
+        return;
+      }
+      const errorLine = reason.lastError?.trim() ? reason.lastError.trim() : "(no error text)";
+      const alert = [
+        "⚠️ Discord inbound message moved to dead-letter queue",
+        `account: ${event.accountId}`,
+        `channel: ${event.channelId}`,
+        `message: ${event.messageId}`,
+        `attempts: ${reason.attempts}`,
+        `error: ${errorLine}`,
+      ].join("\n");
+      try {
+        await sendMessageDiscord(`channel:${target}`, alert, {
+          accountId: account.accountId,
+          rest: client.rest,
+          token,
+        });
+      } catch (err) {
+        runtime.error?.(danger(`discord dead-letter alert failed: ${String(err)}`));
+      }
+    },
+  });
+  await durableInboundQueue.start({
+    process: async (event) => {
+      await baseMessageHandler(event.payload as Parameters<typeof baseMessageHandler>[0], client);
+    },
+  });
+
+  const messageHandler = async (
+    data: Parameters<typeof baseMessageHandler>[0],
+    incomingClient: Parameters<typeof baseMessageHandler>[1],
+  ) => {
+    const message = data.message;
+    const messageId = message?.id;
+    const channelId = resolveDiscordMessageChannelId({
+      message,
+      eventChannelId: data.channel_id,
+    });
+    if (!messageId || !channelId) {
+      await baseMessageHandler(data, incomingClient);
+      return;
+    }
+    try {
+      await durableInboundQueue.enqueue({
+        channelId,
+        messageId,
+        orderingKey: channelId,
+        payload: data,
+      });
+    } catch (err) {
+      runtime.error?.(danger(`discord durable inbound enqueue failed: ${String(err)}`));
+      await baseMessageHandler(data, incomingClient);
+    }
+  };
 
   registerDiscordListener(client.listeners, new DiscordMessageListener(messageHandler, logger));
   registerDiscordListener(
@@ -753,6 +819,7 @@ export async function monitorDiscordProvider(opts: MonitorDiscordOpts = {}) {
     }
     gatewayEmitter?.removeListener("debug", onGatewayDebug);
     abortSignal?.removeEventListener("abort", onAbort);
+    await durableInboundQueue.stop();
     if (voiceManager) {
       await voiceManager.destroy();
       voiceManagerRef.current = null;

@@ -1,0 +1,392 @@
+import crypto from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
+import { resolveStateDir } from "../../config/paths.js";
+
+export type DurableDiscordInboundEvent = {
+  accountId: string;
+  channelId: string;
+  orderingKey: string;
+  messageId: string;
+  payload: unknown;
+};
+
+type DurableJobState = "queued" | "processing";
+
+type DurableDiscordInboundJob = {
+  id: string;
+  dedupeKey: string;
+  state: DurableJobState;
+  enqueuedAt: number;
+  updatedAt: number;
+  leaseUntil: number | null;
+  attempts: number;
+  nextAttemptAt: number;
+  lastError?: string;
+  event: DurableDiscordInboundEvent;
+};
+
+export type DeadLetterReason = {
+  attempts: number;
+  lastError?: string;
+};
+
+export type DurableDiscordInboundQueueOptions = {
+  accountId: string;
+  stateDir?: string;
+  leaseMs?: number;
+  maxAttempts?: number;
+  backoffMs?: (attempt: number) => number;
+  now?: () => number;
+  onDeadLetter?: (
+    event: DurableDiscordInboundEvent,
+    reason: DeadLetterReason,
+  ) => Promise<void> | void;
+};
+
+export type DurableDiscordInboundQueueStats = {
+  queued: number;
+  processing: number;
+  dead: number;
+};
+
+const DEFAULT_LEASE_MS = 60_000;
+const DEFAULT_MAX_ATTEMPTS = 5;
+const DEFAULT_BACKOFF_MS: readonly number[] = [2_000, 10_000, 60_000, 300_000];
+
+function computeDefaultBackoffMs(attempt: number): number {
+  if (attempt <= 0) {
+    return 0;
+  }
+  return (
+    DEFAULT_BACKOFF_MS[Math.min(attempt - 1, DEFAULT_BACKOFF_MS.length - 1)] ??
+    DEFAULT_BACKOFF_MS.at(-1) ??
+    0
+  );
+}
+
+function ensureJsonObject(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
+}
+
+function normalizeErrorMessage(err: unknown): string {
+  if (err instanceof Error && err.message) {
+    return err.message;
+  }
+  return String(err);
+}
+
+function resolveQueueRoot(params: { stateDir?: string; accountId: string }): string {
+  const base = params.stateDir ?? resolveStateDir();
+  return path.join(base, "discord-inbound-queue", params.accountId);
+}
+
+function resolveJobPath(queueDir: string, id: string): string {
+  return path.join(queueDir, `${id}.json`);
+}
+
+function resolveDeadDir(queueDir: string): string {
+  return path.join(queueDir, "dead");
+}
+
+function resolveDeadPath(queueDir: string, id: string): string {
+  return path.join(resolveDeadDir(queueDir), `${id}.json`);
+}
+
+async function writeJsonAtomically(filePath: string, value: unknown): Promise<void> {
+  const tmp = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+  await fs.promises.writeFile(tmp, JSON.stringify(value, null, 2), {
+    encoding: "utf-8",
+    mode: 0o600,
+  });
+  await fs.promises.rename(tmp, filePath);
+}
+
+async function readJob(filePath: string): Promise<DurableDiscordInboundJob | null> {
+  try {
+    const raw = await fs.promises.readFile(filePath, "utf-8");
+    return JSON.parse(raw) as DurableDiscordInboundJob;
+  } catch {
+    return null;
+  }
+}
+
+async function listJobFiles(queueDir: string): Promise<string[]> {
+  let entries: string[];
+  try {
+    entries = await fs.promises.readdir(queueDir);
+  } catch (err) {
+    const code =
+      err && typeof err === "object" && "code" in err
+        ? String((err as { code?: unknown }).code)
+        : null;
+    if (code === "ENOENT") {
+      return [];
+    }
+    throw err;
+  }
+  return entries
+    .filter((entry) => entry.endsWith(".json"))
+    .map((entry) => path.join(queueDir, entry));
+}
+
+export function createDiscordInboundDurableQueue(options: DurableDiscordInboundQueueOptions) {
+  const queueDir = resolveQueueRoot({ stateDir: options.stateDir, accountId: options.accountId });
+  const leaseMs = Math.max(1_000, options.leaseMs ?? DEFAULT_LEASE_MS);
+  const maxAttempts = Math.max(1, options.maxAttempts ?? DEFAULT_MAX_ATTEMPTS);
+  const now = options.now ?? (() => Date.now());
+  const backoffMs = options.backoffMs ?? computeDefaultBackoffMs;
+
+  let processor: ((event: DurableDiscordInboundEvent) => Promise<void>) | null = null;
+  let draining = false;
+
+  async function ensureDirs(): Promise<void> {
+    await fs.promises.mkdir(queueDir, { recursive: true, mode: 0o700 });
+    await fs.promises.mkdir(resolveDeadDir(queueDir), { recursive: true, mode: 0o700 });
+  }
+
+  async function writeJob(job: DurableDiscordInboundJob): Promise<void> {
+    await writeJsonAtomically(resolveJobPath(queueDir, job.id), job);
+  }
+
+  async function removeJob(id: string): Promise<void> {
+    try {
+      await fs.promises.unlink(resolveJobPath(queueDir, id));
+    } catch (err) {
+      const code =
+        err && typeof err === "object" && "code" in err
+          ? String((err as { code?: unknown }).code)
+          : null;
+      if (code !== "ENOENT") {
+        throw err;
+      }
+    }
+  }
+
+  async function moveToDead(job: DurableDiscordInboundJob): Promise<void> {
+    await ensureDirs();
+    await writeJsonAtomically(resolveDeadPath(queueDir, job.id), {
+      ...job,
+      state: "queued",
+      leaseUntil: null,
+      updatedAt: now(),
+    });
+    await removeJob(job.id);
+  }
+
+  async function listLiveJobs(): Promise<DurableDiscordInboundJob[]> {
+    const files = await listJobFiles(queueDir);
+    const jobs: DurableDiscordInboundJob[] = [];
+    for (const filePath of files) {
+      const stat = await fs.promises.stat(filePath).catch(() => null);
+      if (!stat?.isFile()) {
+        continue;
+      }
+      const job = await readJob(filePath);
+      if (!job) {
+        continue;
+      }
+      jobs.push(job);
+    }
+    return jobs;
+  }
+
+  async function hasDedupeKey(dedupeKey: string): Promise<boolean> {
+    const jobs = await listLiveJobs();
+    if (jobs.some((job) => job.dedupeKey === dedupeKey)) {
+      return true;
+    }
+    const deadFiles = await listJobFiles(resolveDeadDir(queueDir));
+    for (const filePath of deadFiles) {
+      const job = await readJob(filePath);
+      if (job?.dedupeKey === dedupeKey) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  async function recoverExpiredLeases(): Promise<number> {
+    const jobs = await listLiveJobs();
+    let recovered = 0;
+    const current = now();
+    for (const job of jobs) {
+      if (job.state !== "processing") {
+        continue;
+      }
+      if (job.leaseUntil && job.leaseUntil > current) {
+        continue;
+      }
+      job.state = "queued";
+      job.leaseUntil = null;
+      job.nextAttemptAt = Math.min(job.nextAttemptAt, current);
+      job.updatedAt = current;
+      await writeJob(job);
+      recovered += 1;
+    }
+    return recovered;
+  }
+
+  async function claimNextJob(): Promise<DurableDiscordInboundJob | null> {
+    const current = now();
+    const jobs = await listLiveJobs();
+    jobs.sort((a, b) => a.enqueuedAt - b.enqueuedAt);
+
+    for (const job of jobs) {
+      if (job.state !== "queued") {
+        continue;
+      }
+      if (job.nextAttemptAt > current) {
+        continue;
+      }
+      const lockedByOrdering = jobs.some(
+        (other) =>
+          other.id !== job.id &&
+          other.event.orderingKey === job.event.orderingKey &&
+          other.state === "processing" &&
+          (other.leaseUntil ?? 0) > current,
+      );
+      if (lockedByOrdering) {
+        continue;
+      }
+      job.state = "processing";
+      job.leaseUntil = current + leaseMs;
+      job.updatedAt = current;
+      await writeJob(job);
+      return job;
+    }
+
+    return null;
+  }
+
+  async function processOne(job: DurableDiscordInboundJob): Promise<void> {
+    if (!processor) {
+      return;
+    }
+    try {
+      await processor(job.event);
+      await removeJob(job.id);
+      return;
+    } catch (err) {
+      job.attempts += 1;
+      job.lastError = normalizeErrorMessage(err);
+      job.updatedAt = now();
+      job.leaseUntil = null;
+      if (job.attempts >= maxAttempts) {
+        await moveToDead(job);
+        if (options.onDeadLetter) {
+          try {
+            await Promise.resolve(
+              options.onDeadLetter(job.event, {
+                attempts: job.attempts,
+                lastError: job.lastError,
+              }),
+            );
+          } catch {
+            // Best-effort notification path; dead-lettering itself has already succeeded.
+          }
+        }
+        return;
+      }
+      job.state = "queued";
+      job.nextAttemptAt = now() + Math.max(0, backoffMs(job.attempts));
+      await writeJob(job);
+    }
+  }
+
+  async function drain(): Promise<void> {
+    if (draining) {
+      return;
+    }
+    draining = true;
+    try {
+      // Lease recovery happens before each drain cycle, including startup.
+      await recoverExpiredLeases();
+      while (processor) {
+        const job = await claimNextJob();
+        if (!job) {
+          break;
+        }
+        await processOne(job);
+      }
+    } finally {
+      draining = false;
+    }
+  }
+
+  return {
+    async start(params: { process: (event: DurableDiscordInboundEvent) => Promise<void> }) {
+      processor = params.process;
+      await ensureDirs();
+      await recoverExpiredLeases();
+      await drain();
+    },
+
+    async stop() {
+      processor = null;
+    },
+
+    async enqueue(input: {
+      channelId: string;
+      messageId: string;
+      orderingKey: string;
+      payload: unknown;
+    }): Promise<{ enqueued: boolean; dedupeKey: string }> {
+      await ensureDirs();
+      const dedupeKey = `${options.accountId}:${input.channelId}:${input.messageId}`;
+      if (await hasDedupeKey(dedupeKey)) {
+        return { enqueued: false, dedupeKey };
+      }
+
+      // Ensure payload is serializable and object-like to avoid writing unusable jobs.
+      const normalizedPayload = ensureJsonObject(JSON.parse(JSON.stringify(input.payload)));
+      if (!normalizedPayload) {
+        throw new Error("discord durable inbound queue requires an object payload");
+      }
+
+      const timestamp = now();
+      const job: DurableDiscordInboundJob = {
+        id: crypto.randomUUID(),
+        dedupeKey,
+        state: "queued",
+        enqueuedAt: timestamp,
+        updatedAt: timestamp,
+        leaseUntil: null,
+        attempts: 0,
+        nextAttemptAt: timestamp,
+        event: {
+          accountId: options.accountId,
+          channelId: input.channelId,
+          orderingKey: input.orderingKey,
+          messageId: input.messageId,
+          payload: normalizedPayload,
+        },
+      };
+
+      await writeJob(job);
+      void drain();
+      return { enqueued: true, dedupeKey };
+    },
+
+    async recoverExpiredLeases() {
+      return await recoverExpiredLeases();
+    },
+
+    async getStats(): Promise<DurableDiscordInboundQueueStats> {
+      const jobs = await listLiveJobs();
+      const dead = (await listJobFiles(resolveDeadDir(queueDir))).length;
+      const queued = jobs.filter((job) => job.state === "queued").length;
+      const processing = jobs.filter((job) => job.state === "processing").length;
+      return { queued, processing, dead };
+    },
+
+    async listLiveJobsForTest() {
+      const jobs = await listLiveJobs();
+      jobs.sort((a, b) => a.enqueuedAt - b.enqueuedAt);
+      return jobs;
+    },
+  };
+}
