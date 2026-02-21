@@ -1,4 +1,5 @@
 import type { HeartbeatRunResult } from "../../infra/heartbeat-wake.js";
+import { createDurableJobQueue } from "../../jobs/durable-job-queue.js";
 import { DEFAULT_AGENT_ID } from "../../routing/session-key.js";
 import { resolveCronDeliveryPlan } from "../delivery.js";
 import { sweepCronRunSessions } from "../session-reaper.js";
@@ -30,6 +31,19 @@ const MIN_REFIRE_GAP_MS = 2_000;
  * from wedging the entire cron lane.
  */
 const DEFAULT_JOB_TIMEOUT_MS = 10 * 60_000; // 10 minutes
+
+const CRON_DURABLE_QUEUE = createDurableJobQueue();
+
+/**
+ * Heartbeat path must not use durable queue verifier/healer.
+ *
+ * Main-session cron jobs are heartbeat-driven: they enqueue system events and
+ * are executed by the heartbeat loop (wake-now or next-heartbeat paths).
+ * These runs should bypass durable queue wrappers entirely.
+ */
+export function shouldBypassDurableQueueForCronJob(job: CronJob): boolean {
+  return job.sessionTarget === "main";
+}
 
 type TimedCronRunOutcome = CronRunOutcome &
   CronRunTelemetry & {
@@ -263,28 +277,74 @@ export async function onTimer(state: CronServiceState) {
             : configuredTimeoutMs
           : DEFAULT_JOB_TIMEOUT_MS;
 
-      try {
-        const result =
-          typeof jobTimeoutMs === "number"
-            ? await (async () => {
-                let timeoutId: NodeJS.Timeout | undefined;
-                try {
-                  return await Promise.race([
-                    executeJobCore(state, job),
-                    new Promise<never>((_, reject) => {
-                      timeoutId = setTimeout(
-                        () => reject(new Error("cron: job execution timed out")),
-                        jobTimeoutMs,
-                      );
-                    }),
-                  ]);
-                } finally {
-                  if (timeoutId) {
-                    clearTimeout(timeoutId);
-                  }
+      const runWithTimeout = async (runJob: CronJob) =>
+        typeof jobTimeoutMs === "number"
+          ? await (async () => {
+              let timeoutId: NodeJS.Timeout | undefined;
+              try {
+                return await Promise.race([
+                  executeJobCore(state, runJob),
+                  new Promise<never>((_, reject) => {
+                    timeoutId = setTimeout(
+                      () => reject(new Error("cron: job execution timed out")),
+                      jobTimeoutMs,
+                    );
+                  }),
+                ]);
+              } finally {
+                if (timeoutId) {
+                  clearTimeout(timeoutId);
                 }
-              })()
-            : await executeJobCore(state, job);
+              }
+            })()
+          : await executeJobCore(state, runJob);
+
+      try {
+        if (shouldBypassDurableQueueForCronJob(job)) {
+          const result = await runWithTimeout(job);
+          return { jobId: id, ...result, startedAt, endedAt: state.deps.nowMs() };
+        }
+
+        const result = await CRON_DURABLE_QUEUE.run({
+          queue: "cron-jobs",
+          kind: "cron",
+          dedupeKey: `cron:${job.id}:${startedAt}`,
+          payload: { job },
+          run: async ({ job: runJob }) => await runWithTimeout(runJob),
+          verify: async ({ result }) => {
+            const summary = result.summary?.trim().toLowerCase() ?? "";
+            if (summary.includes("incomplete") || summary.includes("still running")) {
+              return { ok: false, detail: "verifier detected potentially incomplete cron output" };
+            }
+            return { ok: true };
+          },
+          heal: async ({ payload }) => {
+            const healJob: CronJob = {
+              ...payload.job,
+              delivery: { mode: "none" },
+              payload:
+                payload.job.payload.kind === "agentTurn"
+                  ? {
+                      ...payload.job.payload,
+                      deliver: false,
+                      bestEffortDeliver: true,
+                    }
+                  : payload.job.payload,
+            };
+            const healed = await executeJobCore(state, healJob);
+            if (healed.status !== "ok") {
+              return {
+                ok: false,
+                detail: healed.error ?? "healer rerun did not complete successfully",
+              };
+            }
+            return { ok: true, result: healed };
+          },
+          onDeadLetter: async ({ reason, error }) => {
+            const message = `⚠️ Cron durable queue dead-letter: job=${job.id} name=${job.name} reason=${reason}${error ? ` error=${error}` : ""}`;
+            await state.deps.sendDeadLetterAlert?.(message);
+          },
+        });
         return { jobId: id, ...result, startedAt, endedAt: state.deps.nowMs() };
       } catch (err) {
         state.deps.log.warn(
