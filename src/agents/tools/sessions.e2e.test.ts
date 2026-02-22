@@ -217,4 +217,26 @@ describe("sessions_send gating", () => {
     expect(callGatewayMock.mock.calls[0]?.[0]).toMatchObject({ method: "sessions.list" });
     expect(result.details).toMatchObject({ status: "forbidden" });
   });
+
+  it("blocks cross-channel sessions_send into discord channel sessions", async () => {
+    callGatewayMock.mockResolvedValue({
+      path: "/tmp/sessions.json",
+      sessions: [{ key: "agent:main:discord:channel:123", kind: "group" }],
+    });
+
+    const tool = createSessionsSendTool({
+      agentSessionKey: "agent:main:whatsapp:group:120363421390336301@g.us",
+      agentChannel: "whatsapp",
+    });
+
+    const result = await tool.execute("call2", {
+      sessionKey: "agent:main:discord:channel:123",
+      message: "debug relay",
+      timeoutSeconds: 0,
+    });
+
+    expect(result.details).toMatchObject({ status: "forbidden" });
+    expect(callGatewayMock).toHaveBeenCalledTimes(1);
+    expect(callGatewayMock.mock.calls[0]?.[0]).toMatchObject({ method: "sessions.list" });
+  });
 });

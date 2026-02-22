@@ -176,6 +176,20 @@ export function createSessionsSendTool(opts?: {
       const displayKey = resolvedSession.displayKey;
       const resolvedViaSessionId = resolvedSession.resolvedViaSessionId;
 
+      // Guardrail: prevent cross-channel debug relay pollution into live Discord channel/thread
+      // sessions. This keeps forced-thread Discord flows stable while still allowing normal
+      // in-channel Discord session sends.
+      const isDiscordChannelSession = /^agent:[^:]+:discord:channel:/.test(resolvedKey);
+      if (isDiscordChannelSession && opts?.agentChannel !== "discord") {
+        return jsonResult({
+          runId: crypto.randomUUID(),
+          status: "forbidden",
+          error:
+            "Cross-channel sessions_send into Discord channel sessions is blocked. Use channel-native messaging or run from a Discord-bound session.",
+          sessionKey: displayKey,
+        });
+      }
+
       if (restrictToSpawned && !resolvedViaSessionId && resolvedKey !== effectiveRequesterKey) {
         const ok = await isRequesterSpawnedSessionVisible({
           requesterSessionKey: effectiveRequesterKey,
