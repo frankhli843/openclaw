@@ -72,6 +72,23 @@ function ensureJsonObject(value: unknown): Record<string, unknown> | null {
   return value as Record<string, unknown>;
 }
 
+function toSerializableObject(value: unknown): Record<string, unknown> | null {
+  const seen = new WeakSet<object>();
+  const json = JSON.stringify(value, (key, nextValue) => {
+    if (key === "client") {
+      return undefined;
+    }
+    if (nextValue && typeof nextValue === "object") {
+      if (seen.has(nextValue as object)) {
+        return undefined;
+      }
+      seen.add(nextValue as object);
+    }
+    return nextValue;
+  });
+  return ensureJsonObject(JSON.parse(json));
+}
+
 function normalizeErrorMessage(err: unknown): string {
   if (err instanceof Error && err.message) {
     return err.message;
@@ -342,7 +359,8 @@ export function createDiscordInboundDurableQueue(options: DurableDiscordInboundQ
       }
 
       // Ensure payload is serializable and object-like to avoid writing unusable jobs.
-      const normalizedPayload = ensureJsonObject(JSON.parse(JSON.stringify(input.payload)));
+      // Discord event payloads can include circular references (for example message.client).
+      const normalizedPayload = toSerializableObject(input.payload);
       if (!normalizedPayload) {
         throw new Error("discord durable inbound queue requires an object payload");
       }
