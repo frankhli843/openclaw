@@ -678,6 +678,16 @@ export async function startGatewayServer(
     }
   }
 
+  // Register gateMode blocked-notification → Discord delivery
+  if (!minimalTestGateway) {
+    const gateNotifyChannelId = cfgAtStart.agents?.defaults?.gateNotifyChannel;
+    if (gateNotifyChannelId) {
+      const { registerGateNotifyDiscord } = await import("../channels/gate-notify-discord.js");
+      registerGateNotifyDiscord({ discordChannelId: gateNotifyChannelId });
+      log.info(`gateway: gateMode blocked notifications → Discord channel ${gateNotifyChannelId}`);
+    }
+  }
+
   const configReloader = minimalTestGateway
     ? { stop: async () => {} }
     : (() => {

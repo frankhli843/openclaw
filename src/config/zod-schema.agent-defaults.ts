@@ -22,6 +22,7 @@ export const AgentDefaultsSchema = z
       .strict()
       .optional(),
     mentionKeywords: z.array(z.string()).optional(),
+    gateNotifyChannel: z.string().optional(),
     imageModel: z
       .object({
         primary: z.string().optional(),

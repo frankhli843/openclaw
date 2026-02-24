@@ -128,6 +128,8 @@ export type AgentDefaultsConfig = {
   imageModel?: AgentModelListConfig;
   /** Keywords that trigger the bot (case-insensitive word boundary match). Applies to frank-only and allowlist gate modes. */
   mentionKeywords?: string[];
+  /** Discord channel ID to send gateMode blocked-message notifications to. */
+  gateNotifyChannel?: string;
   /** Model catalog with optional aliases (full provider/model keys). */
   models?: Record<string, AgentModelEntryConfig>;
   /** Agent working directory (preferred). Used as the default cwd for agent runs. */
