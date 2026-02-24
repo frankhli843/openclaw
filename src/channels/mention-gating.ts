@@ -102,6 +102,14 @@ export function resolveGateMode(params: GateModeParams): GateModeResult {
       return { action: "process", effectiveWasMentioned: true };
     }
 
+    case "mention": {
+      const triggered = wasMentioned || matchesKeyword(messageText, mentionKeywords);
+      if (!triggered) {
+        return { action: "skip", effectiveWasMentioned: false };
+      }
+      return { action: "process", effectiveWasMentioned: true };
+    }
+
     default:
       return { action: "skip", effectiveWasMentioned: false };
   }

@@ -251,6 +251,53 @@ describe("resolveGateMode", () => {
     });
   });
 
+  describe("mention tier", () => {
+    it("processes when anyone mentions bot", () => {
+      const res = resolveGateMode(
+        makeParams({
+          gateMode: "mention",
+          senderId: other,
+          wasMentioned: true,
+        }),
+      );
+      expect(res.action).toBe("process");
+      expect(res.effectiveWasMentioned).toBe(true);
+    });
+
+    it("processes when anyone uses keyword", () => {
+      const res = resolveGateMode(
+        makeParams({
+          gateMode: "mention",
+          senderId: other,
+          messageText: "hey dora what time is it",
+        }),
+      );
+      expect(res.action).toBe("process");
+    });
+
+    it("skips when no mention or keyword", () => {
+      const res = resolveGateMode(
+        makeParams({
+          gateMode: "mention",
+          senderId: other,
+          messageText: "just chatting normally",
+        }),
+      );
+      expect(res.action).toBe("skip");
+    });
+
+    it("processes for owner with keyword too", () => {
+      const res = resolveGateMode(
+        makeParams({
+          gateMode: "mention",
+          senderId: owner,
+          messageText: "doraemon check this",
+        }),
+      );
+      expect(res.action).toBe("process");
+    });
+  });
+
   describe("keyword matching", () => {
     it("matches keyword case-insensitively", () => {
       const res = resolveGateMode(
