@@ -63,7 +63,7 @@ export type AgentRunLoopResult =
       /** Payload keys sent directly (not via pipeline) during tool flush. */
       directlySentBlockKeys?: Set<string>;
     }
-  | { kind: "final"; payload: ReplyPayload };
+  | { kind: "final"; payload: ReplyPayload; retryableFailure?: boolean; failureMessage?: string };
 
 export async function runAgentTurnWithFallback(params: {
   commandBody: string;
@@ -568,6 +568,14 @@ export async function runAgentTurnWithFallback(params: {
         ? sanitizeUserFacingText(message, { errorContext: true })
         : message;
       const trimmedMessage = safeMessage.replace(/\.\s*$/, "");
+      const retryableFailure =
+        isTransientHttp ||
+        fallbackAttempts.some(
+          (attempt) =>
+            attempt.reason === "rate_limit" ||
+            attempt.reason === "timeout" ||
+            (typeof attempt.status === "number" && attempt.status >= 500),
+        );
       const fallbackText = isContextOverflow
         ? "⚠️ Context overflow — prompt too large for this model. Try a shorter message or a larger-context model."
         : isRoleOrderingError
@@ -591,6 +599,8 @@ export async function runAgentTurnWithFallback(params: {
           payload: {
             text: SILENT_REPLY_TOKEN,
           },
+          retryableFailure,
+          failureMessage: trimmedMessage,
         };
       }
 
@@ -599,6 +609,8 @@ export async function runAgentTurnWithFallback(params: {
         payload: {
           text: fallbackText,
         },
+        retryableFailure,
+        failureMessage: trimmedMessage,
       };
     }
   }

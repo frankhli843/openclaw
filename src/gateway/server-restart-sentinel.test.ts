@@ -96,7 +96,7 @@ describe("enqueuePostRestartWake", () => {
     expect(call.message).toContain("continue where you left off");
   });
 
-  it("defaults to Discord #general when no delivery context exists", async () => {
+  it("uses channel 'last' so delivery resolves at dispatch time", async () => {
     mockResolveMainSessionKey.mockReturnValue("agent:main");
     mockEnqueueScheduledAgent.mockResolvedValue({ id: "wake-1" });
 
@@ -104,10 +104,14 @@ describe("enqueuePostRestartWake", () => {
 
     expect(mockEnqueueScheduledAgent).toHaveBeenCalledWith(
       expect.objectContaining({
-        replyChannel: "discord",
-        replyTo: "channel:1474343755153932394",
+        replyChannel: "last",
       }),
     );
+    // Should NOT have replyTo or replyAccountId - let the agent handler resolve them
+    const call = mockEnqueueScheduledAgent.mock.calls[0][0];
+    expect(call).not.toHaveProperty("replyTo");
+    expect(call).not.toHaveProperty("replyAccountId");
+    expect(call).not.toHaveProperty("threadId");
   });
 
   it("uses group 'restart' for dedup across rapid restarts", async () => {

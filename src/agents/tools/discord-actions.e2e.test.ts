@@ -20,6 +20,7 @@ const discordSendMocks = vi.hoisted(() => ({
     name: "edited",
   })),
   editMessageDiscord: vi.fn(async () => ({})),
+  fetchChannelInfoDiscord: vi.fn(async () => ({ type: 11 })),
   fetchChannelPermissionsDiscord: vi.fn(async () => ({})),
   fetchMessageDiscord: vi.fn(async () => ({})),
   fetchReactionsDiscord: vi.fn(async () => ({})),
@@ -49,6 +50,7 @@ const {
   createThreadDiscord,
   deleteChannelDiscord,
   editChannelDiscord,
+  fetchChannelInfoDiscord,
   fetchMessageDiscord,
   kickMemberDiscord,
   listGuildChannelsDiscord,
@@ -289,6 +291,46 @@ describe("handleDiscordMessagingAction", () => {
       messageId: undefined,
       autoArchiveMinutes: undefined,
       content: "Initial forum post body",
+    });
+  });
+  it("blocks plain channel send when replying in discord context", async () => {
+    fetchChannelInfoDiscord.mockResolvedValueOnce({ type: 0 } as never);
+
+    await expect(
+      handleDiscordMessagingAction(
+        "sendMessage",
+        {
+          to: "channel:147",
+          content: "hello",
+          __toolCurrentChannelProvider: "discord",
+          __toolCurrentChannelId: "channel:147",
+        },
+        enableAllActions,
+      ),
+    ).rejects.toThrow(/plain channel sends are blocked/i);
+  });
+
+  it("allows plain channel send for explicit broadcast jobs", async () => {
+    fetchChannelInfoDiscord.mockResolvedValueOnce({ type: 0 } as never);
+
+    await handleDiscordMessagingAction(
+      "sendMessage",
+      {
+        to: "channel:147",
+        content: "hello",
+        __toolCurrentChannelProvider: "discord",
+        __toolCurrentChannelId: "channel:147",
+        __allowPlainSend: true,
+      },
+      enableAllActions,
+    );
+
+    expect(sendMessageDiscord).toHaveBeenCalledWith("channel:147", "hello", {
+      mediaUrl: undefined,
+      replyTo: undefined,
+      components: undefined,
+      embeds: undefined,
+      silent: false,
     });
   });
 });

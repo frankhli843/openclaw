@@ -88,4 +88,20 @@ describe("maybeCreateDiscordAutoThread", () => {
     expect(result).toBe("thread1");
     expect(postMock).toHaveBeenCalled();
   });
+
+  it("creates auto-thread even when channelConfig.autoThread is false", async () => {
+    postMock.mockResolvedValueOnce({ id: "thread2" });
+    const result = await maybeCreateDiscordAutoThread({
+      client: mockClient,
+      message: mockMessage,
+      messageChannelId: "text2",
+      isGuildMessage: true,
+      channelConfig: { allowed: true, autoThread: false },
+      channelType: ChannelType.GuildText,
+      baseText: "test",
+      combinedBody: "test",
+    });
+    expect(result).toBe("thread2");
+    expect(postMock).toHaveBeenCalled();
+  });
 });

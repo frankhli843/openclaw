@@ -270,25 +270,28 @@ export function resolveDiscordCommandAuthorized(params: {
 
 export function resolveDiscordGuildEntry(params: {
   guild?: Guild<true> | Guild | null;
+  guildId?: string;
   guildEntries?: Record<string, DiscordGuildEntryResolved>;
 }): DiscordGuildEntryResolved | null {
   const guild = params.guild;
   const entries = params.guildEntries;
-  if (!guild || !entries) {
+  const effectiveGuildId = guild?.id ?? params.guildId;
+  if ((!guild && !effectiveGuildId) || !entries) {
     return null;
   }
-  const byId = entries[guild.id];
-  if (byId) {
-    return { ...byId, id: guild.id };
+  const byId = effectiveGuildId ? entries[effectiveGuildId] : undefined;
+  if (byId && effectiveGuildId) {
+    return { ...byId, id: effectiveGuildId };
   }
-  const slug = normalizeDiscordSlug(guild.name ?? "");
-  const bySlug = entries[slug];
-  if (bySlug) {
-    return { ...bySlug, id: guild.id, slug: slug || bySlug.slug };
+  const guildName = guild?.name ?? "";
+  const slug = normalizeDiscordSlug(guildName);
+  const bySlug = slug ? entries[slug] : undefined;
+  if (bySlug && effectiveGuildId) {
+    return { ...bySlug, id: effectiveGuildId, slug: slug || bySlug.slug };
   }
   const wildcard = entries["*"];
-  if (wildcard) {
-    return { ...wildcard, id: guild.id, slug: slug || wildcard.slug };
+  if (wildcard && effectiveGuildId) {
+    return { ...wildcard, id: effectiveGuildId, slug: slug || wildcard.slug };
   }
   return null;
 }
@@ -427,7 +430,7 @@ export function resolveDiscordShouldRequireMention(params: {
   if (!params.isGuildMessage) {
     return false;
   }
-  // Only skip mention requirement in threads created by the bot (when autoThread is enabled).
+  // Only skip mention requirement in threads created by the bot.
   const isBotThread = params.isAutoThreadOwnedByBot ?? isDiscordAutoThreadOwnedByBot(params);
   if (isBotThread) {
     return false;
@@ -442,9 +445,6 @@ export function isDiscordAutoThreadOwnedByBot(params: {
   threadOwnerId?: string | null;
 }): boolean {
   if (!params.isThread) {
-    return false;
-  }
-  if (!params.channelConfig?.autoThread) {
     return false;
   }
   const botId = params.botId?.trim();

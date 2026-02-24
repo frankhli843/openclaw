@@ -23,6 +23,10 @@ import {
 import type { MessagingToolSend } from "../../agents/pi-embedded-messaging.js";
 import { runEmbeddedPiAgent } from "../../agents/pi-embedded.js";
 import { runSubagentAnnounceFlow } from "../../agents/subagent-announce.js";
+import {
+  loadSubagentInstructions,
+  prependSubagentInstructions,
+} from "../../agents/subagent-instructions.js";
 import { countActiveDescendantRuns } from "../../agents/subagent-registry.js";
 import { resolveAgentTimeoutMs } from "../../agents/timeout.js";
 import { deriveSessionTotalTokens, hasNonzeroUsage } from "../../agents/usage.js";
@@ -409,6 +413,9 @@ export async function runCronIsolatedAgentTurn(params: {
     commandBody =
       `${commandBody}\n\nReturn your summary as plain text; it will be delivered automatically. If the task explicitly calls for messaging a specific external recipient, note who/where it should go instead of sending it yourself.`.trim();
   }
+
+  const subagentInstructions = await loadSubagentInstructions(workspaceDir);
+  commandBody = prependSubagentInstructions(commandBody, subagentInstructions);
 
   const existingSkillsSnapshot = cronSession.sessionEntry.skillsSnapshot;
   const skillsSnapshot = resolveCronSkillsSnapshot({

@@ -144,8 +144,14 @@ export function resolveDiscordMessageStickers(message: Message): APIStickerItem[
   if (normalized.length > 0) {
     return normalized;
   }
-  const rawData = (message as { rawData?: { sticker_items?: unknown; stickers?: unknown } })
-    .rawData;
+  const rawData =
+    (
+      message as unknown as {
+        rawData?: { sticker_items?: unknown; stickers?: unknown };
+        _rawData?: { sticker_items?: unknown; stickers?: unknown };
+      }
+    ).rawData ??
+    (message as unknown as { _rawData?: { sticker_items?: unknown; stickers?: unknown } })._rawData;
   return normalizeStickerItems(rawData?.sticker_items ?? rawData?.stickers);
 }
 
@@ -162,8 +168,27 @@ export async function resolveMediaList(
   maxBytes: number,
 ): Promise<DiscordMediaInfo[]> {
   const out: DiscordMediaInfo[] = [];
+  // Carbon attachments can be a live Collection (Map-like) or serialized {} or array.
+  const rawMsg = message as unknown as {
+    attachments?: unknown;
+    rawData?: { attachments?: APIAttachment[] };
+    _rawData?: { attachments?: APIAttachment[] };
+  };
+  const rawAtt = rawMsg.attachments;
+  const normalizedAtt: APIAttachment[] | null = Array.isArray(rawAtt)
+    ? rawAtt.length > 0
+      ? rawAtt
+      : null
+    : rawAtt &&
+        typeof rawAtt === "object" &&
+        "size" in rawAtt &&
+        typeof (rawAtt as { values?: unknown }).values === "function"
+      ? Array.from(rawAtt as unknown as Iterable<APIAttachment>)
+      : null;
+  const resolvedAttachments: APIAttachment[] =
+    normalizedAtt ?? (rawMsg.rawData ?? rawMsg._rawData)?.attachments ?? [];
   await appendResolvedMediaFromAttachments({
-    attachments: message.attachments ?? [],
+    attachments: resolvedAttachments,
     maxBytes,
     out,
     errorPrefix: "discord: failed to download attachment",
@@ -394,13 +419,48 @@ export function resolveDiscordMessageText(
   message: Message,
   options?: { fallbackText?: string; includeForwarded?: boolean },
 ): string {
+  const rawMessage = message as unknown as {
+    content?: string;
+    attachments?: APIAttachment[];
+    embeds?: Array<{ description?: string }>;
+    rawData?: {
+      content?: string;
+      attachments?: APIAttachment[];
+      embeds?: Array<{ description?: string }>;
+    };
+    _rawData?: {
+      content?: string;
+      attachments?: APIAttachment[];
+      embeds?: Array<{ description?: string }>;
+    };
+  };
+  const rawData = rawMessage.rawData ?? rawMessage._rawData;
+  const content = rawMessage.content ?? rawData?.content;
+  // Carbon attachments can be:
+  //   1) Live: a Collection (Map-like, has .values() iterator and .size)
+  //   2) Serialized: {} (empty plain object after JSON round-trip)
+  //   3) Already an array (if pre-normalized)
+  // Convert any iterable Collection to array, then fall back to rawData.
+  const rawAttachments = rawMessage.attachments;
+  const normalizedAttachments: APIAttachment[] | null = Array.isArray(rawAttachments)
+    ? rawAttachments.length > 0
+      ? rawAttachments
+      : null
+    : rawAttachments &&
+        typeof rawAttachments === "object" &&
+        "size" in rawAttachments &&
+        typeof (rawAttachments as { values?: unknown }).values === "function"
+      ? Array.from(rawAttachments as unknown as Iterable<APIAttachment>)
+      : null;
+  const attachments = normalizedAttachments ?? rawData?.attachments;
+  const embeds = rawMessage.embeds ?? rawData?.embeds;
   const baseText =
-    message.content?.trim() ||
+    content?.trim() ||
     buildDiscordMediaPlaceholder({
-      attachments: message.attachments ?? undefined,
+      attachments: attachments ?? undefined,
       stickers: resolveDiscordMessageStickers(message),
     }) ||
-    message.embeds?.[0]?.description ||
+    embeds?.[0]?.description ||
     options?.fallbackText?.trim() ||
     "";
   if (!options?.includeForwarded) {

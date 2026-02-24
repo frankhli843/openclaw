@@ -49,7 +49,7 @@ export function createDiscordMessageHandler(
       if (!message) {
         return false;
       }
-      if (message.attachments && message.attachments.length > 0) {
+      if (message.attachments && (message.attachments.length > 0 || message.attachments.size > 0)) {
         return false;
       }
       if (hasDiscordMessageStickers(message)) {

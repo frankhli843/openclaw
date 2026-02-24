@@ -297,4 +297,220 @@ describe("discord inbound durable queue", () => {
     await waitFor(async () => processed.length === 2);
     expect(processed).toEqual(["m1", "m2"]);
   });
+
+  it("accepts payloads with circular references by dropping non-serializable links", async () => {
+    const stateDir = await makeTmpDir();
+    cleanupDirs.push(stateDir);
+
+    const captured: unknown[] = [];
+    const queue = createDiscordInboundDurableQueue({
+      accountId: "default",
+      stateDir,
+      backoffMs: () => 0,
+    });
+
+    await queue.start({
+      process: async (event) => {
+        captured.push(event.payload);
+      },
+    });
+
+    const payload: Record<string, unknown> = {
+      channel_id: "c1",
+      message: { id: "m1" },
+    };
+    payload.client = { payload };
+
+    await queue.enqueue({
+      channelId: "c1",
+      messageId: "m1",
+      orderingKey: "c1",
+      payload,
+    });
+
+    await waitFor(async () => captured.length === 1);
+    expect(captured[0]).toEqual({
+      channel_id: "c1",
+      message: { id: "m1" },
+    });
+  });
+
+  it("handles realistic Discord.js Client → GatewayPlugin → client circular ref", async () => {
+    // Reproduces the exact circular reference from the production error:
+    //   Client.plugins[0].plugin (GatewayPlugin) → .client → Client
+    const stateDir = await makeTmpDir();
+    cleanupDirs.push(stateDir);
+
+    const captured: unknown[] = [];
+    const queue = createDiscordInboundDurableQueue({
+      accountId: "default",
+      stateDir,
+      backoffMs: () => 0,
+    });
+
+    await queue.start({
+      process: async (event) => {
+        captured.push(event.payload);
+      },
+    });
+
+    // Build a realistic Carbon/Discord.js message event structure
+    const fakeClient: Record<string, unknown> = {
+      options: { clientId: "1474345882878214185", token: "fake-token" },
+      rest: { token: "fake-token" },
+    };
+    const gatewayPlugin: Record<string, unknown> = {
+      id: "gateway",
+      isConnected: true,
+      client: fakeClient, // circular: GatewayPlugin → Client
+    };
+    fakeClient.plugins = [{ id: "gateway", plugin: gatewayPlugin }]; // circular: Client → GatewayPlugin → Client
+
+    const payload: Record<string, unknown> = {
+      guild_id: "1474343754482847766",
+      channel_id: "1474343755153932394",
+      author: { id: "123456", username: "testuser", bot: false },
+      member: { roles: ["role1"] },
+      message: {
+        id: "m-circular",
+        content: "test message",
+        channel: { id: "1474343755153932394", client: fakeClient }, // Carbon attaches client to channel
+        client: fakeClient, // Carbon attaches client to message
+        mentionedUsers: [],
+        attachments: [],
+      },
+      guild: {
+        id: "1474343754482847766",
+        name: "test-server",
+        client: fakeClient, // Carbon attaches client to guild
+      },
+    };
+
+    // Verify JSON.stringify would throw (old code path)
+    expect(() => JSON.stringify(payload)).toThrow(/circular/i);
+
+    // But enqueue should succeed with toSerializableObject
+    const result = await queue.enqueue({
+      channelId: "1474343755153932394",
+      messageId: "m-circular",
+      orderingKey: "1474343755153932394",
+      payload,
+    });
+
+    expect(result.enqueued).toBe(true);
+    await waitFor(async () => captured.length === 1);
+
+    // Verify the payload was serialized with client refs stripped
+    const processed = captured[0] as Record<string, unknown>;
+    expect(processed).toBeDefined();
+    expect(processed.guild_id).toBe("1474343754482847766");
+    expect(processed.channel_id).toBe("1474343755153932394");
+    expect((processed.author as Record<string, unknown>)?.username).toBe("testuser");
+    const msg = processed.message as Record<string, unknown>;
+    expect(msg?.content).toBe("test message");
+    // client keys should be stripped
+    expect(msg?.client).toBeUndefined();
+    expect((processed.guild as Record<string, unknown>)?.client).toBeUndefined();
+  });
+
+  it("rejects non-object payloads even after serialization", async () => {
+    const stateDir = await makeTmpDir();
+    cleanupDirs.push(stateDir);
+
+    const queue = createDiscordInboundDurableQueue({
+      accountId: "default",
+      stateDir,
+      backoffMs: () => 0,
+    });
+
+    await queue.start({ process: async () => {} });
+
+    await expect(
+      queue.enqueue({
+        channelId: "c1",
+        messageId: "m1",
+        orderingKey: "c1",
+        payload: "not-an-object",
+      }),
+    ).rejects.toThrow(/object payload/);
+
+    await expect(
+      queue.enqueue({
+        channelId: "c1",
+        messageId: "m2",
+        orderingKey: "c1",
+        payload: null,
+      }),
+    ).rejects.toThrow(/object payload/);
+  });
+
+  it("serializes Map/Collection attachments as arrays instead of empty objects", async () => {
+    const stateDir = await makeTmpDir();
+    cleanupDirs.push(stateDir);
+
+    const captured: unknown[] = [];
+    const queue = createDiscordInboundDurableQueue({
+      accountId: "default",
+      stateDir,
+      backoffMs: () => 0,
+    });
+
+    await queue.start({
+      process: async (event) => {
+        captured.push(event.payload);
+      },
+    });
+
+    // Simulate Discord.js Collection (extends Map) for attachments
+    const attachmentsMap = new Map<
+      string,
+      { id: string; url: string; filename: string; content_type: string }
+    >();
+    attachmentsMap.set("att1", {
+      id: "att1",
+      url: "https://cdn.discordapp.com/attachments/123/456/image.png",
+      filename: "image.png",
+      content_type: "image/png",
+    });
+    attachmentsMap.set("att2", {
+      id: "att2",
+      url: "https://cdn.discordapp.com/attachments/123/789/photo.jpg",
+      filename: "photo.jpg",
+      content_type: "image/jpeg",
+    });
+
+    const payload: Record<string, unknown> = {
+      channel_id: "c1",
+      message: {
+        id: "m-map",
+        content: "here are some images",
+        attachments: attachmentsMap,
+      },
+    };
+
+    // Verify that JSON.stringify would lose the Map data (the bug)
+    const naiveJson = JSON.parse(JSON.stringify(payload));
+    expect(naiveJson.message.attachments).toEqual({});
+
+    // But our queue should convert Map to array
+    const result = await queue.enqueue({
+      channelId: "c1",
+      messageId: "m-map",
+      orderingKey: "c1",
+      payload,
+    });
+
+    expect(result.enqueued).toBe(true);
+    await waitFor(async () => captured.length === 1);
+
+    const processed = captured[0] as Record<string, unknown>;
+    const msg = processed.message as Record<string, unknown>;
+    const attachments = msg.attachments as Array<{ id: string; url: string }>;
+    expect(Array.isArray(attachments)).toBe(true);
+    expect(attachments).toHaveLength(2);
+    expect(attachments[0].id).toBe("att1");
+    expect(attachments[0].url).toContain("image.png");
+    expect(attachments[1].id).toBe("att2");
+    expect(attachments[1].url).toContain("photo.jpg");
+  });
 });

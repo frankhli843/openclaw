@@ -138,8 +138,9 @@ const POST_RESTART_MESSAGE = [
  * Enqueue a delayed agent wake on every gateway startup. This works regardless of
  * how the restart was triggered (CLI, systemd, crash, internal SIGUSR1).
  *
- * Resolves the main session's delivery context so the reply goes to the correct
- * channel. Falls back to Discord #general if no context exists.
+ * Uses `channel: "last"` so the gateway's agent handler resolves delivery context
+ * at dispatch time (not enqueue time), using the most current session state.
+ * This avoids stale/mixed channel+target combinations.
  */
 export async function enqueuePostRestartWake(
   _params: { deps: CliDeps },
@@ -154,36 +155,15 @@ export async function enqueuePostRestartWake(
     return;
   }
 
-  // Resolve delivery context from the main session to route to the right channel
-  const { baseSessionKey } = parseSessionThreadInfo(mainSessionKey);
-  const { entry } = loadSessionEntry(mainSessionKey);
-  const parsedTarget = resolveAnnounceTargetFromKey(baseSessionKey ?? mainSessionKey);
-
-  let sessionDeliveryContext = deliveryContextFromSession(entry);
-  if (!sessionDeliveryContext && baseSessionKey && baseSessionKey !== mainSessionKey) {
-    const { entry: baseEntry } = loadSessionEntry(baseSessionKey);
-    sessionDeliveryContext = deliveryContextFromSession(baseEntry);
-  }
-
-  const origin = mergeDeliveryContext(sessionDeliveryContext, parsedTarget ?? undefined);
-
-  const channelRaw = origin?.channel;
-  const normalizedChannel = channelRaw ? normalizeChannelId(channelRaw) : null;
-  const defaultChannel = "discord";
-  const defaultTo = "channel:1474343755153932394";
-
-  const threadId = origin?.threadId != null ? String(origin.threadId) : undefined;
-
   const enqueueParams = {
     sessionKey: mainSessionKey,
     message: POST_RESTART_MESSAGE,
     deliver: true,
     canReadBy: Date.now() + POST_RESTART_DELAY_MS,
     group: "restart",
-    replyChannel: normalizedChannel ?? defaultChannel,
-    replyTo: origin?.to ?? defaultTo,
-    replyAccountId: origin?.accountId,
-    threadId,
+    // Use "last" so delivery resolves at dispatch time from the session's
+    // current lastRoute, not from a potentially stale snapshot at enqueue time.
+    replyChannel: "last",
   };
 
   console.info(
@@ -191,7 +171,6 @@ export async function enqueuePostRestartWake(
     JSON.stringify({
       sessionKey: enqueueParams.sessionKey,
       replyChannel: enqueueParams.replyChannel,
-      replyTo: enqueueParams.replyTo,
       canReadBy: new Date(enqueueParams.canReadBy).toISOString(),
     }),
   );

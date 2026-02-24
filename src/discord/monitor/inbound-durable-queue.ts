@@ -73,20 +73,62 @@ function ensureJsonObject(value: unknown): Record<string, unknown> | null {
 }
 
 function toSerializableObject(value: unknown): Record<string, unknown> | null {
-  const seen = new WeakSet<object>();
-  const json = JSON.stringify(value, (key, nextValue) => {
-    if (key === "client") {
-      return undefined;
-    }
-    if (nextValue && typeof nextValue === "object") {
-      if (seen.has(nextValue as object)) {
+  // Carbon's MessageCreateListener spreads the raw API data (`...data`) at the
+  // root AND stores the *same* `data` object inside `message._rawData`.  A global
+  // "seen" WeakSet (used previously) treated the second encounter of shared
+  // arrays/objects (e.g. `attachments`, `embeds`, `author`) as duplicates and
+  // dropped them, which caused `message._rawData.attachments` to vanish and
+  // image-only messages to be misclassified as empty.
+  //
+  // Circular references in the Discord/Carbon object graph originate from
+  // `client` properties (every Carbon Base subclass stores a back-reference to
+  // the Client).  Filtering `key === "client"` breaks all known cycles, so we
+  // no longer need a blanket "seen" guard.  If an unforeseen circular reference
+  // exists, JSON.stringify will throw a TypeError which we catch and return null.
+  try {
+    const json = JSON.stringify(value, (_key, nextValue) => {
+      if (_key === "client") {
         return undefined;
       }
-      seen.add(nextValue as object);
-    }
-    return nextValue;
-  });
-  return ensureJsonObject(JSON.parse(json));
+      if (nextValue && typeof nextValue === "object") {
+        // Discord.js Collection extends Map — JSON.stringify serializes Map as {}.
+        // Convert Map-like objects (Collection, Map) to arrays of their values so
+        // attachments, embeds, etc. survive the JSON round-trip through the durable queue.
+        if (
+          typeof (nextValue as { values?: unknown }).values === "function" &&
+          nextValue instanceof Map
+        ) {
+          return Array.from((nextValue as Map<unknown, unknown>).values());
+        }
+      }
+      return nextValue;
+    });
+    return ensureJsonObject(JSON.parse(json));
+  } catch {
+    // Fallback: if an unexpected circular reference causes JSON.stringify to
+    // throw, fall back to the stricter "seen" approach that at least produces
+    // *some* output rather than failing entirely.
+    const seen = new WeakSet<object>();
+    const json = JSON.stringify(value, (_key, nextValue) => {
+      if (_key === "client") {
+        return undefined;
+      }
+      if (nextValue && typeof nextValue === "object") {
+        if (seen.has(nextValue as object)) {
+          return undefined;
+        }
+        seen.add(nextValue as object);
+        if (
+          typeof (nextValue as { values?: unknown }).values === "function" &&
+          nextValue instanceof Map
+        ) {
+          return Array.from((nextValue as Map<unknown, unknown>).values());
+        }
+      }
+      return nextValue;
+    });
+    return ensureJsonObject(JSON.parse(json));
+  }
 }
 
 function normalizeErrorMessage(err: unknown): string {

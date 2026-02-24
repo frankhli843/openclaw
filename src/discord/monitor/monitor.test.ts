@@ -834,13 +834,33 @@ describe("resolveDiscordAutoThreadReplyPlan", () => {
     expect(plan.autoThreadContext).toBeNull();
   });
 
-  it("does nothing when autoThread is disabled", async () => {
+  it("still creates a thread even when channel autoThread is disabled", async () => {
     const plan = await resolveDiscordAutoThreadReplyPlan(
       createAutoThreadPlanParams({
         channelConfig: { autoThread: false } as unknown as DiscordChannelConfigResolved,
       }),
     );
-    expect(plan.deliverTarget).toBe("channel:parent");
-    expect(plan.autoThreadContext).toBeNull();
+    expect(plan.deliverTarget).toBe("channel:thread");
+    expect(plan.autoThreadContext?.createdThreadId).toBe("thread");
+  });
+
+  it("fails closed when thread creation cannot produce a thread target", async () => {
+    const client = {
+      rest: {
+        post: async () => {
+          throw new Error("creation failed");
+        },
+        get: async () => ({ thread: null }),
+      },
+    } as unknown as Client;
+
+    await expect(
+      resolveDiscordAutoThreadReplyPlan(
+        createAutoThreadPlanParams({
+          client,
+          channelConfig: { autoThread: false } as unknown as DiscordChannelConfigResolved,
+        }),
+      ),
+    ).rejects.toThrow(/thread target required/i);
   });
 });

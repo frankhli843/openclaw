@@ -45,6 +45,7 @@ export function buildInboundMetaSystemPrompt(ctx: TemplateContext): string {
     chat_type: chatType ?? (isDirect ? "direct" : undefined),
     flags: {
       is_group_chat: !isDirect ? true : undefined,
+      is_thread: Boolean(safeTrim(ctx.ThreadLabel)),
       was_mentioned: ctx.WasMentioned === true ? true : undefined,
       has_reply_context: Boolean(ctx.ReplyToBody),
       has_forwarded_context: Boolean(ctx.ForwardedFrom),
@@ -74,6 +75,7 @@ export function buildInboundUserContextPrefix(ctx: TemplateContext): string {
 
   const messageId = safeTrim(ctx.MessageSid);
   const messageIdFull = safeTrim(ctx.MessageSidFull);
+  const threadLabel = safeTrim(ctx.ThreadLabel);
   const conversationInfo = {
     message_id: messageId,
     message_id_full: messageIdFull && messageIdFull !== messageId ? messageIdFull : undefined,
@@ -84,7 +86,7 @@ export function buildInboundUserContextPrefix(ctx: TemplateContext): string {
     group_subject: safeTrim(ctx.GroupSubject),
     group_channel: safeTrim(ctx.GroupChannel),
     group_space: safeTrim(ctx.GroupSpace),
-    thread_label: safeTrim(ctx.ThreadLabel),
+    thread_label: threadLabel,
     is_forum: ctx.IsForum === true ? true : undefined,
     was_mentioned: ctx.WasMentioned === true ? true : undefined,
   };
@@ -94,6 +96,28 @@ export function buildInboundUserContextPrefix(ctx: TemplateContext): string {
         "Conversation info (untrusted metadata):",
         "```json",
         JSON.stringify(conversationInfo, null, 2),
+        "```",
+      ].join("\n"),
+    );
+  }
+
+  if (threadLabel) {
+    blocks.push(
+      [
+        "Thread context (untrusted metadata):",
+        "```json",
+        JSON.stringify(
+          {
+            in_thread: true,
+            thread_label: threadLabel,
+            parent_conversation_label: safeTrim(ctx.ConversationLabel),
+            parent_group_channel: safeTrim(ctx.GroupChannel),
+            parent_group_space: safeTrim(ctx.GroupSpace),
+            has_thread_starter: Boolean(safeTrim(ctx.ThreadStarterBody)),
+          },
+          null,
+          2,
+        ),
         "```",
       ].join("\n"),
     );

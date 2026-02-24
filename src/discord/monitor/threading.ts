@@ -162,8 +162,14 @@ export async function resolveDiscordThreadStarter(params: {
       parentType === ChannelType.GuildForum || parentType === ChannelType.GuildMedia;
     const messageChannelId = isForumParent ? params.channel.id : params.parentId;
     if (!messageChannelId) {
+      logVerbose?.(
+        `discord thread-starter: no messageChannelId (parentId=${params.parentId}, isForumParent=${isForumParent})`,
+      );
       return null;
     }
+    logVerbose?.(
+      `discord thread-starter: fetching channelMessage(${messageChannelId}, ${params.channel.id})`,
+    );
     const starter = (await params.client.rest.get(
       Routes.channelMessage(messageChannelId, params.channel.id),
     )) as {
@@ -178,10 +184,14 @@ export async function resolveDiscordThreadStarter(params: {
       timestamp?: string | null;
     };
     if (!starter) {
+      logVerbose?.(`discord thread-starter: API returned null/undefined`);
       return null;
     }
     const text = starter.content?.trim() ?? starter.embeds?.[0]?.description?.trim() ?? "";
     if (!text) {
+      logVerbose?.(
+        `discord thread-starter: empty content (content=${JSON.stringify(starter.content)}, embeds=${starter.embeds?.length ?? 0})`,
+      );
       return null;
     }
     const author =
@@ -200,7 +210,8 @@ export async function resolveDiscordThreadStarter(params: {
     };
     setCachedThreadStarter(cacheKey, payload, Date.now());
     return payload;
-  } catch {
+  } catch (err) {
+    logVerbose?.(`discord thread-starter: fetch failed for thread ${cacheKey}: ${String(err)}`);
     return null;
   }
 }
@@ -314,7 +325,7 @@ export async function resolveDiscordAutoThreadReplyPlan(params: {
   // Prefer the resolved thread channel ID when available so replies stay in-thread.
   const targetChannelId = params.threadChannel?.id ?? (messageChannelId || "unknown");
   const originalReplyTarget = `channel:${targetChannelId}`;
-  const createdThreadId = await maybeCreateDiscordAutoThread({
+  let createdThreadId = await maybeCreateDiscordAutoThread({
     client: params.client,
     message: params.message,
     messageChannelId: messageChannelId || undefined,
@@ -325,6 +336,24 @@ export async function resolveDiscordAutoThreadReplyPlan(params: {
     baseText: params.baseText,
     combinedBody: params.combinedBody,
   });
+  if (params.isGuildMessage && !params.threadChannel && !createdThreadId) {
+    createdThreadId = await maybeCreateDiscordAutoThread({
+      client: params.client,
+      message: params.message,
+      messageChannelId: messageChannelId || undefined,
+      isGuildMessage: params.isGuildMessage,
+      channelConfig: params.channelConfig,
+      threadChannel: params.threadChannel,
+      channelType: params.channelType,
+      baseText: params.baseText,
+      combinedBody: params.combinedBody,
+    });
+  }
+  if (params.isGuildMessage && !params.threadChannel && !createdThreadId) {
+    throw new Error(
+      `discord: thread target required for ${messageChannelId}/${params.message.id}; auto-thread create failed`,
+    );
+  }
   const deliveryPlan = resolveDiscordReplyDeliveryPlan({
     replyTarget: originalReplyTarget,
     replyToMode: params.replyToMode,
@@ -355,9 +384,6 @@ export async function maybeCreateDiscordAutoThread(params: {
   combinedBody: string;
 }): Promise<string | undefined> {
   if (!params.isGuildMessage) {
-    return undefined;
-  }
-  if (!params.channelConfig?.autoThread) {
     return undefined;
   }
   if (params.threadChannel) {

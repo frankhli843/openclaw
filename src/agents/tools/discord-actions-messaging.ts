@@ -1,10 +1,12 @@
 import type { AgentToolResult } from "@mariozechner/pi-agent-core";
+import { ChannelType } from "discord-api-types/v10";
 import type { DiscordActionConfig } from "../../config/config.js";
 import { readDiscordComponentSpec } from "../../discord/components.js";
 import {
   createThreadDiscord,
   deleteMessageDiscord,
   editMessageDiscord,
+  fetchChannelInfoDiscord,
   fetchChannelPermissionsDiscord,
   fetchMessageDiscord,
   fetchReactionsDiscord,
@@ -24,7 +26,7 @@ import {
   unpinMessageDiscord,
 } from "../../discord/send.js";
 import type { DiscordSendComponents, DiscordSendEmbeds } from "../../discord/send.shared.js";
-import { resolveDiscordChannelId } from "../../discord/targets.js";
+import { parseDiscordTarget, resolveDiscordChannelId } from "../../discord/targets.js";
 import { withNormalizedTimestamp } from "../date-time.js";
 import { assertMediaNotDataUrl } from "../sandbox-paths.js";
 import {
@@ -34,6 +36,22 @@ import {
   readStringArrayParam,
   readStringParam,
 } from "./common.js";
+
+function normalizeDiscordChannelToken(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return "";
+  }
+  return trimmed.replace(/^(?:discord:)?channel:/i, "");
+}
+
+function isDiscordThreadType(type: number | undefined): boolean {
+  return (
+    type === ChannelType.PublicThread ||
+    type === ChannelType.PrivateThread ||
+    type === ChannelType.AnnouncementThread
+  );
+}
 
 function parseDiscordMessageLink(link: string) {
   const normalized = link.trim();
@@ -260,6 +278,25 @@ export async function handleDiscordMessagingAction(
         : undefined;
       const sessionKey = readStringParam(params, "__sessionKey");
       const agentId = readStringParam(params, "__agentId");
+      const allowPlainSend = params.__allowPlainSend === true;
+      const toolCurrentChannelProvider = readStringParam(params, "__toolCurrentChannelProvider");
+      const toolCurrentChannelId = readStringParam(params, "__toolCurrentChannelId");
+
+      if (!allowPlainSend && toolCurrentChannelProvider === "discord" && toolCurrentChannelId) {
+        const target = parseDiscordTarget(to);
+        const targetChannelId = target?.kind === "channel" ? target.id : undefined;
+        const normalizedCurrentChannelId = normalizeDiscordChannelToken(toolCurrentChannelId);
+        if (targetChannelId && targetChannelId === normalizedCurrentChannelId) {
+          const channelInfo = accountId
+            ? await fetchChannelInfoDiscord(targetChannelId, { accountId })
+            : await fetchChannelInfoDiscord(targetChannelId);
+          if (!isDiscordThreadType(channelInfo?.type)) {
+            throw new Error(
+              "Discord plain channel sends are blocked for in-thread replies. Reply in the existing thread or create one first.",
+            );
+          }
+        }
+      }
 
       if (componentSpec) {
         if (asVoice) {

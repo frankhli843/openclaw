@@ -5,11 +5,12 @@ import { callGateway } from "../gateway/call.js";
 import { createDurableJobQueue } from "../jobs/durable-job-queue.js";
 import { normalizeAgentId, parseAgentSessionKey } from "../routing/session-key.js";
 import { normalizeDeliveryContext } from "../utils/delivery-context.js";
-import { resolveAgentConfig } from "./agent-scope.js";
+import { resolveAgentConfig, resolveAgentWorkspaceDir } from "./agent-scope.js";
 import { AGENT_LANE_SUBAGENT } from "./lanes.js";
 import { resolveSubagentSpawnModelSelection } from "./model-selection.js";
 import { buildSubagentSystemPrompt } from "./subagent-announce.js";
 import { getSubagentDepthFromSessionStore } from "./subagent-depth.js";
+import { loadSubagentInstructions, prependSubagentInstructions } from "./subagent-instructions.js";
 import { countActiveRunsForSession, registerSubagentRun } from "./subagent-registry.js";
 import { readStringParam } from "./tools/common.js";
 import {
@@ -269,10 +270,14 @@ async function spawnSubagentDirectCore(
     childDepth,
     maxSpawnDepth,
   });
-  const childTaskMessage = [
+  const subagentInstructions = await loadSubagentInstructions(
+    resolveAgentWorkspaceDir(cfg, targetAgentId),
+  );
+  const childTaskMessageBase = [
     `[Subagent Context] You are running as a subagent (depth ${childDepth}/${maxSpawnDepth}). Results auto-announce to your requester; do not busy-poll for status.`,
     `[Subagent Task]: ${task}`,
   ].join("\n\n");
+  const childTaskMessage = prependSubagentInstructions(childTaskMessageBase, subagentInstructions);
 
   const childIdem = crypto.randomUUID();
   let childRunId: string = childIdem;

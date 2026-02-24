@@ -344,6 +344,7 @@ async function handleBroadcastAction(
             ...params,
             channel: targetChannel,
             target: resolved.target.to,
+            __allowPlainSend: true,
           },
         });
         results.push({
@@ -509,6 +510,12 @@ async function handleSendAction(ctx: ResolvedActionContext): Promise<MessageActi
   }
   if (agentId) {
     params.__agentId = agentId;
+  }
+  if (input.toolContext?.currentChannelProvider) {
+    params.__toolCurrentChannelProvider = input.toolContext.currentChannelProvider;
+  }
+  if (input.toolContext?.currentChannelId) {
+    params.__toolCurrentChannelId = input.toolContext.currentChannelId;
   }
   const mirrorMediaUrls =
     mergedMediaUrls.length > 0 ? mergedMediaUrls : mediaUrl ? [mediaUrl] : undefined;
