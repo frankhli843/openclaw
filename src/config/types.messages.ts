@@ -18,6 +18,8 @@ export type QueueConfig = {
   debounceMsByChannel?: InboundDebounceByProvider;
   cap?: number;
   drop?: QueueDropPolicy;
+  /** Coalesce durable inbound jobs by ordering key (Discord monitor). */
+  coalesce?: boolean;
 };
 
 export type InboundDebounceByProvider = Record<string, number>;

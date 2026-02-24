@@ -38,6 +38,7 @@ export type DurableDiscordInboundQueueOptions = {
   maxAttempts?: number;
   backoffMs?: (attempt: number) => number;
   now?: () => number;
+  coalesce?: boolean;
   onDeadLetter?: (
     event: DurableDiscordInboundEvent,
     reason: DeadLetterReason,
@@ -198,8 +199,10 @@ export function createDiscordInboundDurableQueue(options: DurableDiscordInboundQ
   const maxAttempts = Math.max(1, options.maxAttempts ?? DEFAULT_MAX_ATTEMPTS);
   const now = options.now ?? (() => Date.now());
   const backoffMs = options.backoffMs ?? computeDefaultBackoffMs;
+  const coalesce = options.coalesce ?? false;
 
   let processor: ((event: DurableDiscordInboundEvent) => Promise<void>) | null = null;
+  let batchProcessor: ((events: DurableDiscordInboundEvent[]) => Promise<void>) | null = null;
   let draining = false;
 
   async function ensureDirs(): Promise<void> {
@@ -321,6 +324,68 @@ export function createDiscordInboundDurableQueue(options: DurableDiscordInboundQ
     return null;
   }
 
+  async function claimBatch(): Promise<DurableDiscordInboundJob[]> {
+    const current = now();
+    const jobs = await listLiveJobs();
+    jobs.sort((a, b) => a.enqueuedAt - b.enqueuedAt);
+
+    // Find first eligible job (same logic as claimNextJob)
+    let firstJob: DurableDiscordInboundJob | null = null;
+    for (const job of jobs) {
+      if (job.state !== "queued") {
+        continue;
+      }
+      if (job.nextAttemptAt > current) {
+        continue;
+      }
+      const lockedByOrdering = jobs.some(
+        (other) =>
+          other.id !== job.id &&
+          other.event.orderingKey === job.event.orderingKey &&
+          other.state === "processing" &&
+          (other.leaseUntil ?? 0) > current,
+      );
+      if (lockedByOrdering) {
+        continue;
+      }
+      firstJob = job;
+      break;
+    }
+
+    if (!firstJob) {
+      return [];
+    }
+
+    // Grab all other queued jobs with the same orderingKey
+    const batch = [firstJob];
+    const orderingKey = firstJob.event.orderingKey;
+    for (const job of jobs) {
+      if (job.id === firstJob.id) {
+        continue;
+      }
+      if (job.state !== "queued") {
+        continue;
+      }
+      if (job.event.orderingKey !== orderingKey) {
+        continue;
+      }
+      if (job.nextAttemptAt > current) {
+        continue;
+      }
+      batch.push(job);
+    }
+
+    // Lease all jobs in the batch
+    for (const job of batch) {
+      job.state = "processing";
+      job.leaseUntil = current + leaseMs;
+      job.updatedAt = current;
+      await writeJob(job);
+    }
+
+    return batch;
+  }
+
   async function processOne(job: DurableDiscordInboundJob): Promise<void> {
     if (!processor) {
       return;
@@ -356,6 +421,58 @@ export function createDiscordInboundDurableQueue(options: DurableDiscordInboundQ
     }
   }
 
+  async function processBatch(batch: DurableDiscordInboundJob[]): Promise<void> {
+    if (!processor) {
+      return;
+    }
+    if (batch.length === 1) {
+      // Single message — no coalescing needed
+      return await processOne(batch[0]);
+    }
+    if (!batchProcessor) {
+      // No batch processor available, fall back to individual processing
+      for (const job of batch) {
+        await processOne(job);
+      }
+      return;
+    }
+    try {
+      // Pass all events to the batch processor
+      await batchProcessor(batch.map((j) => j.event));
+      // On success, remove all jobs
+      for (const job of batch) {
+        await removeJob(job.id);
+      }
+    } catch (err) {
+      // On failure, release all jobs back to queued with backoff
+      for (const job of batch) {
+        job.attempts += 1;
+        job.lastError = normalizeErrorMessage(err);
+        job.updatedAt = now();
+        job.leaseUntil = null;
+        if (job.attempts >= maxAttempts) {
+          await moveToDead(job);
+          if (options.onDeadLetter) {
+            try {
+              await Promise.resolve(
+                options.onDeadLetter(job.event, {
+                  attempts: job.attempts,
+                  lastError: job.lastError,
+                }),
+              );
+            } catch {
+              // Best-effort notification path; dead-lettering itself has already succeeded.
+            }
+          }
+        } else {
+          job.state = "queued";
+          job.nextAttemptAt = now() + Math.max(0, backoffMs(job.attempts));
+          await writeJob(job);
+        }
+      }
+    }
+  }
+
   async function drain(): Promise<void> {
     if (draining) {
       return;
@@ -365,11 +482,19 @@ export function createDiscordInboundDurableQueue(options: DurableDiscordInboundQ
       // Lease recovery happens before each drain cycle, including startup.
       await recoverExpiredLeases();
       while (processor) {
-        const job = await claimNextJob();
-        if (!job) {
-          break;
+        if (coalesce) {
+          const batch = await claimBatch();
+          if (batch.length === 0) {
+            break;
+          }
+          await processBatch(batch);
+        } else {
+          const job = await claimNextJob();
+          if (!job) {
+            break;
+          }
+          await processOne(job);
         }
-        await processOne(job);
       }
     } finally {
       draining = false;
@@ -377,8 +502,12 @@ export function createDiscordInboundDurableQueue(options: DurableDiscordInboundQ
   }
 
   return {
-    async start(params: { process: (event: DurableDiscordInboundEvent) => Promise<void> }) {
+    async start(params: {
+      process: (event: DurableDiscordInboundEvent) => Promise<void>;
+      processBatch?: (events: DurableDiscordInboundEvent[]) => Promise<void>;
+    }) {
       processor = params.process;
+      batchProcessor = params.processBatch ?? null;
       await ensureDirs();
       await recoverExpiredLeases();
       await drain();
@@ -386,6 +515,7 @@ export function createDiscordInboundDurableQueue(options: DurableDiscordInboundQ
 
     async stop() {
       processor = null;
+      batchProcessor = null;
     },
 
     async enqueue(input: {
@@ -447,6 +577,10 @@ export function createDiscordInboundDurableQueue(options: DurableDiscordInboundQ
       const jobs = await listLiveJobs();
       jobs.sort((a, b) => a.enqueuedAt - b.enqueuedAt);
       return jobs;
+    },
+
+    async claimBatchForTest() {
+      return await claimBatch();
     },
   };
 }

@@ -513,4 +513,384 @@ describe("discord inbound durable queue", () => {
     expect(attachments[1].id).toBe("att2");
     expect(attachments[1].url).toContain("photo.jpg");
   });
+
+  describe("message coalescing", () => {
+    it("claimBatch grabs single message when only one is queued", async () => {
+      const stateDir = await makeTmpDir();
+      cleanupDirs.push(stateDir);
+
+      const queue = createDiscordInboundDurableQueue({
+        accountId: "default",
+        stateDir,
+        coalesce: true,
+        backoffMs: () => 0,
+      });
+
+      await queue.enqueue({
+        channelId: "c1",
+        messageId: "m1",
+        orderingKey: "c1",
+        payload: { channel_id: "c1", message: { id: "m1", content: "hello" } },
+      });
+
+      const batch = await queue.claimBatchForTest();
+      expect(batch).toHaveLength(1);
+      expect(batch[0].event.messageId).toBe("m1");
+      expect(batch[0].state).toBe("processing");
+    });
+
+    it("claimBatch grabs all messages with same orderingKey", async () => {
+      const stateDir = await makeTmpDir();
+      cleanupDirs.push(stateDir);
+
+      const queue = createDiscordInboundDurableQueue({
+        accountId: "default",
+        stateDir,
+        coalesce: true,
+        backoffMs: () => 0,
+      });
+
+      // Enqueue multiple messages with same orderingKey
+      await queue.enqueue({
+        channelId: "c1",
+        messageId: "m1",
+        orderingKey: "c1",
+        payload: { channel_id: "c1", message: { id: "m1", content: "hello" } },
+      });
+      await queue.enqueue({
+        channelId: "c1",
+        messageId: "m2",
+        orderingKey: "c1",
+        payload: { channel_id: "c1", message: { id: "m2", content: "world" } },
+      });
+      await queue.enqueue({
+        channelId: "c1",
+        messageId: "m3",
+        orderingKey: "c1",
+        payload: { channel_id: "c1", message: { id: "m3", content: "!" } },
+      });
+
+      const batch = await queue.claimBatchForTest();
+      expect(batch).toHaveLength(3);
+      expect(batch.map((j) => j.event.messageId).toSorted()).toEqual(["m1", "m2", "m3"]);
+      expect(batch.every((j) => j.state === "processing")).toBe(true);
+    });
+
+    it("claimBatch doesn't mix different orderingKeys", async () => {
+      const stateDir = await makeTmpDir();
+      cleanupDirs.push(stateDir);
+
+      const queue = createDiscordInboundDurableQueue({
+        accountId: "default",
+        stateDir,
+        coalesce: true,
+        backoffMs: () => 0,
+      });
+
+      // Enqueue messages with different orderingKeys
+      await queue.enqueue({
+        channelId: "c1",
+        messageId: "m1",
+        orderingKey: "c1",
+        payload: { channel_id: "c1", message: { id: "m1" } },
+      });
+      await queue.enqueue({
+        channelId: "c2",
+        messageId: "m2",
+        orderingKey: "c2",
+        payload: { channel_id: "c2", message: { id: "m2" } },
+      });
+      await queue.enqueue({
+        channelId: "c1",
+        messageId: "m3",
+        orderingKey: "c1",
+        payload: { channel_id: "c1", message: { id: "m3" } },
+      });
+
+      const batch = await queue.claimBatchForTest();
+      // Should get the earliest orderingKey's batch (c1 has m1 and m3)
+      expect(batch).toHaveLength(2);
+      expect(batch.every((j) => j.event.orderingKey === "c1")).toBe(true);
+      expect(batch.map((j) => j.event.messageId).toSorted()).toEqual(["m1", "m3"]);
+    });
+
+    it("claimBatch isolates parent-channel and thread ordering keys", async () => {
+      const stateDir = await makeTmpDir();
+      cleanupDirs.push(stateDir);
+
+      const queue = createDiscordInboundDurableQueue({
+        accountId: "default",
+        stateDir,
+        coalesce: true,
+        backoffMs: () => 0,
+      });
+
+      // Parent channel and thread should batch separately.
+      await queue.enqueue({
+        channelId: "chan-1",
+        messageId: "p1",
+        orderingKey: "chan-1",
+        payload: { channel_id: "chan-1", message: { id: "p1" } },
+      });
+      await queue.enqueue({
+        channelId: "thread-9",
+        messageId: "t1",
+        orderingKey: "thread-9",
+        payload: { channel_id: "thread-9", message: { id: "t1" } },
+      });
+      await queue.enqueue({
+        channelId: "chan-1",
+        messageId: "p2",
+        orderingKey: "chan-1",
+        payload: { channel_id: "chan-1", message: { id: "p2" } },
+      });
+
+      const parentBatch = await queue.claimBatchForTest();
+      expect(parentBatch.map((j) => j.event.messageId).toSorted()).toEqual(["p1", "p2"]);
+      expect(parentBatch.every((j) => j.event.orderingKey === "chan-1")).toBe(true);
+
+      // Next claim should get only thread messages.
+      const threadBatch = await queue.claimBatchForTest();
+      expect(threadBatch).toHaveLength(1);
+      expect(threadBatch[0]?.event.messageId).toBe("t1");
+      expect(threadBatch[0]?.event.orderingKey).toBe("thread-9");
+    });
+
+    it("processBatch falls through to processOne for single message", async () => {
+      const stateDir = await makeTmpDir();
+      cleanupDirs.push(stateDir);
+
+      const processed: string[] = [];
+      const queue = createDiscordInboundDurableQueue({
+        accountId: "default",
+        stateDir,
+        coalesce: true,
+        backoffMs: () => 0,
+      });
+
+      await queue.start({
+        process: async (event) => {
+          processed.push(`single:${event.messageId}`);
+        },
+        processBatch: async (events) => {
+          processed.push(`batch:${events.length}`);
+        },
+      });
+
+      await queue.enqueue({
+        channelId: "c1",
+        messageId: "m1",
+        orderingKey: "c1",
+        payload: { channel_id: "c1", message: { id: "m1" } },
+      });
+
+      await waitFor(async () => processed.length === 1);
+      expect(processed).toEqual(["single:m1"]);
+    });
+
+    it("processBatch calls batch processor for multiple messages", async () => {
+      const stateDir = await makeTmpDir();
+      cleanupDirs.push(stateDir);
+
+      const processed: string[] = [];
+      const queue = createDiscordInboundDurableQueue({
+        accountId: "default",
+        stateDir,
+        coalesce: true,
+        backoffMs: () => 0,
+      });
+
+      // Enqueue multiple messages before starting processor (so they batch together)
+      await queue.enqueue({
+        channelId: "c1",
+        messageId: "m1",
+        orderingKey: "c1",
+        payload: { channel_id: "c1", message: { id: "m1" } },
+      });
+      await queue.enqueue({
+        channelId: "c1",
+        messageId: "m2",
+        orderingKey: "c1",
+        payload: { channel_id: "c1", message: { id: "m2" } },
+      });
+
+      await queue.start({
+        process: async (event) => {
+          processed.push(`single:${event.messageId}`);
+        },
+        processBatch: async (events) => {
+          processed.push(`batch:${events.length}:${events.map((e) => e.messageId).join(",")}`);
+        },
+      });
+
+      await waitFor(async () => processed.length === 1);
+      expect(processed[0]).toMatch(/^batch:2:m[12],m[12]$/);
+    });
+
+    it("processBatch falls back to individual processing when no batch processor provided", async () => {
+      const stateDir = await makeTmpDir();
+      cleanupDirs.push(stateDir);
+
+      const processed: string[] = [];
+      const queue = createDiscordInboundDurableQueue({
+        accountId: "default",
+        stateDir,
+        coalesce: true,
+        backoffMs: () => 0,
+      });
+
+      await queue.start({
+        process: async (event) => {
+          processed.push(`single:${event.messageId}`);
+        },
+        // No processBatch callback provided
+      });
+
+      await queue.enqueue({
+        channelId: "c1",
+        messageId: "m1",
+        orderingKey: "c1",
+        payload: { channel_id: "c1", message: { id: "m1" } },
+      });
+      await queue.enqueue({
+        channelId: "c1",
+        messageId: "m2",
+        orderingKey: "c1",
+        payload: { channel_id: "c1", message: { id: "m2" } },
+      });
+
+      await waitFor(async () => processed.length === 2);
+      expect(processed.toSorted()).toEqual(["single:m1", "single:m2"]);
+    });
+
+    it("processBatch handles batch processing errors by returning all jobs to queued", async () => {
+      const stateDir = await makeTmpDir();
+      cleanupDirs.push(stateDir);
+
+      let batchAttempts = 0;
+      let singleAttempts = 0;
+      const queue = createDiscordInboundDurableQueue({
+        accountId: "default",
+        stateDir,
+        coalesce: true,
+        maxAttempts: 2,
+        backoffMs: () => 0,
+      });
+
+      // Enqueue messages before starting processor (so they batch together)
+      await queue.enqueue({
+        channelId: "c1",
+        messageId: "m1",
+        orderingKey: "c1",
+        payload: { channel_id: "c1", message: { id: "m1" } },
+      });
+      await queue.enqueue({
+        channelId: "c1",
+        messageId: "m2",
+        orderingKey: "c1",
+        payload: { channel_id: "c1", message: { id: "m2" } },
+      });
+
+      await queue.start({
+        process: async () => {
+          singleAttempts += 1;
+          throw new Error("single processing failed");
+        },
+        processBatch: async () => {
+          batchAttempts += 1;
+          throw new Error("batch processing failed");
+        },
+      });
+
+      await waitFor(async () => {
+        const stats = await queue.getStats();
+        return stats.dead === 2;
+      });
+
+      expect(batchAttempts).toBe(2); // 2 attempts for the batch
+      expect(singleAttempts).toBe(0); // No single processing since batched
+      const stats = await queue.getStats();
+      expect(stats.queued).toBe(0);
+      expect(stats.processing).toBe(0);
+      expect(stats.dead).toBe(2);
+    });
+
+    it("drain uses claimBatch when coalesce is enabled", async () => {
+      const stateDir = await makeTmpDir();
+      cleanupDirs.push(stateDir);
+
+      const processedBatches: number[] = [];
+      const queue = createDiscordInboundDurableQueue({
+        accountId: "default",
+        stateDir,
+        coalesce: true,
+        backoffMs: () => 0,
+      });
+
+      // Add multiple messages before starting processor
+      await queue.enqueue({
+        channelId: "c1",
+        messageId: "m1",
+        orderingKey: "c1",
+        payload: { channel_id: "c1", message: { id: "m1" } },
+      });
+      await queue.enqueue({
+        channelId: "c1",
+        messageId: "m2",
+        orderingKey: "c1",
+        payload: { channel_id: "c1", message: { id: "m2" } },
+      });
+
+      await queue.start({
+        process: async () => {
+          processedBatches.push(1);
+        },
+        processBatch: async (events) => {
+          processedBatches.push(events.length);
+        },
+      });
+
+      await waitFor(async () => processedBatches.length > 0);
+      expect(processedBatches[0]).toBe(2); // Should be processed as a batch
+    });
+
+    it("drain uses claimNextJob when coalesce is disabled", async () => {
+      const stateDir = await makeTmpDir();
+      cleanupDirs.push(stateDir);
+
+      const processedItems: number[] = [];
+      const queue = createDiscordInboundDurableQueue({
+        accountId: "default",
+        stateDir,
+        coalesce: false, // Explicitly disabled
+        backoffMs: () => 0,
+      });
+
+      await queue.start({
+        process: async () => {
+          processedItems.push(1);
+        },
+        processBatch: async (events) => {
+          processedItems.push(events.length);
+        },
+      });
+
+      // Add multiple messages
+      await queue.enqueue({
+        channelId: "c1",
+        messageId: "m1",
+        orderingKey: "c1",
+        payload: { channel_id: "c1", message: { id: "m1" } },
+      });
+      await queue.enqueue({
+        channelId: "c1",
+        messageId: "m2",
+        orderingKey: "c1",
+        payload: { channel_id: "c1", message: { id: "m2" } },
+      });
+
+      await waitFor(async () => processedItems.length === 2);
+      expect(processedItems).toEqual([1, 1]); // Should be processed individually
+    });
+  });
 });

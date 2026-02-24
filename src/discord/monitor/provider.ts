@@ -67,6 +67,7 @@ import {
   DiscordReactionRemoveListener,
   registerDiscordListener,
 } from "./listeners.js";
+import { createCoalescedDiscordMessageHandler } from "./message-handler.coalesce.js";
 import { createDiscordMessageHandler } from "./message-handler.js";
 import { resolveDiscordMessageChannelId } from "./message-utils.js";
 import {
@@ -626,8 +627,10 @@ export async function monitorDiscordProvider(opts: MonitorDiscordOpts = {}) {
   const deadLetterAlertChannel =
     (discordCfg as { deadLetterAlertChannel?: string | undefined }).deadLetterAlertChannel ??
     "1474420675933638847";
+  const coalesceEnabled = cfg.messages?.queue?.coalesce ?? true; // Enable coalescing by default
   const durableInboundQueue = createDiscordInboundDurableQueue({
     accountId: account.accountId,
+    coalesce: coalesceEnabled,
     onDeadLetter: async (event, reason) => {
       const target = deadLetterAlertChannel.trim();
       if (!target) {
@@ -653,10 +656,35 @@ export async function monitorDiscordProvider(opts: MonitorDiscordOpts = {}) {
       }
     },
   });
+  // Create coalesced message handler for batch processing
+  const coalescedMessageHandler = createCoalescedDiscordMessageHandler({
+    cfg,
+    discordConfig: discordCfg,
+    accountId: account.accountId,
+    token,
+    runtime,
+    botUserId,
+    guildHistories,
+    historyLimit,
+    mediaMaxBytes,
+    textLimit,
+    replyToMode,
+    dmEnabled,
+    groupDmEnabled,
+    groupDmChannels,
+    allowFrom,
+    guildEntries,
+  });
+
   await durableInboundQueue.start({
     process: async (event) => {
       await baseMessageHandler(event.payload as Parameters<typeof baseMessageHandler>[0], client);
     },
+    processBatch: coalesceEnabled
+      ? async (events) => {
+          await coalescedMessageHandler(events, client);
+        }
+      : undefined,
   });
 
   const messageHandler = async (
