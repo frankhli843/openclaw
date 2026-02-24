@@ -1,6 +1,7 @@
 import { resolveSessionAgentId } from "../../agents/agent-scope.js";
 import { sendMessageWhatsApp } from "../../channel-web.js";
 import type { OpenClawConfig } from "../../config/config.js";
+import { resolveChannelGroupGateMode } from "../../config/group-policy.js";
 import { loadSessionStore, resolveStorePath } from "../../config/sessions.js";
 import {
   checkChannelPolicy,
@@ -153,6 +154,7 @@ export async function dispatchReplyFromConfig(params: {
   }
 
   // [frankclaw] Channel policy gate — block unknown/unauthorized channels before burning tokens
+  // Skip when gateMode is configured for this channel+group (gateMode is the new single source of truth)
   {
     const surface = (ctx.Surface ?? ctx.Provider ?? "unknown").toLowerCase();
     // Strip surface prefix from chat ID if already present (e.g. Telegram From = "telegram:123")
@@ -160,61 +162,78 @@ export async function dispatchReplyFromConfig(params: {
     const policyChatId = rawChatId.startsWith(`${surface}:`)
       ? rawChatId.slice(surface.length + 1)
       : rawChatId;
-    const wasMentioned = Boolean(ctx.WasMentioned);
-    const policyAliases: string[] = [];
-    if (surface === "discord") {
-      const guildId = String(ctx.GroupSpace ?? "").trim();
-      if (/^[0-9]+$/.test(guildId)) {
-        policyAliases.push(`discord:guild:${guildId}`);
-      }
-    }
-    const decision = checkChannelPolicy(surface, policyChatId, wasMentioned, {
-      aliases: policyAliases,
+
+    // If gateMode is configured for this channel+group, skip channel-policy entirely.
+    // gateMode (openclaw.json) is the authoritative gate; channel-policy.json is legacy.
+    const gateModeChannel = surface as Parameters<typeof resolveChannelGroupGateMode>[0]["channel"];
+    const gateModeResult = resolveChannelGroupGateMode({
+      cfg: params.cfg,
+      channel: gateModeChannel,
+      groupId: policyChatId,
     });
-
-    if (decision.action === "block") {
-      logVerbose(`[frankclaw] Blocked message from ${surface}:${policyChatId}: ${decision.reason}`);
-      recordProcessed("skipped", { reason: "channel-policy-blocked" });
-      return { queuedFinal: false, counts: dispatcher.getQueuedCounts() };
-    }
-
-    if (decision.action === "view-only") {
-      // Agent processes the message (for memory/context) but reply is suppressed.
-      // We set a flag on ctx so the reply handler knows to discard any output.
-      (ctx as Record<string, unknown>).__frankclawViewOnly = true;
+    if (gateModeResult.gateMode) {
       logVerbose(
-        `[frankclaw] View-only mode for ${surface}:${policyChatId} — agent will process but reply suppressed`,
+        `[frankclaw] Skipping channel-policy for ${surface}:${policyChatId} — gateMode=${gateModeResult.gateMode} is authoritative`,
       );
-    }
-
-    if (decision.action === "mention-only") {
-      logVerbose(`[frankclaw] Skipped non-mention from ${surface}:${policyChatId}`);
-      recordProcessed("skipped", { reason: "channel-policy-mention-only" });
-      return { queuedFinal: false, counts: dispatcher.getQueuedCounts() };
-    }
-
-    if (decision.action === "ask") {
-      const channelKey = decision.channelKey;
-      // Notify owner about unknown channel (once per channel)
-      const NOTIFY_GROUP = process.env.FRANKCLAW_LOGS_GROUP;
-      if (NOTIFY_GROUP && !hasPendingNotification(channelKey)) {
-        markNotified(channelKey);
-        const senderInfo = ctx.SenderName ?? ctx.SenderE164 ?? ctx.From ?? "unknown";
-        const groupName = ctx.GroupSubject ?? ctx.ConversationLabel ?? channelKey;
-        sendMessageWhatsApp(
-          NOTIFY_GROUP,
-          `🔒 *New unknown channel detected*\n\n` +
-            `Channel: ${channelKey}\n` +
-            `Name: ${groupName}\n` +
-            `Sender: ${senderInfo}\n\n` +
-            `Message blocked. To configure, edit channel-policy.json or tell me to allow/block this channel.`,
-          { verbose: false },
-        ).catch(() => {});
+    } else {
+      const wasMentioned = Boolean(ctx.WasMentioned);
+      const policyAliases: string[] = [];
+      if (surface === "discord") {
+        const guildId = String(ctx.GroupSpace ?? "").trim();
+        if (/^[0-9]+$/.test(guildId)) {
+          policyAliases.push(`discord:guild:${guildId}`);
+        }
       }
-      logVerbose(`[frankclaw] Blocked unknown channel: ${channelKey}`);
-      recordProcessed("skipped", { reason: "channel-policy-unknown" });
-      return { queuedFinal: false, counts: dispatcher.getQueuedCounts() };
-    }
+      const decision = checkChannelPolicy(surface, policyChatId, wasMentioned, {
+        aliases: policyAliases,
+      });
+
+      if (decision.action === "block") {
+        logVerbose(
+          `[frankclaw] Blocked message from ${surface}:${policyChatId}: ${decision.reason}`,
+        );
+        recordProcessed("skipped", { reason: "channel-policy-blocked" });
+        return { queuedFinal: false, counts: dispatcher.getQueuedCounts() };
+      }
+
+      if (decision.action === "view-only") {
+        // Agent processes the message (for memory/context) but reply is suppressed.
+        // We set a flag on ctx so the reply handler knows to discard any output.
+        (ctx as Record<string, unknown>).__frankclawViewOnly = true;
+        logVerbose(
+          `[frankclaw] View-only mode for ${surface}:${policyChatId} — agent will process but reply suppressed`,
+        );
+      }
+
+      if (decision.action === "mention-only") {
+        logVerbose(`[frankclaw] Skipped non-mention from ${surface}:${policyChatId}`);
+        recordProcessed("skipped", { reason: "channel-policy-mention-only" });
+        return { queuedFinal: false, counts: dispatcher.getQueuedCounts() };
+      }
+
+      if (decision.action === "ask") {
+        const channelKey = decision.channelKey;
+        // Notify owner about unknown channel (once per channel)
+        const NOTIFY_GROUP = process.env.FRANKCLAW_LOGS_GROUP;
+        if (NOTIFY_GROUP && !hasPendingNotification(channelKey)) {
+          markNotified(channelKey);
+          const senderInfo = ctx.SenderName ?? ctx.SenderE164 ?? ctx.From ?? "unknown";
+          const groupName = ctx.GroupSubject ?? ctx.ConversationLabel ?? channelKey;
+          sendMessageWhatsApp(
+            NOTIFY_GROUP,
+            `🔒 *New unknown channel detected*\n\n` +
+              `Channel: ${channelKey}\n` +
+              `Name: ${groupName}\n` +
+              `Sender: ${senderInfo}\n\n` +
+              `Message blocked. To configure, edit channel-policy.json or tell me to allow/block this channel.`,
+            { verbose: false },
+          ).catch(() => {});
+        }
+        logVerbose(`[frankclaw] Blocked unknown channel: ${channelKey}`);
+        recordProcessed("skipped", { reason: "channel-policy-unknown" });
+        return { queuedFinal: false, counts: dispatcher.getQueuedCounts() };
+      }
+    } // close else (legacy channel-policy path)
   }
 
   const inboundAudio = isInboundAudioContext(ctx);
