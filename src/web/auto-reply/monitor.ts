@@ -26,6 +26,7 @@ import { formatError, getWebAuthAgeMs, readWebSelfId } from "../session.js";
 import { DEFAULT_WEB_MEDIA_BYTES } from "./constants.js";
 import { whatsappHeartbeatLog, whatsappLog } from "./loggers.js";
 import { buildMentionConfig } from "./mentions.js";
+import { createWebCoalesceQueue } from "./monitor/coalesce-queue.js";
 import { createEchoTracker } from "./monitor/echo.js";
 import { createWebOnMessageHandler } from "./monitor/on-message.js";
 import type { WebChannelStatus, WebInboundMsg, WebMonitorTuning } from "./types.js";
@@ -175,6 +176,11 @@ export async function monitorWebChannel(
       account,
     });
 
+    const coalesceEnabled = cfg.messages?.queue?.coalesce ?? true;
+    const coalesceQueue = coalesceEnabled
+      ? createWebCoalesceQueue({ cfg, processOne: onMessage })
+      : null;
+
     const inboundDebounceMs = resolveInboundDebounceMs({ cfg, channel: "whatsapp" });
     const shouldDebounce = (msg: WebInboundMsg) => {
       if (msg.mediaPath || msg.mediaType) {
@@ -204,7 +210,11 @@ export async function monitorWebChannel(
         status.lastEventAt = lastMessageAt;
         emitStatus();
         _lastInboundMsg = msg;
-        await onMessage(msg);
+        if (coalesceQueue) {
+          coalesceQueue.enqueue(msg);
+        } else {
+          await onMessage(msg);
+        }
       },
     });
 
