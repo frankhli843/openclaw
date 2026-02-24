@@ -1,6 +1,7 @@
 import type {
   BlockStreamingCoalesceConfig,
   DmPolicy,
+  GateMode,
   GroupPolicy,
   MarkdownConfig,
 } from "./types.base.js";
@@ -71,6 +72,10 @@ export type IMessageAccountConfig = {
     string,
     {
       requireMention?: boolean;
+      /** 5-tier gating mode (takes priority over requireMention when set). */
+      gateMode?: GateMode;
+      /** Allowlist of sender IDs for 'allowlist' gateMode (phone numbers/handles). */
+      allowedSenders?: string[];
       tools?: GroupToolPolicyConfig;
       toolsBySender?: GroupToolPolicyBySenderConfig;
     }

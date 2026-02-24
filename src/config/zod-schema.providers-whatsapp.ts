@@ -5,6 +5,7 @@ import {
   BlockStreamingCoalesceSchema,
   DmConfigSchema,
   DmPolicySchema,
+  GateModeSchema,
   GroupPolicySchema,
   MarkdownConfigSchema,
 } from "./zod-schema.core.js";
@@ -14,6 +15,8 @@ const ToolPolicyBySenderSchema = z.record(z.string(), ToolPolicySchema).optional
 const WhatsAppGroupEntrySchema = z
   .object({
     requireMention: z.boolean().optional(),
+    gateMode: GateModeSchema.optional(),
+    allowedSenders: z.array(z.string()).optional(),
     tools: ToolPolicySchema,
     toolsBySender: ToolPolicyBySenderSchema,
   })

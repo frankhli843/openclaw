@@ -3,6 +3,7 @@ import type {
   BlockStreamingChunkConfig,
   BlockStreamingCoalesceConfig,
   DmPolicy,
+  GateMode,
   GroupPolicy,
   MarkdownConfig,
   OutboundRetryConfig,
@@ -31,6 +32,10 @@ export type DiscordDmConfig = {
 export type DiscordGuildChannelConfig = {
   allow?: boolean;
   requireMention?: boolean;
+  /** 5-tier gating mode (takes priority over requireMention when set). */
+  gateMode?: GateMode;
+  /** Allowlist of sender IDs for 'allowlist' gateMode (Discord user IDs). */
+  allowedSenders?: string[];
   /** Optional tool policy overrides for this channel. */
   tools?: GroupToolPolicyConfig;
   toolsBySender?: GroupToolPolicyBySenderConfig;
@@ -53,6 +58,10 @@ export type DiscordReactionNotificationMode = "off" | "own" | "all" | "allowlist
 export type DiscordGuildEntry = {
   slug?: string;
   requireMention?: boolean;
+  /** 5-tier gating mode for this guild (takes priority over requireMention when set). */
+  gateMode?: GateMode;
+  /** Allowlist of sender IDs for 'allowlist' gateMode (Discord user IDs). */
+  allowedSenders?: string[];
   /** Optional tool policy overrides for this guild (used when channel override is missing). */
   tools?: GroupToolPolicyConfig;
   toolsBySender?: GroupToolPolicyBySenderConfig;

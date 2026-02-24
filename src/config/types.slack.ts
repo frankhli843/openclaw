@@ -1,6 +1,7 @@
 import type {
   BlockStreamingCoalesceConfig,
   DmPolicy,
+  GateMode,
   GroupPolicy,
   MarkdownConfig,
   ReplyToMode,
@@ -31,6 +32,10 @@ export type SlackChannelConfig = {
   allow?: boolean;
   /** Require mentioning the bot to trigger replies. */
   requireMention?: boolean;
+  /** 5-tier gating mode (takes priority over requireMention when set). */
+  gateMode?: GateMode;
+  /** Allowlist of sender IDs for 'allowlist' gateMode (Slack user IDs). */
+  allowedSenders?: Array<string | number>;
   /** Optional tool policy overrides for this channel. */
   tools?: GroupToolPolicyConfig;
   toolsBySender?: GroupToolPolicyBySenderConfig;

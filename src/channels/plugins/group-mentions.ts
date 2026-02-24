@@ -1,9 +1,12 @@
 import type { OpenClawConfig } from "../../config/config.js";
 import {
+  resolveChannelGroupGateMode,
   resolveChannelGroupRequireMention,
   resolveChannelGroupToolsPolicy,
   resolveToolsBySender,
+  type ChannelGroupGateModeResult,
 } from "../../config/group-policy.js";
+import type { GateMode } from "../../config/types.base.js";
 import type { DiscordConfig } from "../../config/types.js";
 import type {
   GroupToolPolicyBySenderConfig,
@@ -11,6 +14,8 @@ import type {
 } from "../../config/types.tools.js";
 import { normalizeAtHashSlug, normalizeHyphenSlug } from "../../shared/string-normalization.js";
 import { resolveSlackAccount } from "../../slack/accounts.js";
+
+export type { ChannelGroupGateModeResult };
 
 type GroupMentionParams = {
   cfg: OpenClawConfig;
@@ -77,6 +82,27 @@ function resolveTelegramRequireMention(params: {
   return undefined;
 }
 
+function resolveTelegramGateModeInternal(params: {
+  cfg: OpenClawConfig;
+  chatId?: string;
+  topicId?: string;
+}): ChannelGroupGateModeResult {
+  const { cfg, chatId, topicId } = params;
+  if (!chatId) {
+    return { gateMode: undefined, allowedSenders: [] };
+  }
+  const groupConfig = cfg.channels?.telegram?.groups?.[chatId];
+  const groupDefault = cfg.channels?.telegram?.groups?.["*"];
+  const topicConfig = topicId && groupConfig?.topics ? groupConfig.topics[topicId] : undefined;
+  const defaultTopicConfig =
+    topicId && groupDefault?.topics ? groupDefault.topics[topicId] : undefined;
+  // Topic config takes priority, then group config, then wildcard
+  const resolved = topicConfig ?? defaultTopicConfig ?? groupConfig ?? groupDefault;
+  const gateMode = resolved?.gateMode;
+  const rawSenders = resolved?.allowedSenders ?? [];
+  return { gateMode, allowedSenders: rawSenders.map((s) => String(s)) };
+}
+
 function resolveDiscordGuildEntry(guilds: DiscordConfig["guilds"], groupSpace?: string | null) {
   if (!guilds || Object.keys(guilds).length === 0) {
     return null;
@@ -120,6 +146,8 @@ function resolveDiscordChannelEntry<TEntry>(
 
 type SlackChannelPolicyEntry = {
   requireMention?: boolean;
+  gateMode?: GateMode;
+  allowedSenders?: Array<string | number>;
   tools?: GroupToolPolicyConfig;
   toolsBySender?: GroupToolPolicyBySenderConfig;
 };
@@ -371,5 +399,91 @@ export function resolveBlueBubblesGroupToolPolicy(
     senderName: params.senderName,
     senderUsername: params.senderUsername,
     senderE164: params.senderE164,
+  });
+}
+
+// ---- GateMode resolvers ----
+
+export function resolveTelegramGroupGateMode(
+  params: GroupMentionParams,
+): ChannelGroupGateModeResult {
+  const { chatId, topicId } = parseTelegramGroupId(params.groupId);
+  return resolveTelegramGateModeInternal({
+    cfg: params.cfg,
+    chatId,
+    topicId,
+  });
+}
+
+export function resolveWhatsAppGroupGateMode(
+  params: GroupMentionParams,
+): ChannelGroupGateModeResult {
+  return resolveChannelGroupGateMode({
+    cfg: params.cfg,
+    channel: "whatsapp",
+    groupId: params.groupId,
+    accountId: params.accountId,
+  });
+}
+
+export function resolveIMessageGroupGateMode(
+  params: GroupMentionParams,
+): ChannelGroupGateModeResult {
+  return resolveChannelGroupGateMode({
+    cfg: params.cfg,
+    channel: "imessage",
+    groupId: params.groupId,
+    accountId: params.accountId,
+  });
+}
+
+export function resolveDiscordGroupGateMode(
+  params: GroupMentionParams,
+): ChannelGroupGateModeResult {
+  const guildEntry = resolveDiscordGuildEntry(
+    params.cfg.channels?.discord?.guilds,
+    params.groupSpace,
+  );
+  const channelEntries = guildEntry?.channels;
+  if (channelEntries && Object.keys(channelEntries).length > 0) {
+    const entry = resolveDiscordChannelEntry(channelEntries, params);
+    if (entry?.gateMode) {
+      const rawSenders = entry.allowedSenders ?? [];
+      return { gateMode: entry.gateMode, allowedSenders: rawSenders };
+    }
+  }
+  if (guildEntry?.gateMode) {
+    const rawSenders = guildEntry.allowedSenders ?? [];
+    return { gateMode: guildEntry.gateMode, allowedSenders: rawSenders };
+  }
+  return { gateMode: undefined, allowedSenders: [] };
+}
+
+export function resolveGoogleChatGroupGateMode(
+  params: GroupMentionParams,
+): ChannelGroupGateModeResult {
+  return resolveChannelGroupGateMode({
+    cfg: params.cfg,
+    channel: "googlechat",
+    groupId: params.groupId,
+    accountId: params.accountId,
+  });
+}
+
+export function resolveSlackGroupGateMode(params: GroupMentionParams): ChannelGroupGateModeResult {
+  const resolved = resolveSlackChannelPolicyEntry(params);
+  const gateMode = resolved?.gateMode;
+  const rawSenders = resolved?.allowedSenders ?? [];
+  return { gateMode, allowedSenders: rawSenders.map((s) => String(s)) };
+}
+
+export function resolveBlueBubblesGroupGateMode(
+  params: GroupMentionParams,
+): ChannelGroupGateModeResult {
+  return resolveChannelGroupGateMode({
+    cfg: params.cfg,
+    channel: "bluebubbles",
+    groupId: params.groupId,
+    accountId: params.accountId,
   });
 }

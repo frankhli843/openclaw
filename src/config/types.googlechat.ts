@@ -1,6 +1,7 @@
 import type {
   BlockStreamingCoalesceConfig,
   DmPolicy,
+  GateMode,
   GroupPolicy,
   ReplyToMode,
 } from "./types.base.js";
@@ -22,6 +23,10 @@ export type GoogleChatGroupConfig = {
   allow?: boolean;
   /** Require mentioning the bot to trigger replies. */
   requireMention?: boolean;
+  /** 5-tier gating mode (takes priority over requireMention when set). */
+  gateMode?: GateMode;
+  /** Allowlist of sender IDs for 'allowlist' gateMode (Google Chat user IDs). */
+  allowedSenders?: Array<string | number>;
   /** Allowlist of users that can invoke the bot in this space. */
   users?: Array<string | number>;
   /** Optional system prompt for this space. */

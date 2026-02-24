@@ -14,6 +14,7 @@ import {
   DmConfigSchema,
   DmPolicySchema,
   ExecutableTokenSchema,
+  GateModeSchema,
   GroupPolicySchema,
   HexColorSchema,
   MarkdownConfigSchema,
@@ -49,6 +50,8 @@ const TelegramCapabilitiesSchema = z.union([
 export const TelegramTopicSchema = z
   .object({
     requireMention: z.boolean().optional(),
+    gateMode: GateModeSchema.optional(),
+    allowedSenders: z.array(z.union([z.string(), z.number()])).optional(),
     groupPolicy: GroupPolicySchema.optional(),
     skills: z.array(z.string()).optional(),
     enabled: z.boolean().optional(),
@@ -60,6 +63,8 @@ export const TelegramTopicSchema = z
 export const TelegramGroupSchema = z
   .object({
     requireMention: z.boolean().optional(),
+    gateMode: GateModeSchema.optional(),
+    allowedSenders: z.array(z.union([z.string(), z.number()])).optional(),
     groupPolicy: GroupPolicySchema.optional(),
     tools: ToolPolicySchema,
     toolsBySender: ToolPolicyBySenderSchema,
@@ -260,6 +265,8 @@ export const DiscordGuildChannelSchema = z
   .object({
     allow: z.boolean().optional(),
     requireMention: z.boolean().optional(),
+    gateMode: GateModeSchema.optional(),
+    allowedSenders: DiscordIdListSchema.optional(),
     tools: ToolPolicySchema,
     toolsBySender: ToolPolicyBySenderSchema,
     skills: z.array(z.string()).optional(),
@@ -276,6 +283,8 @@ export const DiscordGuildSchema = z
   .object({
     slug: z.string().optional(),
     requireMention: z.boolean().optional(),
+    gateMode: GateModeSchema.optional(),
+    allowedSenders: DiscordIdListSchema.optional(),
     tools: ToolPolicySchema,
     toolsBySender: ToolPolicyBySenderSchema,
     reactionNotifications: z.enum(["off", "own", "all", "allowlist"]).optional(),
@@ -485,6 +494,8 @@ export const GoogleChatGroupSchema = z
     enabled: z.boolean().optional(),
     allow: z.boolean().optional(),
     requireMention: z.boolean().optional(),
+    gateMode: GateModeSchema.optional(),
+    allowedSenders: z.array(z.union([z.string(), z.number()])).optional(),
     users: z.array(z.union([z.string(), z.number()])).optional(),
     systemPrompt: z.string().optional(),
   })
@@ -552,6 +563,8 @@ export const SlackChannelSchema = z
     enabled: z.boolean().optional(),
     allow: z.boolean().optional(),
     requireMention: z.boolean().optional(),
+    gateMode: GateModeSchema.optional(),
+    allowedSenders: z.array(z.union([z.string(), z.number()])).optional(),
     tools: ToolPolicySchema,
     toolsBySender: ToolPolicyBySenderSchema,
     allowBots: z.boolean().optional(),
@@ -895,6 +908,8 @@ export const IMessageAccountSchemaBase = z
         z
           .object({
             requireMention: z.boolean().optional(),
+            gateMode: GateModeSchema.optional(),
+            allowedSenders: z.array(z.string()).optional(),
             tools: ToolPolicySchema,
             toolsBySender: ToolPolicyBySenderSchema,
           })
@@ -953,6 +968,8 @@ const BlueBubblesActionSchema = z
 const BlueBubblesGroupConfigSchema = z
   .object({
     requireMention: z.boolean().optional(),
+    gateMode: GateModeSchema.optional(),
+    allowedSenders: z.array(z.union([z.string(), z.number()])).optional(),
     tools: ToolPolicySchema,
     toolsBySender: ToolPolicyBySenderSchema,
   })
