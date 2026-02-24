@@ -537,6 +537,8 @@ export async function preflightDiscordMessage(
   }
 
   // --- gateMode check (takes priority over legacy requireMention when configured) ---
+  let gateModeApproved = false;
+  let gateModeEffectiveMention = false;
   if (isGuildMessage) {
     const gateModeResult = resolveDiscordGroupGateMode({
       cfg: params.cfg,
@@ -546,24 +548,28 @@ export async function preflightDiscordMessage(
     });
     if (gateModeResult?.gateMode) {
       const mentionKeywords = params.cfg.agents?.defaults?.mentionKeywords ?? [];
-      const discordAllowFrom = params.cfg.channels?.discord?.guilds
-        ? Object.values(params.cfg.channels.discord.guilds).flatMap((g) => {
-            const users: string[] = [];
-            if (g && typeof g === "object" && "users" in g && Array.isArray(g.users)) {
-              users.push(...g.users.map(String));
-            }
-            return users;
-          })
-        : [];
-      // For Discord, use the global allowFrom if available
-      const allowFrom = params.discordConfig?.allowFrom
+      // Use the DM-level allowFrom (owner identities) for gateMode owner checks.
+      // Fall back to guild-level users lists only if DM allowFrom is not configured.
+      const dmAllowFrom = params.discordConfig?.allowFrom
         ? params.discordConfig.allowFrom.map(String)
-        : discordAllowFrom;
+        : (params.discordConfig?.dm?.allowFrom ?? []).map(String);
+      const allowFrom =
+        dmAllowFrom.length > 0
+          ? dmAllowFrom
+          : params.cfg.channels?.discord?.guilds
+            ? Object.values(params.cfg.channels.discord.guilds).flatMap((g) => {
+                const users: string[] = [];
+                if (g && typeof g === "object" && "users" in g && Array.isArray(g.users)) {
+                  users.push(...g.users.map(String));
+                }
+                return users;
+              })
+            : [];
       const gateModeAction = resolveGateMode({
         gateMode: gateModeResult.gateMode,
         senderId: sender.id,
         allowFrom,
-        allowedSenders: gateModeResult.allowedSenders,
+        allowedSenders: gateModeResult.allowedSenders.map(String),
         wasMentioned,
         messageText: baseText || "",
         mentionKeywords,
@@ -599,28 +605,37 @@ export async function preflightDiscordMessage(
         return null;
       }
 
-      // action === "process" — override effectiveWasMentioned and skip legacy gate
+      // action === "process" — mark approved so legacy mention gate is skipped below
+      gateModeApproved = true;
+      gateModeEffectiveMention = gateModeAction.effectiveWasMentioned;
     }
   }
   // --- end gateMode check ---
 
   const canDetectMention = Boolean(botId) || mentionRegexes.length > 0;
-  const mentionGate = resolveMentionGatingWithBypass({
-    isGroup: isGuildMessage,
-    requireMention: Boolean(shouldRequireMention),
-    canDetectMention,
-    wasMentioned,
-    implicitMention,
-    hasAnyMention,
-    allowTextCommands,
-    hasControlCommand: hasControlCommandInMessage,
-    commandAuthorized,
-  });
+  // When gateMode already approved the message, skip legacy mention gating entirely.
+  const mentionGate = gateModeApproved
+    ? {
+        effectiveWasMentioned: gateModeEffectiveMention,
+        shouldSkip: false,
+        shouldBypassMention: false,
+      }
+    : resolveMentionGatingWithBypass({
+        isGroup: isGuildMessage,
+        requireMention: Boolean(shouldRequireMention),
+        canDetectMention,
+        wasMentioned,
+        implicitMention,
+        hasAnyMention,
+        allowTextCommands,
+        hasControlCommand: hasControlCommandInMessage,
+        commandAuthorized,
+      });
   const effectiveWasMentioned = mentionGate.effectiveWasMentioned;
   logDebug(
-    `[discord-preflight] shouldRequireMention=${shouldRequireMention} mentionGate.shouldSkip=${mentionGate.shouldSkip} wasMentioned=${wasMentioned}`,
+    `[discord-preflight] shouldRequireMention=${shouldRequireMention} mentionGate.shouldSkip=${mentionGate.shouldSkip} wasMentioned=${wasMentioned} gateModeApproved=${gateModeApproved}`,
   );
-  if (isGuildMessage && shouldRequireMention) {
+  if (isGuildMessage && shouldRequireMention && !gateModeApproved) {
     if (botId && mentionGate.shouldSkip) {
       logDebug(`[discord-preflight] drop: no-mention`);
       logVerbose(`discord: drop guild message (mention required, botId=${botId})`);

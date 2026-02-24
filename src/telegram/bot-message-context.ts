@@ -473,6 +473,8 @@ export const buildTelegramMessageContext = async ({
   const implicitMention = botId != null && replyFromId === botId;
 
   // --- gateMode check (minimal, Telegram vanilla lifeline) ---
+  let tgGateModeApproved = false;
+  let tgGateModeEffectiveMention = false;
   if (isGroup) {
     const gateModeResult = resolveTelegramGroupGateMode({
       cfg,
@@ -505,25 +507,34 @@ export const buildTelegramMessageContext = async ({
       if (gateModeAction.action === "silent") {
         return null;
       }
-      // action === "process" — skip legacy mention gate below
+      // action === "process" — mark approved so legacy mention gate is skipped below
+      tgGateModeApproved = true;
+      tgGateModeEffectiveMention = gateModeAction.effectiveWasMentioned;
     }
   }
   // --- end gateMode check ---
 
   const canDetectMention = Boolean(botUsername) || mentionRegexes.length > 0;
-  const mentionGate = resolveMentionGatingWithBypass({
-    isGroup,
-    requireMention: Boolean(requireMention),
-    canDetectMention,
-    wasMentioned,
-    implicitMention: isGroup && Boolean(requireMention) && implicitMention,
-    hasAnyMention,
-    allowTextCommands: true,
-    hasControlCommand: hasControlCommandInMessage,
-    commandAuthorized,
-  });
+  // When gateMode already approved the message, skip legacy mention gating entirely.
+  const mentionGate = tgGateModeApproved
+    ? {
+        effectiveWasMentioned: tgGateModeEffectiveMention,
+        shouldSkip: false,
+        shouldBypassMention: false,
+      }
+    : resolveMentionGatingWithBypass({
+        isGroup,
+        requireMention: Boolean(requireMention),
+        canDetectMention,
+        wasMentioned,
+        implicitMention: isGroup && Boolean(requireMention) && implicitMention,
+        hasAnyMention,
+        allowTextCommands: true,
+        hasControlCommand: hasControlCommandInMessage,
+        commandAuthorized,
+      });
   const effectiveWasMentioned = mentionGate.effectiveWasMentioned;
-  if (isGroup && requireMention && canDetectMention) {
+  if (isGroup && requireMention && canDetectMention && !tgGateModeApproved) {
     if (mentionGate.shouldSkip) {
       logger.info({ chatId, reason: "no-mention" }, "skipping group message");
       recordPendingHistoryEntryIfEnabled({

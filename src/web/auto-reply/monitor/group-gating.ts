@@ -88,14 +88,16 @@ export function applyGroupGating(params: {
   if (gateModeResult?.gateMode) {
     const mentionKeywords = params.cfg.agents?.defaults?.mentionKeywords ?? [];
     const senderE164 = normalizeE164(params.msg.senderE164 ?? "");
-    const allowFrom = (params.cfg.channels?.whatsapp?.allowFrom ?? []).map((e) =>
-      normalizeE164(String(e)),
-    );
+    const allowFrom = (params.cfg.channels?.whatsapp?.allowFrom ?? [])
+      .map((e) => normalizeE164(String(e)))
+      .filter((e): e is string => Boolean(e));
     const gateModeAction = resolveGateMode({
       gateMode: gateModeResult.gateMode,
       senderId: senderE164,
       allowFrom,
-      allowedSenders: gateModeResult.allowedSenders.map((s) => normalizeE164(String(s))),
+      allowedSenders: gateModeResult.allowedSenders
+        .map((s) => normalizeE164(String(s)))
+        .filter((s): s is string => Boolean(s)),
       wasMentioned: params.msg.wasMentioned ?? false,
       messageText: params.msg.body ?? "",
       mentionKeywords,
