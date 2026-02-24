@@ -683,7 +683,8 @@ export async function startGatewayServer(
     const gateNotifyChannelId = cfgAtStart.agents?.defaults?.gateNotifyChannel;
     if (gateNotifyChannelId) {
       const { registerGateNotifyDiscord } = await import("../channels/gate-notify-discord.js");
-      registerGateNotifyDiscord({ discordChannelId: gateNotifyChannelId });
+      const ownerDiscordId = cfgAtStart.agents?.defaults?.gateNotifyOwner;
+      registerGateNotifyDiscord({ discordChannelId: gateNotifyChannelId, ownerDiscordId });
       log.info(`gateway: gateMode blocked notifications → Discord channel ${gateNotifyChannelId}`);
     }
   }

@@ -130,6 +130,8 @@ export type AgentDefaultsConfig = {
   mentionKeywords?: string[];
   /** Discord channel ID to send gateMode blocked-message notifications to. */
   gateNotifyChannel?: string;
+  /** Discord user ID to @mention in gateMode blocked notifications. */
+  gateNotifyOwner?: string;
   /** Model catalog with optional aliases (full provider/model keys). */
   models?: Record<string, AgentModelEntryConfig>;
   /** Agent working directory (preferred). Used as the default cwd for agent runs. */

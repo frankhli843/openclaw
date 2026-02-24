@@ -62,18 +62,23 @@ export function onBlockedNotification(
  * Format the notification message for a blocked chat.
  * Matches the format described in the plan document.
  */
-export function formatBlockedNotification(info: BlockedMessageInfo): string {
+export function formatBlockedNotification(
+  info: BlockedMessageInfo,
+  options?: { ownerMention?: string },
+): string {
   const preview = info.preview.length > 100 ? `${info.preview.slice(0, 100)}...` : info.preview;
   const chatType = info.isGroup ? "group" : "dm";
+  const mention = options?.ownerMention ? `${options.ownerMention} ` : "";
   return [
-    "🔒 Blocked message",
+    `${mention}🔒 Blocked message`,
     `Platform: ${info.platform}`,
     `Chat: "${info.chatName}" (${info.chatId})`,
     `Sender: ${info.senderId}`,
     `Type: ${chatType}`,
     `Preview: "${preview}"`,
     ``,
-    `To configure, tell me: "set ${info.chatId} to frank-only"`,
+    `Reply with: \`set ${info.chatId} to <mode>\``,
+    `Modes: \`silent\` · \`frank-only\` · \`allowlist\` · \`mention\` · \`open\``,
   ].join("\n");
 }
 

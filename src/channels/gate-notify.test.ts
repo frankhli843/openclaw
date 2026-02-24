@@ -88,7 +88,17 @@ describe("formatBlockedNotification", () => {
     expect(text).toContain(`Chat: "${info.chatName}" (${info.chatId})`);
     expect(text).toContain(`Sender: ${info.senderId}`);
     expect(text).toContain("Type: group");
-    expect(text).toContain(`To configure, tell me: "set ${info.chatId} to frank-only"`);
+    expect(text).toContain(`set ${info.chatId} to <mode>`);
+    expect(text).toContain("silent");
+    expect(text).toContain("frank-only");
+    expect(text).toContain("allowlist");
+    expect(text).toContain("mention");
+    expect(text).toContain("open");
+  });
+
+  it("includes owner mention when provided", () => {
+    const text = formatBlockedNotification(makeInfo(), { ownerMention: "<@123456>" });
+    expect(text).toContain("<@123456>");
   });
 
   it("truncates preview at 100 chars", () => {

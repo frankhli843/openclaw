@@ -16,16 +16,19 @@ let registered = false;
 export function registerGateNotifyDiscord(params: {
   /** Discord channel ID to post notifications to (e.g. #config channel). */
   discordChannelId: string;
+  /** Discord user ID to @mention in notifications (e.g. "257595674042826753"). */
+  ownerDiscordId?: string;
 }): void {
   if (registered) {
     return;
   }
   registered = true;
 
-  const { discordChannelId } = params;
+  const { discordChannelId, ownerDiscordId } = params;
+  const ownerMention = ownerDiscordId ? `<@${ownerDiscordId}>` : undefined;
 
   onBlockedNotification(async (event) => {
-    const message = formatBlockedNotification(event.info);
+    const message = formatBlockedNotification(event.info, { ownerMention });
     try {
       const cfg = loadConfig();
       await deliverOutboundPayloads({
