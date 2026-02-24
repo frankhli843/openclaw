@@ -20,6 +20,14 @@ vi.mock("../infra/outbound/targets.js", () => ({
 
 vi.mock("./session-utils.js", () => ({
   loadSessionEntry: vi.fn(() => ({ cfg: {}, entry: {} })),
+  loadCombinedSessionStoreForGateway: vi.fn(() => ({
+    storePath: "/tmp/test-store",
+    store: {},
+  })),
+}));
+
+vi.mock("../config/config.js", () => ({
+  loadConfig: vi.fn(() => ({})),
 }));
 
 vi.mock("../config/sessions/delivery-info.js", () => ({
@@ -96,7 +104,7 @@ describe("enqueuePostRestartWake", () => {
     expect(call.message).toContain("continue where you left off");
   });
 
-  it("uses channel 'last' so delivery resolves at dispatch time", async () => {
+  it("defaults to Discord #general when no channel sessions exist", async () => {
     mockResolveMainSessionKey.mockReturnValue("agent:main");
     mockEnqueueScheduledAgent.mockResolvedValue({ id: "wake-1" });
 
@@ -104,14 +112,51 @@ describe("enqueuePostRestartWake", () => {
 
     expect(mockEnqueueScheduledAgent).toHaveBeenCalledWith(
       expect.objectContaining({
-        replyChannel: "last",
+        replyChannel: "discord",
+        replyTo: "channel:1474343755153932394",
       }),
     );
-    // Should NOT have replyTo or replyAccountId - let the agent handler resolve them
-    const call = mockEnqueueScheduledAgent.mock.calls[0][0];
-    expect(call).not.toHaveProperty("replyTo");
-    expect(call).not.toHaveProperty("replyAccountId");
-    expect(call).not.toHaveProperty("threadId");
+  });
+
+  it("targets the most recently active channel session", async () => {
+    mockResolveMainSessionKey.mockReturnValue("agent:main");
+    mockEnqueueScheduledAgent.mockResolvedValue({ id: "wake-1" });
+
+    const { loadCombinedSessionStoreForGateway } = await import("./session-utils.js");
+    vi.mocked(loadCombinedSessionStoreForGateway).mockReturnValue({
+      storePath: "/tmp/store",
+      store: {
+        "agent:main:discord:channel:123": {
+          sessionId: "s1",
+          updatedAt: 1000,
+          lastChannel: "discord" as never,
+          lastTo: "channel:123",
+        },
+        "agent:main:telegram:user:456": {
+          sessionId: "s2",
+          updatedAt: 2000,
+          lastChannel: "telegram" as never,
+          lastTo: "user:456",
+        },
+        "subagent-xyz": {
+          sessionId: "s3",
+          updatedAt: 3000,
+          lastChannel: "telegram" as never,
+          lastTo: "user:789",
+          spawnedBy: "agent:main",
+        },
+      } as never,
+    });
+
+    await enqueuePostRestartWake({ deps: {} as never }, { _skipEnvCheck: true });
+
+    expect(mockEnqueueScheduledAgent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionKey: "agent:main:telegram:user:456",
+        replyChannel: "telegram",
+        replyTo: "user:456",
+      }),
+    );
   });
 
   it("uses group 'restart' for dedup across rapid restarts", async () => {
@@ -139,8 +184,14 @@ describe("enqueuePostRestartWake", () => {
     expect(call.canReadBy).toBeLessThanOrEqual(before + 31_000);
   });
 
-  it("does nothing when no main session key is configured", async () => {
+  it("does nothing when no main session key and no channel sessions exist", async () => {
     mockResolveMainSessionKey.mockReturnValue(undefined as never);
+    // Reset store to empty so findMostRecentChannelSession returns null
+    const { loadCombinedSessionStoreForGateway } = await import("./session-utils.js");
+    vi.mocked(loadCombinedSessionStoreForGateway).mockReturnValue({
+      storePath: "/tmp/store",
+      store: {},
+    });
 
     await enqueuePostRestartWake({ deps: {} as never }, { _skipEnvCheck: true });
 

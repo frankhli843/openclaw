@@ -2,7 +2,8 @@ import { resolveSessionAgentId } from "../agents/agent-scope.js";
 import { resolveAnnounceTargetFromKey } from "../agents/tools/sessions-send-helpers.js";
 import { normalizeChannelId } from "../channels/plugins/index.js";
 import type { CliDeps } from "../cli/deps.js";
-import { resolveMainSessionKeyFromConfig } from "../config/sessions.js";
+import { loadConfig } from "../config/config.js";
+import { resolveMainSessionKeyFromConfig, type SessionEntry } from "../config/sessions.js";
 import { parseSessionThreadInfo } from "../config/sessions/delivery-info.js";
 import { deliverOutboundPayloads } from "../infra/outbound/deliver.js";
 import { resolveOutboundTarget } from "../infra/outbound/targets.js";
@@ -14,7 +15,7 @@ import {
 import { enqueueScheduledAgent } from "../infra/scheduled-agent.js";
 import { enqueueSystemEvent } from "../infra/system-events.js";
 import { deliveryContextFromSession, mergeDeliveryContext } from "../utils/delivery-context.js";
-import { loadSessionEntry } from "./session-utils.js";
+import { loadCombinedSessionStoreForGateway, loadSessionEntry } from "./session-utils.js";
 
 export async function scheduleRestartSentinelWake(_params: { deps: CliDeps }) {
   const sentinel = await consumeRestartSentinel();
@@ -135,12 +136,75 @@ const POST_RESTART_MESSAGE = [
 ].join(" ");
 
 /**
+ * Find the most recently active channel-bound session (Discord, Telegram, etc).
+ * Scans the session store for entries with a real channel binding and picks
+ * the one with the latest updatedAt timestamp.
+ */
+function findMostRecentChannelSession(): {
+  sessionKey: string;
+  channel: string;
+  to: string;
+  accountId?: string;
+  threadId?: string;
+} | null {
+  try {
+    const cfg = loadConfig();
+    const { store } = loadCombinedSessionStoreForGateway(cfg);
+
+    let bestKey: string | null = null;
+    let bestEntry: SessionEntry | null = null;
+    let bestUpdatedAt = 0;
+
+    for (const [key, entry] of Object.entries(store)) {
+      // Skip subagent/internal sessions
+      if (entry.spawnedBy || !entry.lastChannel) {
+        continue;
+      }
+      // Must have a real channel (not "internal")
+      const ch = entry.lastChannel;
+      if (ch === "internal" || !ch) {
+        continue;
+      }
+      // Must have a delivery target
+      if (!entry.lastTo) {
+        continue;
+      }
+      // Pick the most recently updated
+      if (entry.updatedAt > bestUpdatedAt) {
+        bestUpdatedAt = entry.updatedAt;
+        bestKey = key;
+        bestEntry = entry;
+      }
+    }
+
+    if (!bestKey || !bestEntry?.lastChannel || !bestEntry?.lastTo) {
+      return null;
+    }
+
+    return {
+      sessionKey: bestKey,
+      channel: normalizeChannelId(bestEntry.lastChannel),
+      to: bestEntry.lastTo,
+      accountId: bestEntry.lastAccountId,
+      threadId: bestEntry.lastThreadId != null ? String(bestEntry.lastThreadId) : undefined,
+    };
+  } catch {
+    return null;
+  }
+}
+
+const DISCORD_GENERAL_FALLBACK = {
+  channel: "discord",
+  to: "channel:1474343755153932394",
+};
+
+/**
  * Enqueue a delayed agent wake on every gateway startup. This works regardless of
  * how the restart was triggered (CLI, systemd, crash, internal SIGUSR1).
  *
- * Uses `channel: "last"` so the gateway's agent handler resolves delivery context
- * at dispatch time (not enqueue time), using the most current session state.
- * This avoids stale/mixed channel+target combinations.
+ * Finds the most recently active channel-bound session and targets it directly,
+ * so the reply goes to whichever channel the user was last talking on.
+ * Falls back to Discord #general if no active channel session exists.
  */
 export async function enqueuePostRestartWake(
   _params: { deps: CliDeps },
@@ -150,20 +214,25 @@ export async function enqueuePostRestartWake(
     return;
   }
 
-  const mainSessionKey = resolveMainSessionKeyFromConfig();
-  if (!mainSessionKey) {
+  const recentSession = findMostRecentChannelSession();
+  const sessionKey = recentSession?.sessionKey ?? resolveMainSessionKeyFromConfig();
+  if (!sessionKey) {
     return;
   }
 
+  const channel = recentSession?.channel ?? DISCORD_GENERAL_FALLBACK.channel;
+  const to = recentSession?.to ?? DISCORD_GENERAL_FALLBACK.to;
+
   const enqueueParams = {
-    sessionKey: mainSessionKey,
+    sessionKey,
     message: POST_RESTART_MESSAGE,
     deliver: true,
     canReadBy: Date.now() + POST_RESTART_DELAY_MS,
     group: "restart",
-    // Use "last" so delivery resolves at dispatch time from the session's
-    // current lastRoute, not from a potentially stale snapshot at enqueue time.
-    replyChannel: "last",
+    replyChannel: channel,
+    replyTo: to,
+    replyAccountId: recentSession?.accountId,
+    threadId: recentSession?.threadId,
   };
 
   console.info(
@@ -171,6 +240,7 @@ export async function enqueuePostRestartWake(
     JSON.stringify({
       sessionKey: enqueueParams.sessionKey,
       replyChannel: enqueueParams.replyChannel,
+      replyTo: enqueueParams.replyTo,
       canReadBy: new Date(enqueueParams.canReadBy).toISOString(),
     }),
   );
