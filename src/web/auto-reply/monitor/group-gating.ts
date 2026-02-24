@@ -1,7 +1,9 @@
 import { hasControlCommand } from "../../../auto-reply/command-detection.js";
 import { parseActivationCommand } from "../../../auto-reply/group-activation.js";
 import { recordPendingHistoryEntryIfEnabled } from "../../../auto-reply/reply/history.js";
-import { resolveMentionGating } from "../../../channels/mention-gating.js";
+import { getChannelDock } from "../../../channels/dock.js";
+import { notifyBlocked } from "../../../channels/gate-notify.js";
+import { resolveGateMode, resolveMentionGating } from "../../../channels/mention-gating.js";
 import type { loadConfig } from "../../../config/config.js";
 import { normalizeE164 } from "../../../utils.js";
 import type { MentionConfig } from "../mentions.js";
@@ -66,12 +68,78 @@ export function applyGroupGating(params: {
   groupMemberNames: Map<string, Map<string, string>>;
   logVerbose: (msg: string) => void;
   replyLogger: { debug: (obj: unknown, msg: string) => void };
+  /** Channel identifier (e.g. "whatsapp", "signal") for gateMode resolution. */
+  channel?: string;
 }) {
   const groupPolicy = resolveGroupPolicyFor(params.cfg, params.conversationId);
   if (groupPolicy.allowlistEnabled && !groupPolicy.allowed) {
     params.logVerbose(`Skipping group message ${params.conversationId} (not in allowlist)`);
     return { shouldProcess: false };
   }
+
+  // --- gateMode check (takes priority over legacy requireMention when configured) ---
+  const channelId = params.channel ?? "whatsapp";
+  const dock = getChannelDock(channelId as Parameters<typeof getChannelDock>[0]);
+  const gateModeResult = dock?.groups?.resolveGateMode?.({
+    cfg: params.cfg,
+    groupId: params.conversationId,
+    accountId: undefined,
+  });
+  if (gateModeResult?.gateMode) {
+    const mentionKeywords = params.cfg.agents?.defaults?.mentionKeywords ?? [];
+    const senderE164 = normalizeE164(params.msg.senderE164 ?? "");
+    const allowFrom = (params.cfg.channels?.whatsapp?.allowFrom ?? []).map((e) =>
+      normalizeE164(String(e)),
+    );
+    const gateModeAction = resolveGateMode({
+      gateMode: gateModeResult.gateMode,
+      senderId: senderE164,
+      allowFrom,
+      allowedSenders: gateModeResult.allowedSenders.map((s) => normalizeE164(String(s))),
+      wasMentioned: params.msg.wasMentioned ?? false,
+      messageText: params.msg.body ?? "",
+      mentionKeywords,
+    });
+
+    if (gateModeAction.action === "skip") {
+      params.logVerbose(
+        `Group message blocked by gateMode=${gateModeResult.gateMode} in ${params.conversationId}`,
+      );
+      notifyBlocked({
+        platform: channelId,
+        chatName: params.conversationId,
+        chatId: params.conversationId,
+        senderId: senderE164 || params.msg.senderJid || "unknown",
+        isGroup: true,
+        preview: (params.msg.body ?? "").slice(0, 100),
+      });
+      recordPendingGroupHistoryEntry({
+        msg: params.msg,
+        groupHistories: params.groupHistories,
+        groupHistoryKey: params.groupHistoryKey,
+        groupHistoryLimit: params.groupHistoryLimit,
+      });
+      return { shouldProcess: false };
+    }
+
+    if (gateModeAction.action === "silent") {
+      params.logVerbose(
+        `Group message silent by gateMode=${gateModeResult.gateMode} in ${params.conversationId}`,
+      );
+      recordPendingGroupHistoryEntry({
+        msg: params.msg,
+        groupHistories: params.groupHistories,
+        groupHistoryKey: params.groupHistoryKey,
+        groupHistoryLimit: params.groupHistoryLimit,
+      });
+      return { shouldProcess: false };
+    }
+
+    // action === "process" — fall through to normal processing
+    params.msg.wasMentioned = gateModeAction.effectiveWasMentioned;
+    return { shouldProcess: true };
+  }
+  // --- end gateMode check (fall through to legacy requireMention) ---
 
   noteGroupMember(
     params.groupMemberNames,

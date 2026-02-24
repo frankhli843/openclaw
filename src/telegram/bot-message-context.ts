@@ -19,9 +19,11 @@ import { buildMentionRegexes, matchesMentionWithExplicit } from "../auto-reply/r
 import type { MsgContext } from "../auto-reply/templating.js";
 import { shouldAckReaction as shouldAckReactionGate } from "../channels/ack-reactions.js";
 import { resolveControlCommandGate } from "../channels/command-gating.js";
+import { notifyBlocked } from "../channels/gate-notify.js";
 import { formatLocationText, toLocationContext } from "../channels/location.js";
 import { logInboundDrop } from "../channels/logging.js";
-import { resolveMentionGatingWithBypass } from "../channels/mention-gating.js";
+import { resolveGateMode, resolveMentionGatingWithBypass } from "../channels/mention-gating.js";
+import { resolveTelegramGroupGateMode } from "../channels/plugins/group-mentions.js";
 import { recordInboundSession } from "../channels/session.js";
 import {
   createStatusReactionController,
@@ -469,6 +471,45 @@ export const buildTelegramMessageContext = async ({
   const botId = primaryCtx.me?.id;
   const replyFromId = msg.reply_to_message?.from?.id;
   const implicitMention = botId != null && replyFromId === botId;
+
+  // --- gateMode check (minimal, Telegram vanilla lifeline) ---
+  if (isGroup) {
+    const gateModeResult = resolveTelegramGroupGateMode({
+      cfg,
+      groupId: String(chatId),
+    });
+    if (gateModeResult?.gateMode) {
+      const mentionKeywords = cfg.agents?.defaults?.mentionKeywords ?? [];
+      const tgAllowFrom = (cfg.channels?.telegram?.allowFrom ?? []).map(String);
+      const senderIdStr = senderId ? String(senderId) : "";
+      const gateModeAction = resolveGateMode({
+        gateMode: gateModeResult.gateMode,
+        senderId: senderIdStr,
+        allowFrom: tgAllowFrom,
+        allowedSenders: gateModeResult.allowedSenders,
+        wasMentioned,
+        messageText: rawBody ?? "",
+        mentionKeywords,
+      });
+      if (gateModeAction.action === "skip") {
+        notifyBlocked({
+          platform: "telegram",
+          chatName: String(chatId),
+          chatId: String(chatId),
+          senderId: senderIdStr,
+          isGroup: true,
+          preview: (rawBody ?? "").slice(0, 100),
+        });
+        return null;
+      }
+      if (gateModeAction.action === "silent") {
+        return null;
+      }
+      // action === "process" — skip legacy mention gate below
+    }
+  }
+  // --- end gateMode check ---
+
   const canDetectMention = Boolean(botUsername) || mentionRegexes.length > 0;
   const mentionGate = resolveMentionGatingWithBypass({
     isGroup,

@@ -1,4 +1,5 @@
 import EventEmitter from "node:events";
+import { logVerbose } from "../globals.js";
 
 export type BlockedMessageInfo = {
   /** Channel name (e.g. "whatsapp", "telegram", "discord"). */
@@ -40,6 +41,7 @@ export function notifyBlocked(info: BlockedMessageInfo): void {
   }
   lastNotifiedAt.set(key, now);
   const event: BlockedNotificationEvent = { info };
+  logVerbose(`[gate-notify] ${formatBlockedNotification(info)}`);
   gateNotifier.emit("blocked", event);
 }
 

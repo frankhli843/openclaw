@@ -4,6 +4,7 @@ import type { GroupToolPolicyConfig } from "../../config/types.tools.js";
 import type { OutboundDeliveryResult, OutboundSendDeps } from "../../infra/outbound/deliver.js";
 import type { OutboundIdentity } from "../../infra/outbound/identity.js";
 import type { RuntimeEnv } from "../../runtime.js";
+import type { ChannelGroupGateModeResult } from "./group-mentions.js";
 import type {
   ChannelAccountSnapshot,
   ChannelAccountState,
@@ -71,6 +72,7 @@ export type ChannelConfigAdapter<ResolvedAccount> = {
 
 export type ChannelGroupAdapter = {
   resolveRequireMention?: (params: ChannelGroupContext) => boolean | undefined;
+  resolveGateMode?: (params: ChannelGroupContext) => ChannelGroupGateModeResult | undefined;
   resolveGroupIntroHint?: (params: ChannelGroupContext) => string | undefined;
   resolveToolPolicy?: (params: ChannelGroupContext) => GroupToolPolicyConfig | undefined;
 };

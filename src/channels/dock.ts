@@ -15,16 +15,22 @@ import { escapeRegExp, normalizeE164 } from "../utils.js";
 import { resolveWhatsAppAccount } from "../web/accounts.js";
 import { normalizeWhatsAppTarget } from "../whatsapp/normalize.js";
 import {
+  resolveDiscordGroupGateMode,
   resolveDiscordGroupRequireMention,
   resolveDiscordGroupToolPolicy,
+  resolveGoogleChatGroupGateMode,
   resolveGoogleChatGroupRequireMention,
   resolveGoogleChatGroupToolPolicy,
+  resolveIMessageGroupGateMode,
   resolveIMessageGroupRequireMention,
   resolveIMessageGroupToolPolicy,
+  resolveSlackGroupGateMode,
   resolveSlackGroupRequireMention,
   resolveSlackGroupToolPolicy,
+  resolveTelegramGroupGateMode,
   resolveTelegramGroupRequireMention,
   resolveTelegramGroupToolPolicy,
+  resolveWhatsAppGroupGateMode,
   resolveWhatsAppGroupRequireMention,
   resolveWhatsAppGroupToolPolicy,
 } from "./plugins/group-mentions.js";
@@ -185,6 +191,7 @@ const DOCKS: Record<ChatChannelId, ChannelDock> = {
     },
     groups: {
       resolveRequireMention: resolveTelegramGroupRequireMention,
+      resolveGateMode: resolveTelegramGroupGateMode,
       resolveToolPolicy: resolveTelegramGroupToolPolicy,
     },
     threading: {
@@ -230,6 +237,7 @@ const DOCKS: Record<ChatChannelId, ChannelDock> = {
     },
     groups: {
       resolveRequireMention: resolveWhatsAppGroupRequireMention,
+      resolveGateMode: resolveWhatsAppGroupGateMode,
       resolveToolPolicy: resolveWhatsAppGroupToolPolicy,
       resolveGroupIntroHint: () =>
         "WhatsApp IDs: SenderId is the participant JID (group participant id).",
@@ -286,6 +294,7 @@ const DOCKS: Record<ChatChannelId, ChannelDock> = {
     },
     groups: {
       resolveRequireMention: resolveDiscordGroupRequireMention,
+      resolveGateMode: resolveDiscordGroupGateMode,
       resolveToolPolicy: resolveDiscordGroupToolPolicy,
     },
     mentions: {
@@ -425,6 +434,7 @@ const DOCKS: Record<ChatChannelId, ChannelDock> = {
     },
     groups: {
       resolveRequireMention: resolveGoogleChatGroupRequireMention,
+      resolveGateMode: resolveGoogleChatGroupGateMode,
       resolveToolPolicy: resolveGoogleChatGroupToolPolicy,
     },
     threading: {
@@ -465,6 +475,7 @@ const DOCKS: Record<ChatChannelId, ChannelDock> = {
     },
     groups: {
       resolveRequireMention: resolveSlackGroupRequireMention,
+      resolveGateMode: resolveSlackGroupGateMode,
       resolveToolPolicy: resolveSlackGroupToolPolicy,
     },
     mentions: {
@@ -527,6 +538,7 @@ const DOCKS: Record<ChatChannelId, ChannelDock> = {
     },
     groups: {
       resolveRequireMention: resolveIMessageGroupRequireMention,
+      resolveGateMode: resolveIMessageGroupGateMode,
       resolveToolPolicy: resolveIMessageGroupToolPolicy,
     },
     threading: {

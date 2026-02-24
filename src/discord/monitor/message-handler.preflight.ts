@@ -11,8 +11,10 @@ import {
 } from "../../auto-reply/reply/mentions.js";
 import { formatAllowlistMatchMeta } from "../../channels/allowlist-match.js";
 import { resolveControlCommandGate } from "../../channels/command-gating.js";
+import { notifyBlocked } from "../../channels/gate-notify.js";
 import { logInboundDrop } from "../../channels/logging.js";
-import { resolveMentionGatingWithBypass } from "../../channels/mention-gating.js";
+import { resolveGateMode, resolveMentionGatingWithBypass } from "../../channels/mention-gating.js";
+import { resolveDiscordGroupGateMode } from "../../channels/plugins/group-mentions.js";
 import { loadConfig } from "../../config/config.js";
 import { logVerbose, shouldLogVerbose } from "../../globals.js";
 import { recordChannelActivity } from "../../infra/channel-activity.js";
@@ -533,6 +535,74 @@ export async function preflightDiscordMessage(
       return null;
     }
   }
+
+  // --- gateMode check (takes priority over legacy requireMention when configured) ---
+  if (isGuildMessage) {
+    const gateModeResult = resolveDiscordGroupGateMode({
+      cfg: params.cfg,
+      groupId: messageChannelId,
+      groupChannel: channelName,
+      groupSpace: params.data.guild?.id,
+    });
+    if (gateModeResult?.gateMode) {
+      const mentionKeywords = params.cfg.agents?.defaults?.mentionKeywords ?? [];
+      const discordAllowFrom = params.cfg.channels?.discord?.guilds
+        ? Object.values(params.cfg.channels.discord.guilds).flatMap((g) => {
+            const users: string[] = [];
+            if (g && typeof g === "object" && "users" in g && Array.isArray(g.users)) {
+              users.push(...g.users.map(String));
+            }
+            return users;
+          })
+        : [];
+      // For Discord, use the global allowFrom if available
+      const allowFrom = params.discordConfig?.allowFrom
+        ? params.discordConfig.allowFrom.map(String)
+        : discordAllowFrom;
+      const gateModeAction = resolveGateMode({
+        gateMode: gateModeResult.gateMode,
+        senderId: sender.id,
+        allowFrom,
+        allowedSenders: gateModeResult.allowedSenders,
+        wasMentioned,
+        messageText: baseText || "",
+        mentionKeywords,
+      });
+
+      if (gateModeAction.action === "skip") {
+        logDebug(`[discord-preflight] drop: gateMode=${gateModeResult.gateMode}`);
+        notifyBlocked({
+          platform: "discord",
+          chatName: channelName ?? messageChannelId,
+          chatId: messageChannelId,
+          senderId: sender.id,
+          isGroup: true,
+          preview: (baseText || "").slice(0, 100),
+        });
+        recordPendingHistoryEntryIfEnabled({
+          historyMap: params.guildHistories,
+          historyKey: messageChannelId,
+          limit: params.historyLimit,
+          entry: historyEntry ?? null,
+        });
+        return null;
+      }
+
+      if (gateModeAction.action === "silent") {
+        logDebug(`[discord-preflight] silent: gateMode=${gateModeResult.gateMode}`);
+        recordPendingHistoryEntryIfEnabled({
+          historyMap: params.guildHistories,
+          historyKey: messageChannelId,
+          limit: params.historyLimit,
+          entry: historyEntry ?? null,
+        });
+        return null;
+      }
+
+      // action === "process" — override effectiveWasMentioned and skip legacy gate
+    }
+  }
+  // --- end gateMode check ---
 
   const canDetectMention = Boolean(botId) || mentionRegexes.length > 0;
   const mentionGate = resolveMentionGatingWithBypass({
