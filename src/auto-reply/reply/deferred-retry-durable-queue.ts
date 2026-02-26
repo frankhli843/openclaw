@@ -7,6 +7,10 @@ export type DurableDeferredRetryEvent = {
   dedupeKey: string;
   failureMessage?: string;
   followupRun: unknown;
+  baseDedupeKey?: string;
+  attemptIndex?: number;
+  firstEnqueuedAt?: number;
+  scheduledDelayMs?: number;
 };
 
 type DurableDeferredRetryJobState = "queued" | "processing";
@@ -290,19 +294,20 @@ export function createDeferredRetryDurableQueue(options: DurableDeferredRetryQue
       return;
     }
     const jobs = await listLiveJobs();
-    const nextDue = jobs
-      .filter((job) => job.state === "queued")
-      .reduce<number | null>((earliest, job) => {
-        if (earliest == null) {
-          return job.nextAttemptAt;
-        }
-        return Math.min(earliest, job.nextAttemptAt);
-      }, null);
+    const current = now();
+    const nextDue = jobs.reduce<number | null>((earliest, job) => {
+      const candidate =
+        job.state === "queued" ? Math.max(job.nextAttemptAt, current) : (job.leaseUntil ?? current);
+      if (earliest == null) {
+        return candidate;
+      }
+      return Math.min(earliest, candidate);
+    }, null);
     if (nextDue == null) {
       clearWakeTimer();
       return;
     }
-    scheduleWake(nextDue - now());
+    scheduleWake(nextDue - current);
   }
 
   async function drain(): Promise<void> {
@@ -343,6 +348,10 @@ export function createDeferredRetryDurableQueue(options: DurableDeferredRetryQue
       nextAttemptAt: number;
       failureMessage?: string;
       followupRun: unknown;
+      baseDedupeKey?: string;
+      attemptIndex?: number;
+      firstEnqueuedAt?: number;
+      scheduledDelayMs?: number;
     }): Promise<{ enqueued: boolean; dedupeKey: string }> {
       await ensureDirs();
       const dedupeKey = input.dedupeKey.trim();
@@ -357,6 +366,10 @@ export function createDeferredRetryDurableQueue(options: DurableDeferredRetryQue
         dedupeKey,
         failureMessage: input.failureMessage,
         followupRun: normalizeSerializable(input.followupRun),
+        baseDedupeKey: input.baseDedupeKey,
+        attemptIndex: input.attemptIndex,
+        firstEnqueuedAt: input.firstEnqueuedAt,
+        scheduledDelayMs: input.scheduledDelayMs,
       };
       const timestamp = now();
       const job: DurableDeferredRetryJob = {

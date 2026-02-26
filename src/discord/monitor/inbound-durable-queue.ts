@@ -204,6 +204,7 @@ export function createDiscordInboundDurableQueue(options: DurableDiscordInboundQ
   let processor: ((event: DurableDiscordInboundEvent) => Promise<void>) | null = null;
   let batchProcessor: ((events: DurableDiscordInboundEvent[]) => Promise<void>) | null = null;
   let draining = false;
+  let wakeTimer: NodeJS.Timeout | null = null;
 
   async function ensureDirs(): Promise<void> {
     await fs.promises.mkdir(queueDir, { recursive: true, mode: 0o700 });
@@ -212,6 +213,26 @@ export function createDiscordInboundDurableQueue(options: DurableDiscordInboundQ
 
   async function writeJob(job: DurableDiscordInboundJob): Promise<void> {
     await writeJsonAtomically(resolveJobPath(queueDir, job.id), job);
+  }
+
+  function clearWakeTimer(): void {
+    if (wakeTimer) {
+      clearTimeout(wakeTimer);
+      wakeTimer = null;
+    }
+  }
+
+  function scheduleWake(delayMs: number): void {
+    if (!processor) {
+      return;
+    }
+    clearWakeTimer();
+    const safeDelay = Math.max(0, delayMs);
+    wakeTimer = setTimeout(() => {
+      wakeTimer = null;
+      void drain();
+    }, safeDelay);
+    wakeTimer.unref?.();
   }
 
   async function removeJob(id: string): Promise<void> {
@@ -290,6 +311,33 @@ export function createDiscordInboundDurableQueue(options: DurableDiscordInboundQ
       recovered += 1;
     }
     return recovered;
+  }
+
+  async function scheduleNextWakeFromQueue(): Promise<void> {
+    if (!processor) {
+      return;
+    }
+    const jobs = await listLiveJobs();
+    const current = now();
+    const nextWakeAt = jobs.reduce<number | null>((earliest, job) => {
+      let candidate: number | null = null;
+      if (job.state === "queued") {
+        candidate = Math.max(job.nextAttemptAt, current);
+      } else {
+        candidate = job.leaseUntil ?? current;
+      }
+
+      if (earliest == null) {
+        return candidate;
+      }
+      return Math.min(earliest, candidate);
+    }, null);
+
+    if (nextWakeAt == null) {
+      clearWakeTimer();
+      return;
+    }
+    scheduleWake(nextWakeAt - current);
   }
 
   async function claimNextJob(): Promise<DurableDiscordInboundJob | null> {
@@ -498,6 +546,7 @@ export function createDiscordInboundDurableQueue(options: DurableDiscordInboundQ
       }
     } finally {
       draining = false;
+      await scheduleNextWakeFromQueue();
     }
   }
 
@@ -516,6 +565,7 @@ export function createDiscordInboundDurableQueue(options: DurableDiscordInboundQ
     async stop() {
       processor = null;
       batchProcessor = null;
+      clearWakeTimer();
     },
 
     async enqueue(input: {

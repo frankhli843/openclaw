@@ -147,6 +147,57 @@ describe("discord inbound durable queue", () => {
     expect(processed).toEqual(["m1"]);
   });
 
+  it("replays jobs whose processing lease is still active at startup", async () => {
+    const stateDir = await makeTmpDir();
+    cleanupDirs.push(stateDir);
+
+    const queueDir = path.join(stateDir, "discord-inbound-queue", "default");
+    const leasedJobPath = path.join(queueDir, "leased-job.json");
+    await fs.promises.mkdir(queueDir, { recursive: true });
+    await fs.promises.writeFile(
+      leasedJobPath,
+      JSON.stringify({
+        id: "leased-job",
+        dedupeKey: "default:c1:m-lease",
+        state: "processing",
+        enqueuedAt: Date.now() - 10_000,
+        updatedAt: Date.now() - 10_000,
+        leaseUntil: Date.now() + 120,
+        attempts: 0,
+        nextAttemptAt: Date.now() - 10_000,
+        event: {
+          accountId: "default",
+          channelId: "c1",
+          orderingKey: "c1",
+          messageId: "m-lease",
+          payload: { channel_id: "c1", message: { id: "m-lease" } },
+        },
+      }),
+      "utf-8",
+    );
+
+    const processed: string[] = [];
+    const queue = createDiscordInboundDurableQueue({
+      accountId: "default",
+      stateDir,
+      leaseMs: 100,
+      backoffMs: () => 0,
+    });
+
+    await queue.start({
+      process: async (event) => {
+        processed.push(event.messageId);
+      },
+    });
+
+    await waitFor(async () => processed.includes("m-lease"), 3_000);
+
+    const stats = await queue.getStats();
+    expect(stats.queued).toBe(0);
+    expect(stats.processing).toBe(0);
+    expect(processed).toEqual(["m-lease"]);
+  });
+
   it("dedupes repeated inbound messages by idempotency key", async () => {
     const stateDir = await makeTmpDir();
     cleanupDirs.push(stateDir);

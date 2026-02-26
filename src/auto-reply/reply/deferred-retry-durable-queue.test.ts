@@ -106,6 +106,46 @@ describe("deferred retry durable queue", () => {
     await queue.stop();
   });
 
+  it("replays jobs after startup when processing lease expires later", async () => {
+    const stateDir = await makeTmpDir();
+    cleanupDirs.push(stateDir);
+
+    const queueDir = path.join(stateDir, "auto-reply", "deferred-retry", "recover-active-lease");
+    await fs.promises.mkdir(queueDir, { recursive: true });
+    await fs.promises.writeFile(
+      path.join(queueDir, "leased.json"),
+      JSON.stringify({
+        id: "leased",
+        dedupeKey: "session:leased",
+        state: "processing",
+        enqueuedAt: Date.now() - 10_000,
+        updatedAt: Date.now() - 10_000,
+        leaseUntil: Date.now() + 120,
+        attempts: 0,
+        nextAttemptAt: Date.now() - 5_000,
+        event: {
+          dedupeKey: "session:leased",
+          followupRun: { prompt: "recover later" },
+        },
+      }),
+      "utf-8",
+    );
+
+    const processed: string[] = [];
+    const queue = createDeferredRetryDurableQueue({ stateDir, queueName: "recover-active-lease" });
+
+    await queue.start({
+      process: async (event) => {
+        processed.push(event.dedupeKey);
+      },
+    });
+
+    await waitFor(() => processed.includes("session:leased"), 3_000);
+    expect(processed).toEqual(["session:leased"]);
+
+    await queue.stop();
+  });
+
   it("dedupes duplicate deferred jobs by key", async () => {
     const stateDir = await makeTmpDir();
     cleanupDirs.push(stateDir);
