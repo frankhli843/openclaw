@@ -473,7 +473,7 @@ export async function runReplyAgent(params: {
         );
         return finalizeWithFollowup(
           {
-            text: "⚠️ Provider temporarily unavailable. I retried immediately and queued one final retry in 30 minutes. I will post the outcome here.",
+            text: "⚠️ Provider temporarily unavailable. I retried immediately and queued deferred retries with Fibonacci backoff (up to 1 hour). I will post the outcome here.",
             isError: true,
           },
           queueKey,

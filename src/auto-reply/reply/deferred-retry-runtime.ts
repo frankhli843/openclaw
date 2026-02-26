@@ -7,7 +7,30 @@ import type { FollowupRun } from "./queue.js";
 import { isRoutableChannel, routeReply } from "./route-reply.js";
 import type { TypingController } from "./typing.js";
 
-export const DEFERRED_RETRY_DELAY_MS = 30 * 60 * 1000;
+export const DEFERRED_RETRY_MAX_WINDOW_MS = 60 * 60 * 1000;
+export const DEFERRED_RETRY_FIB_BASE_DELAY_MS = 5 * 60 * 1000;
+export const DEFERRED_RETRY_FIB_NEXT_DELAY_MS = 10 * 60 * 1000;
+
+function getDeferredRetryDelayMs(attemptIndex: number): number {
+  if (attemptIndex <= 0) {
+    return DEFERRED_RETRY_FIB_BASE_DELAY_MS;
+  }
+  if (attemptIndex === 1) {
+    return DEFERRED_RETRY_FIB_NEXT_DELAY_MS;
+  }
+  let prev = DEFERRED_RETRY_FIB_BASE_DELAY_MS;
+  let curr = DEFERRED_RETRY_FIB_NEXT_DELAY_MS;
+  for (let i = 2; i <= attemptIndex; i += 1) {
+    const next = prev + curr;
+    prev = curr;
+    curr = next;
+  }
+  return curr;
+}
+
+function buildAttemptDedupeKey(baseDedupeKey: string, attemptIndex: number): string {
+  return `${baseDedupeKey}:retry:${attemptIndex}`;
+}
 
 const queue = createDeferredRetryDurableQueue({
   queueName: "followup-final-retry",
@@ -16,13 +39,40 @@ const queue = createDeferredRetryDurableQueue({
     if (!followupRun) {
       return;
     }
+
+    const baseDedupeKey = event.baseDedupeKey?.trim() || event.dedupeKey;
+    const currentAttempt = Math.max(0, event.attemptIndex ?? 0);
+    const firstEnqueuedAt = event.firstEnqueuedAt ?? Date.now();
+    const elapsedMs = Math.max(0, Date.now() - firstEnqueuedAt);
+    const nextAttempt = currentAttempt + 1;
+    const nextDelayMs = getDeferredRetryDelayMs(nextAttempt);
+    const canRetryAgain = elapsedMs + nextDelayMs <= DEFERRED_RETRY_MAX_WINDOW_MS;
+
+    if (canRetryAgain) {
+      const retryFailureMessage =
+        reason.lastError?.trim() ||
+        event.failureMessage?.trim() ||
+        "deferred retry failed for unknown reason";
+      await queue.enqueue({
+        dedupeKey: buildAttemptDedupeKey(baseDedupeKey, nextAttempt),
+        baseDedupeKey,
+        attemptIndex: nextAttempt,
+        firstEnqueuedAt,
+        scheduledDelayMs: nextDelayMs,
+        nextAttemptAt: Date.now() + nextDelayMs,
+        failureMessage: retryFailureMessage,
+        followupRun,
+      });
+      return;
+    }
+
     const message =
       reason.lastError?.trim() ||
       event.failureMessage?.trim() ||
       "deferred retry failed for unknown reason";
     await sendProgrammaticRetryUpdate(
       followupRun,
-      `⚠️ Dead letter: deferred retry failed after 30m. Last error: ${message}`,
+      `⚠️ Deferred retry exhausted (Fibonacci backoff for up to 1 hour). Last error: ${message}`,
     );
   },
 });
@@ -140,9 +190,17 @@ export async function ensureDeferredRetryWorkerStarted(): Promise<void> {
 
 export async function enqueueDeferredRetry(followupRun: FollowupRun, failureMessage?: string) {
   await ensureDeferredRetryWorkerStarted();
+  const firstEnqueuedAt = Date.now();
+  const baseDedupeKey = buildDedupeKey(followupRun);
+  const attemptIndex = 0;
+  const scheduledDelayMs = getDeferredRetryDelayMs(attemptIndex);
   return await queue.enqueue({
-    dedupeKey: buildDedupeKey(followupRun),
-    nextAttemptAt: Date.now() + DEFERRED_RETRY_DELAY_MS,
+    dedupeKey: buildAttemptDedupeKey(baseDedupeKey, attemptIndex),
+    baseDedupeKey,
+    attemptIndex,
+    firstEnqueuedAt,
+    scheduledDelayMs,
+    nextAttemptAt: firstEnqueuedAt + scheduledDelayMs,
     failureMessage,
     followupRun,
   });

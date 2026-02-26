@@ -8,6 +8,7 @@ import {
   isCompactionFailureError,
   isContextOverflowError,
   isLikelyContextOverflowError,
+  isRateLimitErrorMessage,
   isTransientHttpError,
   sanitizeUserFacingText,
 } from "../../agents/pi-embedded-helpers.js";
@@ -570,6 +571,7 @@ export async function runAgentTurnWithFallback(params: {
       const trimmedMessage = safeMessage.replace(/\.\s*$/, "");
       const retryableFailure =
         isTransientHttp ||
+        isRateLimitErrorMessage(message) ||
         fallbackAttempts.some(
           (attempt) =>
             attempt.reason === "rate_limit" ||

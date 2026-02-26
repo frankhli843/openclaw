@@ -208,6 +208,7 @@ export const buildTelegramMessageContext = async ({
   const hasGroupAllowOverride = typeof groupAllowOverride !== "undefined";
   const senderId = msg.from?.id ? String(msg.from.id) : "";
   const senderUsername = msg.from?.username ?? "";
+  const senderName = buildSenderName(msg);
   const baseAccess = evaluateTelegramGroupBaseAccess({
     isGroup,
     groupConfig,
@@ -496,11 +497,18 @@ export const buildTelegramMessageContext = async ({
       if (gateModeAction.action === "skip") {
         notifyBlocked({
           platform: "telegram",
-          chatName: String(chatId),
+          chatName: msg.chat.title ?? String(chatId),
           chatId: String(chatId),
           senderId: senderIdStr,
           isGroup: true,
           preview: (rawBody ?? "").slice(0, 100),
+          metadata: {
+            "Chat Title": msg.chat.title,
+            "Chat Username": msg.chat.username,
+            "Chat Type": msg.chat.type,
+            "Sender Name": senderName,
+            "Sender Username": senderUsername,
+          },
         });
         return null;
       }
@@ -680,7 +688,6 @@ export const buildTelegramMessageContext = async ({
       }]\n`
     : "";
   const groupLabel = isGroup ? buildGroupLabel(msg, chatId, resolvedThreadId) : undefined;
-  const senderName = buildSenderName(msg);
   const conversationLabel = isGroup
     ? (groupLabel ?? `group:${chatId}`)
     : buildSenderLabel(msg, senderId || chatId);
