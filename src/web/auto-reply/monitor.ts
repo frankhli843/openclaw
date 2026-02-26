@@ -5,6 +5,7 @@ import { DEFAULT_GROUP_HISTORY_LIMIT } from "../../auto-reply/reply/history.js";
 import { formatCliCommand } from "../../cli/command-format.js";
 import { waitForever } from "../../cli/wait.js";
 import { loadConfig } from "../../config/config.js";
+import { createDiscordInboundDurableQueue } from "../../discord/monitor/inbound-durable-queue.js";
 import { logVerbose } from "../../globals.js";
 import { formatDurationPrecise } from "../../infra/format-time/format-duration.ts";
 import { enqueueSystemEvent } from "../../infra/system-events.js";
@@ -180,6 +181,25 @@ export async function monitorWebChannel(
     const coalesceQueue = coalesceEnabled
       ? createWebCoalesceQueue({ cfg, processOne: onMessage })
       : null;
+    const durableInboundQueue = createDiscordInboundDurableQueue({
+      accountId: `whatsapp-${account.accountId}`,
+      coalesce: false,
+      maxAttempts: 8,
+      backoffMs: (attempt) => {
+        const delays = [1_000, 5_000, 15_000, 30_000, 60_000, 120_000, 180_000, 300_000];
+        return delays[Math.min(Math.max(attempt - 1, 0), delays.length - 1)] ?? 300_000;
+      },
+    });
+    await durableInboundQueue.start({
+      process: async (event) => {
+        const inbound = event.payload as WebInboundMsg;
+        if (coalesceQueue) {
+          coalesceQueue.enqueue(inbound);
+        } else {
+          await onMessage(inbound);
+        }
+      },
+    });
 
     const inboundDebounceMs = resolveInboundDebounceMs({ cfg, channel: "whatsapp" });
     const shouldDebounce = (msg: WebInboundMsg) => {
@@ -210,11 +230,16 @@ export async function monitorWebChannel(
         status.lastEventAt = lastMessageAt;
         emitStatus();
         _lastInboundMsg = msg;
-        if (coalesceQueue) {
-          coalesceQueue.enqueue(msg);
-        } else {
-          await onMessage(msg);
-        }
+        const conversationId = msg.conversationId ?? msg.from;
+        const threadId = msg.replyToId ? String(msg.replyToId) : "";
+        const orderingKey = threadId ? `${conversationId}:${threadId}` : conversationId;
+        const messageId = msg.id ?? `${conversationId}:${msg.timestamp ?? Date.now()}`;
+        await durableInboundQueue.enqueue({
+          channelId: conversationId,
+          messageId,
+          orderingKey,
+          payload: msg,
+        });
       },
     });
 
@@ -269,6 +294,7 @@ export async function monitorWebChannel(
         await Promise.allSettled(backgroundTasks);
         backgroundTasks.clear();
       }
+      await durableInboundQueue.stop();
       try {
         await listener.close();
       } catch (err) {

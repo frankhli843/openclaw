@@ -701,11 +701,16 @@ export async function monitorDiscordProvider(opts: MonitorDiscordOpts = {}) {
       await baseMessageHandler(data, incomingClient);
       return;
     }
+    const threadId =
+      (data.message as { thread_id?: string; threadId?: string } | undefined)?.thread_id ??
+      (data.message as { thread_id?: string; threadId?: string } | undefined)?.threadId ??
+      undefined;
+    const orderingKey = threadId ? `${channelId}:${threadId}` : channelId;
     try {
       await durableInboundQueue.enqueue({
         channelId,
         messageId,
-        orderingKey: channelId,
+        orderingKey,
         payload: data,
       });
     } catch (err) {

@@ -9,6 +9,7 @@ import {
   clearHistoryEntriesIfEnabled,
 } from "../../auto-reply/reply/history.js";
 import { finalizeInboundContext } from "../../auto-reply/reply/inbound-context.js";
+import { createNoProgressWatchdog } from "../../auto-reply/reply/no-progress-watchdog.js";
 import { createReplyDispatcherWithTyping } from "../../auto-reply/reply/reply-dispatcher.js";
 import type { ReplyPayload } from "../../auto-reply/types.js";
 import { shouldAckReaction as shouldAckReactionGate } from "../../channels/ack-reactions.js";
@@ -644,6 +645,36 @@ export async function processDiscordMessage(ctx: DiscordMessagePreflightContext)
     },
   });
 
+  const watchdogAbort = new AbortController();
+  const queueWatchdog = createNoProgressWatchdog({
+    softTimeoutMs: cfg.messages?.queue?.watchdogSoftMs ?? 120_000,
+    graceTimeoutMs: cfg.messages?.queue?.watchdogGraceMs ?? 45_000,
+    rateLimitGraceMs: cfg.messages?.queue?.watchdogRateLimitGraceMs ?? 45_000,
+    onSoftTimeout: async () => {
+      await statusReactions.setTool("watchdog");
+      const deferredText = "⏳ Still working on this request; extending processing window.";
+      const replyToId = replyReference.use();
+      await deliverDiscordReply({
+        replies: [{ text: deferredText }],
+        target: deliverTarget,
+        token,
+        accountId,
+        rest: client.rest,
+        runtime,
+        replyToId,
+        replyToMode,
+        textLimit,
+        maxLinesPerMessage: discordConfig?.maxLinesPerMessage,
+        tableMode,
+        chunkMode,
+      });
+      replyReference.markSent();
+    },
+    onHardTimeout: async () => {
+      watchdogAbort.abort(new Error("discord no-progress watchdog timeout"));
+    },
+  });
+
   let dispatchResult: Awaited<ReturnType<typeof dispatchInboundMessage>> | null = null;
   let dispatchError = false;
   try {
@@ -653,15 +684,23 @@ export async function processDiscordMessage(ctx: DiscordMessagePreflightContext)
       dispatcher,
       replyOptions: {
         ...replyOptions,
+        abortSignal: watchdogAbort.signal,
         skillFilter: channelConfig?.skills,
         disableBlockStreaming:
           disableBlockStreamingForDraft ??
           (typeof discordConfig?.blockStreaming === "boolean"
             ? !discordConfig.blockStreaming
             : undefined),
-        onPartialReply: draftStream ? (payload) => updateDraftFromPartial(payload.text) : undefined,
+        onPartialReply: draftStream
+          ? (payload) => {
+              queueWatchdog.touch();
+              queueWatchdog.noteRateLimitDelay(payload.text);
+              updateDraftFromPartial(payload.text);
+            }
+          : undefined,
         onAssistantMessageStart: draftStream
           ? () => {
+              queueWatchdog.touch();
               if (shouldSplitPreviewMessages && hasStreamedMessage) {
                 logVerbose("discord: calling forceNewMessage() for draft stream");
                 draftStream.forceNewMessage();
@@ -673,6 +712,7 @@ export async function processDiscordMessage(ctx: DiscordMessagePreflightContext)
           : undefined,
         onReasoningEnd: draftStream
           ? () => {
+              queueWatchdog.touch();
               if (shouldSplitPreviewMessages && hasStreamedMessage) {
                 logVerbose("discord: calling forceNewMessage() for draft stream");
                 draftStream.forceNewMessage();
@@ -683,18 +723,46 @@ export async function processDiscordMessage(ctx: DiscordMessagePreflightContext)
             }
           : undefined,
         onModelSelected,
-        onReasoningStream: async () => {
+        onReasoningStream: async (payload) => {
+          queueWatchdog.touch();
+          queueWatchdog.noteRateLimitDelay(payload.text);
           await statusReactions.setThinking();
         },
         onToolStart: async (payload) => {
+          queueWatchdog.touch();
+          if (payload.phase) {
+            queueWatchdog.noteRateLimitDelay(payload.phase);
+          }
           await statusReactions.setTool(payload.name);
         },
       },
     });
+    queueWatchdog.markStatus("sent");
   } catch (err) {
     dispatchError = true;
-    throw err;
+    if (watchdogAbort.signal.aborted) {
+      const replyToId = replyReference.use();
+      await deliverDiscordReply({
+        replies: [{ text: "⚠️ Request timed out after extended wait. Please retry." }],
+        target: deliverTarget,
+        token,
+        accountId,
+        rest: client.rest,
+        runtime,
+        replyToId,
+        replyToMode,
+        textLimit,
+        maxLinesPerMessage: discordConfig?.maxLinesPerMessage,
+        tableMode,
+        chunkMode,
+      });
+      replyReference.markSent();
+      dispatchResult = { queuedFinal: true, counts: dispatcher.getQueuedCounts() };
+    } else {
+      throw err;
+    }
   } finally {
+    queueWatchdog.stop();
     // Must stop() first to flush debounced content before clear() wipes state
     await draftStream?.stop();
     if (!finalizedViaPreviewMessage) {

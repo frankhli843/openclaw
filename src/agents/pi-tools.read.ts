@@ -1,3 +1,7 @@
+import crypto from "node:crypto";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import type { AgentToolResult } from "@mariozechner/pi-agent-core";
 import { createEditTool, createReadTool, createWriteTool } from "@mariozechner/pi-coding-agent";
 import { detectMime } from "../media/mime.js";
@@ -524,6 +528,119 @@ export function assertRequiredParams(
     const noun = missingLabels.length === 1 ? "parameter" : "parameters";
     throw parameterValidationError(`Missing required ${noun}: ${joined}`);
   }
+}
+
+const TOOL_WRITE_ARGS_SPOOL_THRESHOLD = 128_000;
+const TOOL_WRITE_CHUNK_THRESHOLD = 64_000;
+const TOOL_WRITE_CHUNK_SIZE = 32_000;
+
+function hasRunawayEscapedContent(content: string): boolean {
+  if (content.length < 20_000) {
+    return false;
+  }
+  const backslashCount = (content.match(/\\/g) ?? []).length;
+  const backslashRatio = backslashCount / Math.max(content.length, 1);
+  if (backslashRatio > 0.35 && /(\\n|\\t|\\r){100,}/.test(content)) {
+    return true;
+  }
+  if (/(\\n|\\r|\\t|\\x[0-9a-fA-F]{2}){500,}/.test(content)) {
+    return true;
+  }
+  if (/(.{1,32})\1{500,}/s.test(content) && backslashRatio > 0.15) {
+    return true;
+  }
+  return false;
+}
+
+function coerceWritePath(record: Record<string, unknown>): string {
+  const rawPath = typeof record.path === "string" ? record.path : record.file_path;
+  if (typeof rawPath !== "string" || !rawPath.trim()) {
+    throw parameterValidationError("Missing required parameter: path (path or file_path)");
+  }
+  return rawPath;
+}
+
+function coerceWriteContent(record: Record<string, unknown>): string {
+  const value = record.content;
+  if (typeof value !== "string") {
+    throw parameterValidationError("Missing required parameter: content");
+  }
+  if (hasRunawayEscapedContent(value)) {
+    throw new Error("write: rejected malformed escaped/repetitive payload");
+  }
+  return value;
+}
+
+async function chunkedAtomicWrite(filePath: string, content: string): Promise<void> {
+  const parent = path.dirname(filePath);
+  await fs.mkdir(parent, { recursive: true });
+  const tmpPath = path.join(
+    parent,
+    `.${path.basename(filePath)}.openclaw-write-${process.pid}-${Date.now()}-${crypto.randomUUID()}.tmp`,
+  );
+
+  try {
+    await fs.writeFile(tmpPath, "", "utf8");
+    for (let i = 0; i < content.length; i += TOOL_WRITE_CHUNK_SIZE) {
+      const chunk = content.slice(i, i + TOOL_WRITE_CHUNK_SIZE);
+      await fs.appendFile(tmpPath, chunk, "utf8");
+    }
+    await fs.rename(tmpPath, filePath);
+  } catch (err) {
+    await fs.rm(tmpPath, { force: true }).catch(() => {});
+    throw err;
+  }
+}
+
+function asWriteResult(filePath: string, bytes: number): AgentToolResult<unknown> {
+  return {
+    content: [
+      {
+        type: "text",
+        text: `Wrote file ${filePath} (${bytes} bytes).`,
+      },
+    ],
+  } as AgentToolResult<unknown>;
+}
+
+export function wrapWriteToolSafeguards(tool: AnyAgentTool): AnyAgentTool {
+  return {
+    ...tool,
+    execute: async (toolCallId, params, signal, onUpdate) => {
+      const normalized = normalizeToolParams(params);
+      const record =
+        normalized ??
+        (params && typeof params === "object" ? (params as Record<string, unknown>) : undefined);
+      assertRequiredParams(record, CLAUDE_PARAM_GROUPS.write, tool.name);
+      if (!record) {
+        return await tool.execute(toolCallId, normalized ?? params, signal, onUpdate);
+      }
+
+      const targetPath = coerceWritePath(record);
+      const content = coerceWriteContent(record);
+      const payloadSize = JSON.stringify({ path: targetPath, content }).length;
+
+      if (payloadSize >= TOOL_WRITE_ARGS_SPOOL_THRESHOLD) {
+        // Spool oversized payload to temp file for diagnostics and to avoid repeated in-memory clones.
+        const spoolPath = path.join(
+          os.tmpdir(),
+          `openclaw-tool-write-${Date.now()}-${crypto.randomUUID()}.txt`,
+        );
+        await fs.writeFile(spoolPath, content, "utf8");
+        const spooled = await fs.readFile(spoolPath, "utf8");
+        await fs.rm(spoolPath, { force: true }).catch(() => {});
+        await chunkedAtomicWrite(targetPath, spooled);
+        return asWriteResult(targetPath, Buffer.byteLength(spooled, "utf8"));
+      }
+
+      if (content.length >= TOOL_WRITE_CHUNK_THRESHOLD) {
+        await chunkedAtomicWrite(targetPath, content);
+        return asWriteResult(targetPath, Buffer.byteLength(content, "utf8"));
+      }
+
+      return tool.execute(toolCallId, normalized ?? params, signal, onUpdate);
+    },
+  };
 }
 
 // Generic wrapper to normalize parameters for any tool

@@ -575,7 +575,7 @@ export function createDiscordInboundDurableQueue(options: DurableDiscordInboundQ
       payload: unknown;
     }): Promise<{ enqueued: boolean; dedupeKey: string }> {
       await ensureDirs();
-      const dedupeKey = `${options.accountId}:${input.channelId}:${input.messageId}`;
+      const dedupeKey = `${options.accountId}:${input.channelId}:${input.orderingKey}:${input.messageId}`;
       if (await hasDedupeKey(dedupeKey)) {
         return { enqueued: false, dedupeKey };
       }

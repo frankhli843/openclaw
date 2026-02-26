@@ -11,6 +11,7 @@ import {
   type HistoryEntry,
 } from "../../../auto-reply/reply/history.js";
 import { finalizeInboundContext } from "../../../auto-reply/reply/inbound-context.js";
+import { createNoProgressWatchdog } from "../../../auto-reply/reply/no-progress-watchdog.js";
 import { dispatchReplyWithBufferedBlockDispatcher } from "../../../auto-reply/reply/provider-dispatcher.js";
 import type { ReplyPayload } from "../../../auto-reply/types.js";
 import { toLocationContext } from "../../../channels/location.js";
@@ -36,7 +37,7 @@ import type { WebInboundMsg } from "../types.js";
 import { elide } from "../util.js";
 import { maybeSendAckReaction } from "./ack-reaction.js";
 import { formatGroupMembers } from "./group-members.js";
-import { trackBackgroundTask, updateLastRouteInBackground } from "./last-route.js";
+import { updateLastRouteInBackground } from "./last-route.js";
 import { buildInboundLine } from "./message-line.js";
 
 export type GroupHistoryEntry = {
@@ -335,7 +336,7 @@ export async function processMessage(params: {
     });
   }
 
-  const metaTask = recordSessionMetaFromInbound({
+  await recordSessionMetaFromInbound({
     storePath,
     sessionKey: params.route.sessionKey,
     ctx: ctxPayload,
@@ -349,78 +350,136 @@ export async function processMessage(params: {
       "failed updating session meta",
     );
   });
-  trackBackgroundTask(params.backgroundTasks, metaTask);
 
-  const { queuedFinal } = await dispatchReplyWithBufferedBlockDispatcher({
-    ctx: ctxPayload,
-    cfg: params.cfg,
-    replyResolver: params.replyResolver,
-    dispatcherOptions: {
-      ...prefixOptions,
-      responsePrefix,
-      onHeartbeatStrip: () => {
-        if (!didLogHeartbeatStrip) {
-          didLogHeartbeatStrip = true;
-          logVerbose("Stripped stray HEARTBEAT_OK token from web reply");
-        }
-      },
-      deliver: async (payload: ReplyPayload, info) => {
-        await deliverWebReply({
-          replyResult: payload,
-          msg: params.msg,
-          mediaLocalRoots,
-          maxMediaBytes: params.maxMediaBytes,
-          textLimit,
-          chunkMode,
-          replyLogger: params.replyLogger,
-          connectionId: params.connectionId,
-          // Tool + block updates are noisy; skip their log lines.
-          skipLog: info.kind !== "final",
-          tableMode,
-        });
-        didSendReply = true;
-        if (info.kind === "tool") {
-          params.rememberSentText(payload.text, {});
-          return;
-        }
-        const shouldLog = info.kind === "final" && payload.text ? true : undefined;
-        params.rememberSentText(payload.text, {
-          combinedBody,
-          combinedBodySessionKey: params.route.sessionKey,
-          logVerboseMessage: shouldLog,
-        });
-        if (info.kind === "final") {
-          const fromDisplay =
-            params.msg.chatType === "group" ? conversationId : (params.msg.from ?? "unknown");
-          const hasMedia = Boolean(payload.mediaUrl || payload.mediaUrls?.length);
-          whatsappOutboundLog.info(`Auto-replied to ${fromDisplay}${hasMedia ? " (media)" : ""}`);
-          if (shouldLogVerbose()) {
-            const preview = payload.text != null ? elide(payload.text, 400) : "<media>";
-            whatsappOutboundLog.debug(`Reply body: ${preview}${hasMedia ? " (media)" : ""}`);
-          }
-        }
-      },
-      onError: (err, info) => {
-        const label =
-          info.kind === "tool"
-            ? "tool update"
-            : info.kind === "block"
-              ? "block update"
-              : "auto-reply";
-        whatsappOutboundLog.error(
-          `Failed sending web ${label} to ${params.msg.from ?? conversationId}: ${formatError(err)}`,
-        );
-      },
-      onReplyStart: params.msg.sendComposing,
+  const watchdogAbort = new AbortController();
+  const queueWatchdog = createNoProgressWatchdog({
+    softTimeoutMs: params.cfg.messages?.queue?.watchdogSoftMs ?? 120_000,
+    graceTimeoutMs: params.cfg.messages?.queue?.watchdogGraceMs ?? 45_000,
+    rateLimitGraceMs: params.cfg.messages?.queue?.watchdogRateLimitGraceMs ?? 45_000,
+    onSoftTimeout: async () => {
+      await deliverWebReply({
+        replyResult: { text: "⏳ Still working on this request; extending processing window." },
+        msg: params.msg,
+        mediaLocalRoots,
+        maxMediaBytes: params.maxMediaBytes,
+        textLimit,
+        chunkMode,
+        replyLogger: params.replyLogger,
+        connectionId: params.connectionId,
+        skipLog: true,
+        tableMode,
+      });
     },
-    replyOptions: {
-      disableBlockStreaming:
-        typeof params.cfg.channels?.whatsapp?.blockStreaming === "boolean"
-          ? !params.cfg.channels.whatsapp.blockStreaming
-          : undefined,
-      onModelSelected,
+    onHardTimeout: async () => {
+      watchdogAbort.abort(new Error("whatsapp no-progress watchdog timeout"));
     },
   });
+
+  let queuedFinal = false;
+  try {
+    const dispatchResult = await dispatchReplyWithBufferedBlockDispatcher({
+      ctx: ctxPayload,
+      cfg: params.cfg,
+      replyResolver: params.replyResolver,
+      dispatcherOptions: {
+        ...prefixOptions,
+        responsePrefix,
+        onHeartbeatStrip: () => {
+          if (!didLogHeartbeatStrip) {
+            didLogHeartbeatStrip = true;
+            logVerbose("Stripped stray HEARTBEAT_OK token from web reply");
+          }
+        },
+        deliver: async (payload: ReplyPayload, info) => {
+          queueWatchdog.touch();
+          queueWatchdog.noteRateLimitDelay(payload.text);
+          await deliverWebReply({
+            replyResult: payload,
+            msg: params.msg,
+            mediaLocalRoots,
+            maxMediaBytes: params.maxMediaBytes,
+            textLimit,
+            chunkMode,
+            replyLogger: params.replyLogger,
+            connectionId: params.connectionId,
+            // Tool + block updates are noisy; skip their log lines.
+            skipLog: info.kind !== "final",
+            tableMode,
+          });
+          didSendReply = true;
+          if (info.kind === "tool") {
+            params.rememberSentText(payload.text, {});
+            return;
+          }
+          const shouldLog = info.kind === "final" && payload.text ? true : undefined;
+          params.rememberSentText(payload.text, {
+            combinedBody,
+            combinedBodySessionKey: params.route.sessionKey,
+            logVerboseMessage: shouldLog,
+          });
+          if (info.kind === "final") {
+            const fromDisplay =
+              params.msg.chatType === "group" ? conversationId : (params.msg.from ?? "unknown");
+            const hasMedia = Boolean(payload.mediaUrl || payload.mediaUrls?.length);
+            whatsappOutboundLog.info(`Auto-replied to ${fromDisplay}${hasMedia ? " (media)" : ""}`);
+            if (shouldLogVerbose()) {
+              const preview = payload.text != null ? elide(payload.text, 400) : "<media>";
+              whatsappOutboundLog.debug(`Reply body: ${preview}${hasMedia ? " (media)" : ""}`);
+            }
+          }
+        },
+        onError: (err, info) => {
+          const label =
+            info.kind === "tool"
+              ? "tool update"
+              : info.kind === "block"
+                ? "block update"
+                : "auto-reply";
+          whatsappOutboundLog.error(
+            `Failed sending web ${label} to ${params.msg.from ?? conversationId}: ${formatError(err)}`,
+          );
+        },
+        onReplyStart: params.msg.sendComposing,
+      },
+      replyOptions: {
+        abortSignal: watchdogAbort.signal,
+        disableBlockStreaming:
+          typeof params.cfg.channels?.whatsapp?.blockStreaming === "boolean"
+            ? !params.cfg.channels.whatsapp.blockStreaming
+            : undefined,
+        onModelSelected,
+        onReasoningStream: async (payload) => {
+          queueWatchdog.touch();
+          queueWatchdog.noteRateLimitDelay(payload.text);
+        },
+        onToolStart: async (payload) => {
+          queueWatchdog.touch();
+          queueWatchdog.noteRateLimitDelay(payload.phase);
+        },
+      },
+    });
+    queuedFinal = dispatchResult.queuedFinal;
+    queueWatchdog.markStatus("sent");
+  } catch (err) {
+    if (!watchdogAbort.signal.aborted) {
+      throw err;
+    }
+    await deliverWebReply({
+      replyResult: { text: "⚠️ Request timed out after extended wait. Please retry." },
+      msg: params.msg,
+      mediaLocalRoots,
+      maxMediaBytes: params.maxMediaBytes,
+      textLimit,
+      chunkMode,
+      replyLogger: params.replyLogger,
+      connectionId: params.connectionId,
+      skipLog: true,
+      tableMode,
+    });
+    queuedFinal = true;
+  } finally {
+    queueWatchdog.stop();
+  }
 
   if (!queuedFinal) {
     if (shouldClearGroupHistory) {

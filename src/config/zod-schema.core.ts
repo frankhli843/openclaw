@@ -374,6 +374,9 @@ export const QueueSchema = z
     cap: z.number().int().positive().optional(),
     drop: QueueDropSchema.optional(),
     coalesce: z.boolean().optional(),
+    watchdogSoftMs: z.number().int().min(30_000).max(600_000).optional(),
+    watchdogGraceMs: z.number().int().min(5_000).max(300_000).optional(),
+    watchdogRateLimitGraceMs: z.number().int().min(0).max(300_000).optional(),
   })
   .strict()
   .optional();

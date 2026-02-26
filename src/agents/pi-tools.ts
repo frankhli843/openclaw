@@ -42,6 +42,7 @@ import {
   patchToolSchemaForClaudeCompatibility,
   wrapToolWorkspaceRootGuard,
   wrapToolParamNormalization,
+  wrapWriteToolSafeguards,
 } from "./pi-tools.read.js";
 import { cleanToolSchemaForGemini, normalizeToolParameters } from "./pi-tools.schema.js";
 import type { AnyAgentTool } from "./pi-tools.types.js";
@@ -329,9 +330,8 @@ export function createOpenClawCodingTools(options?: {
         return [];
       }
       // Wrap with param normalization for Claude Code compatibility
-      const wrapped = wrapToolParamNormalization(
-        createWriteTool(workspaceRoot),
-        CLAUDE_PARAM_GROUPS.write,
+      const wrapped = wrapWriteToolSafeguards(
+        wrapToolParamNormalization(createWriteTool(workspaceRoot), CLAUDE_PARAM_GROUPS.write),
       );
       return [workspaceOnly ? wrapToolWorkspaceRootGuard(wrapped, workspaceRoot) : wrapped];
     }
