@@ -107,6 +107,33 @@ describe("applyGroupGating", () => {
     expect(result.shouldProcess).toBe(true);
   });
 
+  it("allows gateMode=mention when WhatsApp body contains normalized @numeric self mention", () => {
+    const cfg = makeConfig({
+      channels: {
+        whatsapp: {
+          allowFrom: ["*"],
+          groups: {
+            "123@g.us": { gateMode: "mention" },
+            "*": { requireMention: true },
+          },
+        },
+      },
+    });
+
+    const { result } = runGroupGating({
+      cfg,
+      msg: createGroupMessage({
+        id: "g-gatemode-numeric-mention",
+        body: "@177606175494212 can you help",
+        mentionedJids: ["177606175494212@lid"],
+        selfJid: "177606175494212@s.whatsapp.net",
+        selfE164: null,
+      }),
+    });
+
+    expect(result.shouldProcess).toBe(true);
+  });
+
   it("bypasses mention gating for owner /new in group chats", () => {
     const cfg = makeConfig({
       channels: {

@@ -14,6 +14,8 @@ export type BlockedMessageInfo = {
   isGroup: boolean;
   /** Message text preview (truncated to 100 chars). */
   preview: string;
+  /** Optional best-effort metadata for easier source identification. */
+  metadata?: Record<string, string | number | boolean | null | undefined>;
 };
 
 export type BlockedNotificationEvent = {
@@ -69,6 +71,10 @@ export function formatBlockedNotification(
   const preview = info.preview.length > 100 ? `${info.preview.slice(0, 100)}...` : info.preview;
   const chatType = info.isGroup ? "group" : "dm";
   const mention = options?.ownerMention ? `${options.ownerMention} ` : "";
+  const metadataLines = Object.entries(info.metadata ?? {})
+    .filter(([, value]) => value !== undefined && value !== null && `${value}`.trim().length > 0)
+    .map(([key, value]) => `- ${key}: ${value}`);
+
   return [
     `${mention}🔒 Blocked message`,
     `Platform: ${info.platform}`,
@@ -76,6 +82,7 @@ export function formatBlockedNotification(
     `Sender: ${info.senderId}`,
     `Type: ${chatType}`,
     `Preview: "${preview}"`,
+    ...(metadataLines.length > 0 ? ["", "Metadata:", ...metadataLines] : []),
     ``,
     `Reply with: \`set ${info.chatId} to <mode>\``,
     `Modes: \`silent\` · \`frank-only\` · \`allowlist\` · \`mention\` · \`open\``,

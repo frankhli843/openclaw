@@ -59,6 +59,17 @@ describe("isBotMentionedFromTargets", () => {
     expect(isBotMentionedFromTargets(msg, mentionCfg, targets)).toBe(true);
   });
 
+  it("accepts normalized @numeric mentions when metadata cannot resolve self", () => {
+    const msg = makeMsg({
+      body: "@177606175494212 please help",
+      mentionedJids: ["177606175494212@lid"],
+      selfJid: "177606175494212@s.whatsapp.net",
+      selfE164: null,
+    });
+    const targets = resolveMentionTargets(msg);
+    expect(isBotMentionedFromTargets(msg, mentionCfg, targets)).toBe(true);
+  });
+
   it("ignores JID mentions in self-chat mode", () => {
     const cfg = { mentionRegexes: [/\bopenclaw\b/i], allowFrom: ["+999"] };
     const msg = makeMsg({

@@ -584,6 +584,16 @@ export async function preflightDiscordMessage(
           senderId: sender.id,
           isGroup: true,
           preview: (baseText || "").slice(0, 100),
+          metadata: {
+            Workspace: params.data.guild?.name ?? params.data.guild_id,
+            "Workspace ID": params.data.guild?.id ?? params.data.guild_id,
+            Channel: channelName ?? channelInfo?.name,
+            "Channel ID": messageChannelId,
+            "Channel Topic": channelInfo?.topic,
+            "Parent Channel ID": channelInfo?.parentId,
+            Sender: sender.name,
+            "Sender Tag": sender.tag,
+          },
         });
         recordPendingHistoryEntryIfEnabled({
           historyMap: params.guildHistories,

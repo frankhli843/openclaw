@@ -118,4 +118,33 @@ describe("formatBlockedNotification", () => {
     const text = formatBlockedNotification(makeInfo({ isGroup: false }));
     expect(text).toContain("Type: dm");
   });
+
+  it("includes metadata lines when provided", () => {
+    const text = formatBlockedNotification(
+      makeInfo({
+        metadata: {
+          "Group Subject": "Canada Family",
+          Participants: "Alice (+1...), Bob (+1...)",
+        },
+      }),
+    );
+    expect(text).toContain("Metadata:");
+    expect(text).toContain("- Group Subject: Canada Family");
+    expect(text).toContain("- Participants: Alice (+1...), Bob (+1...)");
+  });
+
+  it("filters empty metadata values", () => {
+    const text = formatBlockedNotification(
+      makeInfo({
+        metadata: {
+          "Group Subject": "",
+          Participants: undefined,
+          "Sender Name": "Frank",
+        },
+      }),
+    );
+    expect(text).toContain("- Sender Name: Frank");
+    expect(text).not.toContain("- Group Subject:");
+    expect(text).not.toContain("- Participants:");
+  });
 });

@@ -11,7 +11,7 @@ import { buildMentionConfig, debugMention, resolveOwnerList } from "../mentions.
 import type { WebInboundMsg } from "../types.js";
 import { stripMentionsForCommand } from "./commands.js";
 import { resolveGroupActivationFor, resolveGroupPolicyFor } from "./group-activation.js";
-import { noteGroupMember } from "./group-members.js";
+import { formatGroupMembers, noteGroupMember } from "./group-members.js";
 
 export type GroupHistoryEntry = {
   sender: string;
@@ -77,6 +77,18 @@ export function applyGroupGating(params: {
     return { shouldProcess: false };
   }
 
+  const mentionConfig = buildMentionConfig(params.cfg, params.agentId);
+  const mentionDebug = debugMention(params.msg, mentionConfig, params.authDir);
+  params.msg.wasMentioned = mentionDebug.wasMentioned;
+  params.replyLogger.debug(
+    {
+      conversationId: params.conversationId,
+      wasMentioned: mentionDebug.wasMentioned,
+      ...mentionDebug.details,
+    },
+    "group mention debug",
+  );
+
   // --- gateMode check (takes priority over legacy requireMention when configured) ---
   const channelId = params.channel ?? "whatsapp";
   const dock = getChannelDock(channelId as Parameters<typeof getChannelDock>[0]);
@@ -109,11 +121,21 @@ export function applyGroupGating(params: {
       );
       notifyBlocked({
         platform: channelId,
-        chatName: params.conversationId,
+        chatName: params.msg.groupSubject ?? params.conversationId,
         chatId: params.conversationId,
         senderId: senderE164 || params.msg.senderJid || "unknown",
         isGroup: true,
         preview: (params.msg.body ?? "").slice(0, 100),
+        metadata: {
+          "Group Subject": params.msg.groupSubject,
+          "Sender Name": params.msg.senderName,
+          "Sender JID": params.msg.senderJid,
+          Participants: formatGroupMembers({
+            participants: params.msg.groupParticipants,
+            roster: params.groupMemberNames.get(params.groupHistoryKey),
+            fallbackE164: params.msg.senderE164,
+          }),
+        },
       });
       recordPendingGroupHistoryEntry({
         msg: params.msg,
@@ -150,7 +172,6 @@ export function applyGroupGating(params: {
     params.msg.senderName,
   );
 
-  const mentionConfig = buildMentionConfig(params.cfg, params.agentId);
   const commandBody = stripMentionsForCommand(
     params.msg.body,
     mentionConfig.mentionRegexes,
@@ -171,15 +192,6 @@ export function applyGroupGating(params: {
     return { shouldProcess: false };
   }
 
-  const mentionDebug = debugMention(params.msg, mentionConfig, params.authDir);
-  params.replyLogger.debug(
-    {
-      conversationId: params.conversationId,
-      wasMentioned: mentionDebug.wasMentioned,
-      ...mentionDebug.details,
-    },
-    "group mention debug",
-  );
   const wasMentioned = mentionDebug.wasMentioned;
   const activation = resolveGroupActivationFor({
     cfg: params.cfg,
