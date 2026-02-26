@@ -129,6 +129,49 @@ describe("durable-job-queue", () => {
     expect(onDeadLetter).toHaveBeenCalledTimes(1);
   });
 
+  it("skips healer after 2 attempts in last 24h for same verifier issue", async () => {
+    const stateDir = makeTempStateDir();
+    let now = 10_000;
+    const queue = createDurableJobQueue({ stateDir, now: () => now });
+    const healer = vi.fn(async () => ({ ok: false, detail: "gateway timeout" }));
+
+    const runFail = async () =>
+      await queue.run({
+        queue: "subagent-spawn-jobs",
+        kind: "subagent-spawn",
+        payload: { text: "same" },
+        run: async () => ({ status: "error" as const }),
+        verify: async () => ({ ok: false, detail: "gateway timeout after 10000ms" }),
+        heal: healer,
+      });
+
+    await expect(runFail()).rejects.toThrow("gateway timeout");
+    now += 1_000;
+    await expect(runFail()).rejects.toThrow("gateway timeout");
+    now += 1_000;
+
+    const onDeadLetter = vi.fn();
+    await expect(
+      queue.run({
+        queue: "subagent-spawn-jobs",
+        kind: "subagent-spawn",
+        payload: { text: "third" },
+        run: async () => ({ status: "error" as const }),
+        verify: async () => ({ ok: false, detail: "gateway timeout after 10000ms" }),
+        heal: healer,
+        onDeadLetter,
+      }),
+    ).rejects.toThrow("self-heal skipped");
+
+    expect(healer).toHaveBeenCalledTimes(2);
+    const dead = await queue._test.listDead("subagent-spawn-jobs");
+    expect(dead).toHaveLength(3);
+    const latest = dead.toSorted((a, b) => b.updatedAt - a.updatedAt)[0];
+    expect(latest?.metadata.selfHealGate?.decision).toBe("skip");
+    expect(latest?.metadata.selfHealGate?.priorAttemptsInWindow).toBe(2);
+    expect(onDeadLetter).toHaveBeenCalledTimes(1);
+  });
+
   it("exclusion of verifier/healer/checkup jobs from queueing", async () => {
     const stateDir = makeTempStateDir();
     const queue = createDurableJobQueue({ stateDir });

@@ -29,6 +29,14 @@ export type DurableQueueMetadata = {
     startedAt?: number;
     completedAt?: number;
   };
+  selfHealGate?: {
+    evaluatedAt: number;
+    decision: "attempt" | "skip";
+    reason: string;
+    fingerprint?: string;
+    priorAttemptsInWindow: number;
+    windowMs: number;
+  };
   deadLetterReason?: DurableQueueDeadLetterReason;
   sideEffects: {
     sentMessageKeys: string[];
@@ -97,12 +105,22 @@ export type DurableJobQueueOptions = {
 const DEFAULT_MAX_RUNTIME_MS = 60 * 60 * 1000;
 const DEFAULT_LEASE_MS = 60_000;
 const MAX_ATTEMPTS = 2;
+const SELF_HEAL_WINDOW_MS = 24 * 60 * 60 * 1000;
+const MAX_SELF_HEAL_ATTEMPTS_PER_WINDOW = 2;
 
 function normalizeErrorMessage(err: unknown): string {
   if (err instanceof Error && err.message) {
     return err.message;
   }
   return String(err);
+}
+
+function normalizeIssueFingerprint(detail?: string): string | undefined {
+  if (!detail) {
+    return undefined;
+  }
+  const normalized = detail.toLowerCase().replace(/\s+/g, " ").trim().slice(0, 240);
+  return normalized || undefined;
 }
 
 function makeRunContext(metadata: DurableQueueMetadata): DurableJobQueueRunContext {
@@ -259,6 +277,42 @@ export function createDurableJobQueue(opts: DurableJobQueueOptions = {}) {
       return { location: "dead", job: deadMatch };
     }
     return null;
+  }
+
+  async function countRecentSelfHealAttempts(params: {
+    queue: string;
+    kind: string;
+    fingerprint: string;
+    excludeJobId?: string;
+    nowTs: number;
+    windowMs: number;
+  }): Promise<number> {
+    const [liveJobs, deadJobs] = await Promise.all([
+      listJobs(params.queue, "live"),
+      listJobs(params.queue, "dead"),
+    ]);
+    const floor = params.nowTs - params.windowMs;
+    let count = 0;
+
+    for (const candidate of [...liveJobs, ...deadJobs]) {
+      if (candidate.id === params.excludeJobId) {
+        continue;
+      }
+      if (candidate.kind !== params.kind) {
+        continue;
+      }
+      const startedAt = candidate.metadata.healer.startedAt;
+      if (typeof startedAt !== "number" || startedAt < floor) {
+        continue;
+      }
+      const candidateFingerprint = normalizeIssueFingerprint(candidate.metadata.verifier.detail);
+      if (!candidateFingerprint || candidateFingerprint !== params.fingerprint) {
+        continue;
+      }
+      count += 1;
+    }
+
+    return count;
   }
 
   async function run<TPayload, TResult>(
@@ -430,6 +484,57 @@ export function createDurableJobQueue(opts: DurableJobQueueOptions = {}) {
           throw new Error(`durable queue verifier failed: ${dedupeKey}`);
         }
 
+        const fingerprint = normalizeIssueFingerprint(job.metadata.verifier.detail);
+        const nowTs = now();
+        const priorSelfHealAttempts = fingerprint
+          ? await countRecentSelfHealAttempts({
+              queue,
+              kind: options.kind,
+              fingerprint,
+              excludeJobId: job.id,
+              nowTs,
+              windowMs: SELF_HEAL_WINDOW_MS,
+            })
+          : 0;
+
+        if (fingerprint && priorSelfHealAttempts >= MAX_SELF_HEAL_ATTEMPTS_PER_WINDOW) {
+          const gateReason =
+            `self-heal skipped: ${priorSelfHealAttempts} attempts in last 24h for same verifier issue; ` +
+            "escalate to launcher for decision";
+          job.metadata.selfHealGate = {
+            evaluatedAt: nowTs,
+            decision: "skip",
+            reason: gateReason,
+            fingerprint,
+            priorAttemptsInWindow: priorSelfHealAttempts,
+            windowMs: SELF_HEAL_WINDOW_MS,
+          };
+          job.metadata.healer = {
+            status: "skipped",
+            detail: gateReason,
+            startedAt: undefined,
+            completedAt: nowTs,
+          };
+          await moveToDead(job, "verifier-failed", gateReason);
+          await options.onDeadLetter?.({
+            queue,
+            kind: options.kind,
+            dedupeKey,
+            reason: "verifier-failed",
+            metadata: job.metadata,
+            error: gateReason,
+          });
+          throw new Error(gateReason);
+        }
+
+        job.metadata.selfHealGate = {
+          evaluatedAt: nowTs,
+          decision: "attempt",
+          reason: "self-heal allowed",
+          fingerprint,
+          priorAttemptsInWindow: priorSelfHealAttempts,
+          windowMs: SELF_HEAL_WINDOW_MS,
+        };
         job.metadata.healer.status = "running";
         job.metadata.healer.startedAt = now();
         await writeLiveJob(job);

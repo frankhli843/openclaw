@@ -82,6 +82,17 @@ export type CronPayloadPatch =
       bestEffortDeliver?: boolean;
     };
 
+export type CronSelfHealState = {
+  /** The scheduled run time (from nextRunAtMs) of the original cron tick that failed. */
+  originRunAtMs: number;
+  /** Number of attempts that have completed for this origin run (includes the original). */
+  attempts: number;
+  /** The next scheduled retry timestamp (if a retry is pending). */
+  retryAtMs?: number;
+  /** Timestamp of the last "give up" alert (used for simple de-dupe). */
+  lastAlertAtMs?: number;
+};
+
 export type CronJobState = {
   nextRunAtMs?: number;
   runningAtMs?: number;
@@ -93,6 +104,8 @@ export type CronJobState = {
   consecutiveErrors?: number;
   /** Number of consecutive schedule computation errors. Auto-disables job after threshold. */
   scheduleErrorCount?: number;
+  /** Self-heal retry tracking (only used for schedule.kind="cron" jobs). */
+  selfHeal?: CronSelfHealState;
 };
 
 export type CronJob = {
