@@ -1,31 +1,30 @@
 import crypto from "node:crypto";
 import { defaultRuntime } from "../../runtime.js";
 import type { ReplyPayload } from "../types.js";
+import { getSoonestCooldownExpiryAcrossAllProviders } from "./deferred-retry-cooldown-helpers.js";
 import { createDeferredRetryDurableQueue } from "./deferred-retry-durable-queue.js";
 import { createFollowupRunner } from "./followup-runner.js";
 import type { FollowupRun } from "./queue.js";
 import { isRoutableChannel, routeReply } from "./route-reply.js";
 import type { TypingController } from "./typing.js";
 
-export const DEFERRED_RETRY_MAX_WINDOW_MS = 60 * 60 * 1000;
-export const DEFERRED_RETRY_FIB_BASE_DELAY_MS = 5 * 60 * 1000;
-export const DEFERRED_RETRY_FIB_NEXT_DELAY_MS = 10 * 60 * 1000;
+export const DEFERRED_RETRY_SCHEDULE_MS = [5_000, 10_000, 30_000, 60_000, 5 * 60_000] as const;
+/** Extra buffer added to soonest cooldown expiry (ms). */
+const COOLDOWN_RETRY_BUFFER_MS = 2 * 60_000;
+const RETRY_FAILURE_ALERT_CHANNEL = "1474343755153932394";
+const RETRY_LOG_CHANNEL = "1474343755153932394";
 
-function getDeferredRetryDelayMs(attemptIndex: number): number {
-  if (attemptIndex <= 0) {
-    return DEFERRED_RETRY_FIB_BASE_DELAY_MS;
-  }
-  if (attemptIndex === 1) {
-    return DEFERRED_RETRY_FIB_NEXT_DELAY_MS;
-  }
-  let prev = DEFERRED_RETRY_FIB_BASE_DELAY_MS;
-  let curr = DEFERRED_RETRY_FIB_NEXT_DELAY_MS;
-  for (let i = 2; i <= attemptIndex; i += 1) {
-    const next = prev + curr;
-    prev = curr;
-    curr = next;
-  }
-  return curr;
+function getDeferredRetryDelayMs(attemptIndex: number): number | null {
+  return DEFERRED_RETRY_SCHEDULE_MS[attemptIndex] ?? null;
+}
+
+function formatRetrySchedule(): string {
+  return DEFERRED_RETRY_SCHEDULE_MS.map((delayMs) => {
+    if (delayMs < 60_000) {
+      return `${Math.round(delayMs / 1000)}s`;
+    }
+    return `${Math.round(delayMs / 60_000)}m`;
+  }).join(", ");
 }
 
 function buildAttemptDedupeKey(baseDedupeKey: string, attemptIndex: number): string {
@@ -43,18 +42,17 @@ const queue = createDeferredRetryDurableQueue({
     const baseDedupeKey = event.baseDedupeKey?.trim() || event.dedupeKey;
     const currentAttempt = Math.max(0, event.attemptIndex ?? 0);
     const firstEnqueuedAt = event.firstEnqueuedAt ?? Date.now();
-    const elapsedMs = Math.max(0, Date.now() - firstEnqueuedAt);
     const nextAttempt = currentAttempt + 1;
     const nextDelayMs = getDeferredRetryDelayMs(nextAttempt);
-    const canRetryAgain = elapsedMs + nextDelayMs <= DEFERRED_RETRY_MAX_WINDOW_MS;
 
-    if (canRetryAgain) {
+    if (nextDelayMs != null) {
       const retryFailureMessage =
         reason.lastError?.trim() ||
         event.failureMessage?.trim() ||
         "deferred retry failed for unknown reason";
+      const dedupeKey = buildAttemptDedupeKey(baseDedupeKey, nextAttempt);
       await queue.enqueue({
-        dedupeKey: buildAttemptDedupeKey(baseDedupeKey, nextAttempt),
+        dedupeKey,
         baseDedupeKey,
         attemptIndex: nextAttempt,
         firstEnqueuedAt,
@@ -63,17 +61,81 @@ const queue = createDeferredRetryDurableQueue({
         failureMessage: retryFailureMessage,
         followupRun,
       });
+      await sendRetryLogPost(
+        followupRun,
+        `🧾 Deferred retry queued (attempt ${nextAttempt + 1}/${DEFERRED_RETRY_SCHEDULE_MS.length})`,
+        [
+          `schedule: ${formatRetrySchedule()}`,
+          `next retry in: ${Math.round(nextDelayMs / 1000)}s`,
+          `dedupe key: ${dedupeKey}`,
+          `last error: ${retryFailureMessage}`,
+        ],
+      );
       return;
     }
 
-    const message =
+    // Fixed schedule exhausted. Check if any provider has a known cooldown
+    // expiry we can wait for (cooldown-aware final retry).
+    const errorMessage =
       reason.lastError?.trim() ||
       event.failureMessage?.trim() ||
       "deferred retry failed for unknown reason";
+    const isCooldownError =
+      errorMessage.includes("cooldown") ||
+      errorMessage.includes("rate_limit") ||
+      errorMessage.includes("rate limit") ||
+      errorMessage.includes("all profiles unavailable");
+
+    if (isCooldownError) {
+      const soonestExpiry = getSoonestCooldownExpiryAcrossAllProviders(
+        followupRun.run.config,
+        followupRun.run.agentDir,
+      );
+      if (soonestExpiry != null) {
+        const cooldownDelayMs = Math.max(0, soonestExpiry - Date.now()) + COOLDOWN_RETRY_BUFFER_MS;
+        const cooldownAttempt = nextAttempt;
+        const dedupeKey = buildAttemptDedupeKey(baseDedupeKey, cooldownAttempt);
+        await queue.enqueue({
+          dedupeKey,
+          baseDedupeKey,
+          attemptIndex: cooldownAttempt,
+          firstEnqueuedAt,
+          scheduledDelayMs: cooldownDelayMs,
+          nextAttemptAt: Date.now() + cooldownDelayMs,
+          failureMessage: errorMessage,
+          followupRun,
+        });
+        const retryInMin = Math.round(cooldownDelayMs / 60_000);
+        await sendProgrammaticRetryUpdate(
+          followupRun,
+          `⏳ Fixed retry schedule exhausted but provider cooldown detected. Scheduling cooldown-aware retry in ~${retryInMin}m (2 min after soonest provider recovery).`,
+        );
+        await sendRetryLogPost(
+          followupRun,
+          `🧾 Cooldown-aware retry queued (after fixed schedule exhausted)`,
+          [
+            `soonest provider recovery: ${new Date(soonestExpiry).toISOString()}`,
+            `retry scheduled in: ~${retryInMin}m`,
+            `dedupe key: ${dedupeKey}`,
+            `last error: ${errorMessage}`,
+          ],
+        );
+        return;
+      }
+    }
+
+    const message = errorMessage;
+    const schedule = formatRetrySchedule();
     await sendProgrammaticRetryUpdate(
       followupRun,
-      `⚠️ Deferred retry exhausted (Fibonacci backoff for up to 1 hour). Last error: ${message}`,
+      `⚠️ Deferred retry exhausted after ${schedule}. Last error: ${message}`,
     );
+    await sendRetryLogPost(followupRun, "🧾 Deferred retry exhausted", [
+      `schedule: ${schedule}`,
+      `last error: ${message}`,
+      `base dedupe key: ${baseDedupeKey}`,
+    ]);
+    await sendRetryFailureAlert(followupRun, message);
   },
 });
 
@@ -142,6 +204,46 @@ async function sendProgrammaticRetryUpdate(followupRun: FollowupRun, text: strin
   defaultRuntime.error?.(`retry update dropped (unroutable): ${text}`);
 }
 
+async function sendRetryLogPost(followupRun: FollowupRun, summary: string, details: string[]) {
+  const payload: ReplyPayload = {
+    text: `${summary}\n\nRead more:\n${details.map((line) => `- ${line}`).join("\n")}`,
+    isError: true,
+  };
+  const result = await routeReply({
+    payload,
+    channel: "discord",
+    to: RETRY_LOG_CHANNEL,
+    sessionKey: followupRun.run.sessionKey,
+    cfg: followupRun.run.config,
+    mirror: false,
+  });
+  if (!result.ok) {
+    defaultRuntime.error?.(`retry log route failed: ${result.error ?? "unknown"}`);
+  }
+}
+
+async function sendRetryFailureAlert(
+  followupRun: FollowupRun,
+  errorMessage: string,
+): Promise<void> {
+  const schedule = formatRetrySchedule();
+  const alertPayload: ReplyPayload = {
+    text: `⚠️ Deferred retry still failing after ${schedule} for session ${followupRun.run.sessionKey ?? followupRun.run.sessionId}. Last error: ${errorMessage}`,
+    isError: true,
+  };
+  const result = await routeReply({
+    payload: alertPayload,
+    channel: "discord",
+    to: RETRY_FAILURE_ALERT_CHANNEL,
+    sessionKey: followupRun.run.sessionKey,
+    cfg: followupRun.run.config,
+    mirror: false,
+  });
+  if (!result.ok) {
+    defaultRuntime.error?.(`retry failure alert route failed: ${result.error ?? "unknown"}`);
+  }
+}
+
 async function processDeferredRetry(event: { followupRun: unknown; failureMessage?: string }) {
   const followupRun = coerceFollowupRun(event.followupRun);
   if (!followupRun) {
@@ -194,8 +296,12 @@ export async function enqueueDeferredRetry(followupRun: FollowupRun, failureMess
   const baseDedupeKey = buildDedupeKey(followupRun);
   const attemptIndex = 0;
   const scheduledDelayMs = getDeferredRetryDelayMs(attemptIndex);
-  return await queue.enqueue({
-    dedupeKey: buildAttemptDedupeKey(baseDedupeKey, attemptIndex),
+  if (scheduledDelayMs == null) {
+    throw new Error("deferred retry schedule is empty");
+  }
+  const dedupeKey = buildAttemptDedupeKey(baseDedupeKey, attemptIndex);
+  const enqueueResult = await queue.enqueue({
+    dedupeKey,
     baseDedupeKey,
     attemptIndex,
     firstEnqueuedAt,
@@ -204,6 +310,19 @@ export async function enqueueDeferredRetry(followupRun: FollowupRun, failureMess
     failureMessage,
     followupRun,
   });
+  if (enqueueResult.enqueued) {
+    await sendRetryLogPost(
+      followupRun,
+      `🧾 Deferred retry queued (attempt 1/${DEFERRED_RETRY_SCHEDULE_MS.length})`,
+      [
+        `schedule: ${formatRetrySchedule()}`,
+        `next retry in: ${Math.round(scheduledDelayMs / 1000)}s`,
+        `dedupe key: ${dedupeKey}`,
+        `initial error: ${failureMessage?.trim() || "unknown"}`,
+      ],
+    );
+  }
+  return enqueueResult;
 }
 
 export async function __stopDeferredRetryWorkerForTest(): Promise<void> {
