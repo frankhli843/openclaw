@@ -6,6 +6,7 @@ import { convertMarkdownTables } from "../../markdown/tables.js";
 import { markdownToWhatsApp } from "../../markdown/whatsapp.js";
 import { sleep } from "../../utils.js";
 import { loadWebMedia } from "../media.js";
+import { sendMessageWhatsApp } from "../outbound.js";
 import { newConnectionId } from "../reconnect.js";
 import { formatError } from "../session.js";
 import { whatsappOutboundLog } from "./loggers.js";
@@ -41,6 +42,17 @@ export async function deliverWebReply(params: {
       ? [replyResult.mediaUrl]
       : [];
 
+  /** Send text directly via the outbound path (bypasses stale msg.reply). */
+  const sendDirect = async (text: string): Promise<unknown> => {
+    if (!msg.from) {
+      throw new Error("Cannot send direct: msg.from is missing");
+    }
+    whatsappOutboundLog.info(
+      `Falling back to sendMessageWhatsApp for ${msg.from} (stale msg.reply)`,
+    );
+    return sendMessageWhatsApp(msg.from, text, { verbose: false });
+  };
+
   const sendWithRetry = async (fn: () => Promise<unknown>, label: string, maxAttempts = 3) => {
     let lastErr: unknown;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -49,6 +61,16 @@ export async function deliverWebReply(params: {
       } catch (err) {
         lastErr = err;
         const errText = formatError(err);
+
+        // If msg.reply is not a function (stale connection), fall back to direct send.
+        if (/is not a function/i.test(errText) && msg.from) {
+          whatsappOutboundLog.warn(
+            `msg.reply is stale for ${msg.from}, falling back to direct send`,
+          );
+          // Extract text from the fn closure by re-throwing and handling below
+          throw err;
+        }
+
         const isLast = attempt === maxAttempts;
         const shouldRetry = /closed|reset|timed\\s*out|disconnect/i.test(errText);
         if (!shouldRetry || isLast) {
@@ -69,7 +91,16 @@ export async function deliverWebReply(params: {
     const totalChunks = textChunks.length;
     for (const [index, chunk] of textChunks.entries()) {
       const chunkStarted = Date.now();
-      await sendWithRetry(() => msg.reply(chunk), "text");
+      try {
+        await sendWithRetry(() => msg.reply(chunk), "text");
+      } catch (err) {
+        const errText = formatError(err);
+        if (/is not a function/i.test(errText) && msg.from) {
+          await sendDirect(chunk);
+        } else {
+          throw err;
+        }
+      }
       if (!skipLog) {
         const durationMs = Date.now() - chunkStarted;
         whatsappOutboundLog.debug(
@@ -182,7 +213,15 @@ export async function deliverWebReply(params: {
         const fallbackText = fallbackTextParts.join("\n");
         if (fallbackText) {
           whatsappOutboundLog.warn(`Media skipped; sent text-only to ${msg.from}`);
-          await msg.reply(fallbackText);
+          try {
+            await msg.reply(fallbackText);
+          } catch (replyErr) {
+            if (/is not a function/i.test(formatError(replyErr)) && msg.from) {
+              await sendDirect(fallbackText);
+            } else {
+              throw replyErr;
+            }
+          }
         }
       }
     }
@@ -190,6 +229,14 @@ export async function deliverWebReply(params: {
 
   // Remaining text chunks after media
   for (const chunk of remainingText) {
-    await msg.reply(chunk);
+    try {
+      await msg.reply(chunk);
+    } catch (err) {
+      if (/is not a function/i.test(formatError(err)) && msg.from) {
+        await sendDirect(chunk);
+      } else {
+        throw err;
+      }
+    }
   }
 }
