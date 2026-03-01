@@ -6,10 +6,11 @@ import type { ReplyPayload } from "../../../auto-reply/types.js";
 import { removeAckReactionAfterReply } from "../../../channels/ack-reactions.js";
 import { logAckFailure, logTypingFailure } from "../../../channels/logging.js";
 import { createReplyPrefixOptions } from "../../../channels/reply-prefix.js";
+import { markSilentSeen } from "../../../channels/silent-seen-reaction.js";
 import { createTypingCallbacks } from "../../../channels/typing.js";
 import { resolveStorePath, updateLastRoute } from "../../../config/sessions.js";
 import { danger, logVerbose, shouldLogVerbose } from "../../../globals.js";
-import { removeSlackReaction } from "../../actions.js";
+import { reactSlackMessage, removeSlackReaction } from "../../actions.js";
 import { createSlackDraftStream } from "../../draft-stream.js";
 import {
   applyAppendOnlyStreamUpdate,
@@ -407,6 +408,30 @@ export async function dispatchPreparedSlackMessage(prepared: PreparedSlackMessag
   }
 
   const anyReplyDelivered = queuedFinal || (counts.block ?? 0) > 0 || (counts.final ?? 0) > 0;
+
+  // Roaming 👀 — always mark the latest message as "seen", remove from previous
+  if (messageTs) {
+    const slackConversationId = `slack:${message.channel}`;
+    void markSilentSeen({
+      conversationId: slackConversationId,
+      messageId: messageTs,
+      emoji: "eyes",
+      adapter: {
+        addReaction: async (msgId, emoji) => {
+          await reactSlackMessage(message.channel, msgId, emoji, {
+            token: ctx.botToken,
+            client: ctx.app.client,
+          });
+        },
+        removeReaction: async (msgId, emoji) => {
+          await removeSlackReaction(message.channel, msgId, emoji, {
+            token: ctx.botToken,
+            client: ctx.app.client,
+          });
+        },
+      },
+    });
+  }
 
   if (!anyReplyDelivered) {
     await draftStream.clear();
