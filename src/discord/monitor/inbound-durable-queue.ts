@@ -36,6 +36,7 @@ export type DurableDiscordInboundQueueOptions = {
   stateDir?: string;
   leaseMs?: number;
   maxAttempts?: number;
+  maxConcurrent?: number;
   backoffMs?: (attempt: number) => number;
   now?: () => number;
   coalesce?: boolean;
@@ -200,10 +201,13 @@ export function createDiscordInboundDurableQueue(options: DurableDiscordInboundQ
   const now = options.now ?? (() => Date.now());
   const backoffMs = options.backoffMs ?? computeDefaultBackoffMs;
   const coalesce = options.coalesce ?? false;
+  const maxConcurrent = Math.max(1, options.maxConcurrent ?? 4);
 
   let processor: ((event: DurableDiscordInboundEvent) => Promise<void>) | null = null;
   let batchProcessor: ((events: DurableDiscordInboundEvent[]) => Promise<void>) | null = null;
   let draining = false;
+  let drainRequested = false;
+  let activeBatches = 0;
   let wakeTimer: NodeJS.Timeout | null = null;
 
   async function ensureDirs(): Promise<void> {
@@ -523,40 +527,67 @@ export function createDiscordInboundDurableQueue(options: DurableDiscordInboundQ
 
   async function drain(): Promise<void> {
     if (draining) {
-      console.info(`[durable-queue-diag] drain skipped: already draining`);
+      // Signal the running drain to do another pass before exiting
+      drainRequested = true;
       return;
     }
     draining = true;
     try {
-      // Lease recovery happens before each drain cycle, including startup.
-      const recovered = await recoverExpiredLeases();
-      if (recovered > 0) {
-        console.info(`[durable-queue-diag] recovered ${recovered} expired leases`);
-      }
-      while (processor) {
-        if (coalesce) {
-          const batch = await claimBatch();
-          if (batch.length === 0) {
-            break;
-          }
-          console.info(
-            `[durable-queue-diag] processing batch: ${batch.length} jobs orderingKey=${batch[0]?.event.orderingKey} msgIds=[${batch.map((j) => j.event.messageId).join(",")}]`,
-          );
-          await processBatch(batch);
-          console.info(
-            `[durable-queue-diag] batch done: orderingKey=${batch[0]?.event.orderingKey}`,
-          );
-        } else {
-          const job = await claimNextJob();
-          if (!job) {
-            break;
-          }
-          await processOne(job);
+      do {
+        drainRequested = false;
+        // Lease recovery happens before each drain cycle, including startup.
+        const recovered = await recoverExpiredLeases();
+        if (recovered > 0) {
+          console.info(`[durable-queue-diag] recovered ${recovered} expired leases`);
         }
-      }
+        while (processor) {
+          if (activeBatches >= maxConcurrent) {
+            break;
+          }
+          if (coalesce) {
+            const batch = await claimBatch();
+            if (batch.length === 0) {
+              break;
+            }
+            activeBatches += 1;
+            console.info(
+              `[durable-queue-diag] processing batch: ${batch.length} jobs orderingKey=${batch[0]?.event.orderingKey} msgIds=[${batch.map((j) => j.event.messageId).join(",")}] active=${activeBatches}/${maxConcurrent}`,
+            );
+            // Fire and forget: don't await, let multiple ordering keys process concurrently.
+            // The claimBatch() ordering-key lock prevents the same key from double-processing.
+            void processBatch(batch)
+              .then(() => {
+                console.info(
+                  `[durable-queue-diag] batch done: orderingKey=${batch[0]?.event.orderingKey}`,
+                );
+              })
+              .catch(() => {
+                // Error handling already done inside processBatch
+              })
+              .finally(() => {
+                activeBatches -= 1;
+                // Re-trigger drain to pick up any newly available work
+                // (e.g. more items queued for this ordering key, or concurrency slot freed)
+                void drain();
+              });
+          } else {
+            const job = await claimNextJob();
+            if (!job) {
+              break;
+            }
+            activeBatches += 1;
+            void processOne(job).finally(() => {
+              activeBatches -= 1;
+              void drain();
+            });
+          }
+        }
+      } while (drainRequested && processor);
     } finally {
       draining = false;
-      await scheduleNextWakeFromQueue();
+      if (activeBatches === 0) {
+        await scheduleNextWakeFromQueue();
+      }
     }
   }
 
