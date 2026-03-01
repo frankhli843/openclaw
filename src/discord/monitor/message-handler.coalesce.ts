@@ -1,6 +1,5 @@
 import type { Client } from "@buape/carbon";
 import { hasControlCommand } from "../../auto-reply/command-detection.js";
-import { logVerbose } from "../../globals.js";
 import { buildCollectPrompt } from "../../utils/queue-helpers.js";
 import type { DurableDiscordInboundEvent } from "./inbound-durable-queue.js";
 import { preflightDiscordMessage } from "./message-handler.preflight.js";
@@ -92,7 +91,7 @@ export function createCoalescedDiscordMessageHandler(params: CoalescedMessageHan
       const singleData = regularEvents[0].data;
       const msgId = singleData.message?.id ?? "unknown";
       const channelId = events[0]?.channelId ?? singleData.channel_id ?? "unknown";
-      logVerbose(
+      console.info(
         `[coalesce-diag] single message: msgId=${msgId} channelId=${channelId} content="${resolveDiscordMessageText(singleData.message, { includeForwarded: false }).slice(0, 80)}"`,
       );
       const ctx = await preflightDiscordMessage({
@@ -103,9 +102,9 @@ export function createCoalescedDiscordMessageHandler(params: CoalescedMessageHan
         client,
       });
       if (!ctx) {
-        logVerbose(`[coalesce-diag] DROPPED at preflight: msgId=${msgId} channelId=${channelId}`);
+        console.info(`[coalesce-diag] DROPPED at preflight: msgId=${msgId} channelId=${channelId}`);
       } else {
-        logVerbose(
+        console.info(
           `[coalesce-diag] preflight passed: msgId=${msgId} channelId=${channelId} wasMentioned=${ctx.wasMentioned} effectiveMentioned=${ctx.effectiveWasMentioned}`,
         );
         await processDiscordMessage(ctx);
@@ -187,7 +186,7 @@ export function createCoalescedDiscordMessageHandler(params: CoalescedMessageHan
       },
     };
 
-    logVerbose(
+    console.info(
       `[coalesce-diag] batch: ${regularEvents.length} msgs channelId=${events[0]?.channelId ?? "?"} msgIds=[${regularEvents.map((e) => e.data.message?.id ?? "?").join(",")}]`,
     );
 
@@ -200,11 +199,11 @@ export function createCoalescedDiscordMessageHandler(params: CoalescedMessageHan
     });
 
     if (!ctx) {
-      logVerbose(
+      console.info(
         `[coalesce-diag] DROPPED batch at preflight: ${regularEvents.length} msgs channelId=${events[0]?.channelId ?? "?"}`,
       );
     } else {
-      logVerbose(
+      console.info(
         `[coalesce-diag] batch preflight passed: ${regularEvents.length} msgs wasMentioned=${ctx.wasMentioned} effectiveMentioned=${ctx.effectiveWasMentioned}`,
       );
       await processDiscordMessage(ctx);

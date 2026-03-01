@@ -523,19 +523,29 @@ export function createDiscordInboundDurableQueue(options: DurableDiscordInboundQ
 
   async function drain(): Promise<void> {
     if (draining) {
+      console.info(`[durable-queue-diag] drain skipped: already draining`);
       return;
     }
     draining = true;
     try {
       // Lease recovery happens before each drain cycle, including startup.
-      await recoverExpiredLeases();
+      const recovered = await recoverExpiredLeases();
+      if (recovered > 0) {
+        console.info(`[durable-queue-diag] recovered ${recovered} expired leases`);
+      }
       while (processor) {
         if (coalesce) {
           const batch = await claimBatch();
           if (batch.length === 0) {
             break;
           }
+          console.info(
+            `[durable-queue-diag] processing batch: ${batch.length} jobs orderingKey=${batch[0]?.event.orderingKey} msgIds=[${batch.map((j) => j.event.messageId).join(",")}]`,
+          );
           await processBatch(batch);
+          console.info(
+            `[durable-queue-diag] batch done: orderingKey=${batch[0]?.event.orderingKey}`,
+          );
         } else {
           const job = await claimNextJob();
           if (!job) {

@@ -695,11 +695,20 @@ export async function monitorDiscordProvider(opts: MonitorDiscordOpts = {}) {
   ) => {
     const message = data.message;
     const messageId = message?.id;
+    const authorId = data.author?.id ?? "unknown";
+    const contentPreview =
+      typeof message?.content === "string" ? message.content.slice(0, 80) : "no-content";
     const channelId = resolveDiscordMessageChannelId({
       message,
       eventChannelId: data.channel_id,
     });
+    console.info(
+      `[discord-inbound] MESSAGE_CREATE: msgId=${messageId ?? "null"} channelId=${channelId ?? "null"} author=${authorId} content="${contentPreview}"`,
+    );
     if (!messageId || !channelId) {
+      console.info(
+        `[discord-inbound] FALLBACK to base handler: msgId=${messageId ?? "null"} channelId=${channelId ?? "null"} (missing id)`,
+      );
       await baseMessageHandler(data, incomingClient);
       return;
     }
@@ -715,12 +724,18 @@ export async function monitorDiscordProvider(opts: MonitorDiscordOpts = {}) {
         orderingKey,
         payload: data,
       });
+      console.info(
+        `[discord-inbound] enqueue: msgId=${messageId} channelId=${channelId} orderingKey=${orderingKey} enqueued=${enqueueResult.enqueued} dedupeKey=${enqueueResult.dedupeKey}`,
+      );
       // Update last-seen marker so catch-up knows where to resume from on reconnect.
       // Fire-and-forget: marker update failure is non-fatal.
       if (enqueueResult.enqueued) {
         void updateLastSeenMessage(channelId, messageId).catch(() => {});
       }
     } catch (err) {
+      console.info(
+        `[discord-inbound] enqueue FAILED: msgId=${messageId} channelId=${channelId} error=${String(err)}`,
+      );
       runtime.error?.(danger(`discord durable inbound enqueue failed: ${String(err)}`));
       await baseMessageHandler(data, incomingClient);
     }
