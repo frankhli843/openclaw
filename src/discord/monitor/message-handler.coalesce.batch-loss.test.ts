@@ -162,16 +162,11 @@ describe("coalesced message batch loss scenarios", () => {
         };
       };
 
-      // BUG REPRODUCTION: The synthetic message loses the mention from eventWithMention
-      // because it's built from lastData (eventWithoutMention).
-      // This assertion documents the CURRENT buggy behavior:
+      // FIXED: The synthetic message now merges mentions from ALL events.
       const syntheticMentionedUsers = preflightCall.data.message?.mentionedUsers ?? [];
       const botMentioned = syntheticMentionedUsers.some((u: { id: string }) => u.id === "bot123");
 
-      // This SHOULD be true but currently FAILS — documenting the bug.
-      // When this test starts passing, the bug is fixed.
-      // For now, we assert the buggy behavior to confirm reproduction:
-      expect(botMentioned).toBe(false); // BUG: bot mention is lost
+      expect(botMentioned).toBe(true); // bot mention preserved from earlier event
     });
 
     it("should preserve mentionedRoles from earlier events", async () => {
@@ -207,8 +202,8 @@ describe("coalesced message batch loss scenarios", () => {
       const syntheticRoles = preflightCall.data.message?.mentionedRoles ?? [];
       const hasRoleMention = syntheticRoles.some((r: { id: string }) => r.id === "role123");
 
-      // BUG: role mention from first message is lost
-      expect(hasRoleMention).toBe(false);
+      // FIXED: role mention from first message is preserved
+      expect(hasRoleMention).toBe(true);
     });
 
     it("should preserve mentionedEveryone when any event in the batch has it", async () => {
@@ -241,8 +236,8 @@ describe("coalesced message batch loss scenarios", () => {
         };
       };
 
-      // BUG: @everyone flag from first message is lost
-      expect(preflightCall.data.message?.mentionedEveryone).toBe(false);
+      // FIXED: @everyone flag from first message is preserved
+      expect(preflightCall.data.message?.mentionedEveryone).toBe(true);
     });
   });
 
