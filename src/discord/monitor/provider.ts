@@ -2,6 +2,7 @@ import { inspect } from "node:util";
 import {
   Client,
   ReadyListener,
+  ResumedListener,
   type BaseCommand,
   type BaseMessageInteractiveComponent,
   type Modal,
@@ -55,6 +56,7 @@ import {
   createDiscordComponentStringSelect,
   createDiscordComponentUserSelect,
 } from "./agent-components.js";
+import { runDiscordCatchUp, updateLastSeenMessage } from "./catch-up.js";
 import { resolveDiscordSlashCommandConfig } from "./commands.js";
 import { createExecApprovalButton, DiscordExecApprovalHandler } from "./exec-approvals.js";
 import { createDiscordGatewayPlugin } from "./gateway-plugin.js";
@@ -707,17 +709,62 @@ export async function monitorDiscordProvider(opts: MonitorDiscordOpts = {}) {
       undefined;
     const orderingKey = threadId ? `${channelId}:${threadId}` : channelId;
     try {
-      await durableInboundQueue.enqueue({
+      const enqueueResult = await durableInboundQueue.enqueue({
         channelId,
         messageId,
         orderingKey,
         payload: data,
       });
+      // Update last-seen marker so catch-up knows where to resume from on reconnect.
+      // Fire-and-forget: marker update failure is non-fatal.
+      if (enqueueResult.enqueued) {
+        void updateLastSeenMessage(channelId, messageId).catch(() => {});
+      }
     } catch (err) {
       runtime.error?.(danger(`discord durable inbound enqueue failed: ${String(err)}`));
       await baseMessageHandler(data, incomingClient);
     }
   };
+
+  // Trigger a catch-up run to recover messages missed during disconnection.
+  // Defined here (after queue is started) so the queue is ready to accept enqueues.
+  const triggerCatchUp = (reason: string) => {
+    void runDiscordCatchUp({
+      token,
+      botUserId,
+      queue: durableInboundQueue,
+      restFetch: discordRestFetch,
+    })
+      .then((result) => {
+        if (result.recovered > 0) {
+          runtime.log?.(
+            `discord: catch-up (${reason}): recovered ${result.recovered} messages across ${result.channels} channels`,
+          );
+        }
+      })
+      .catch((err) => {
+        runtime.error?.(danger(`discord catch-up failed (${reason}): ${formatErrorMessage(err)}`));
+      });
+  };
+
+  // Register READY and RESUMED listeners so catch-up fires on every (re-)connection.
+  class DiscordCatchUpReadyListener extends ReadyListener {
+    async handle() {
+      triggerCatchUp("READY");
+    }
+  }
+
+  class DiscordCatchUpResumedListener extends ResumedListener {
+    async handle() {
+      triggerCatchUp("RESUMED");
+    }
+  }
+
+  registerDiscordListener(client.listeners, new DiscordCatchUpReadyListener());
+  registerDiscordListener(client.listeners, new DiscordCatchUpResumedListener());
+
+  // Also trigger on startup in case READY already fired during async setup above.
+  triggerCatchUp("startup");
 
   registerDiscordListener(client.listeners, new DiscordMessageListener(messageHandler, logger));
   registerDiscordListener(
