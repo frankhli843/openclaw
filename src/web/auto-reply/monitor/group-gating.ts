@@ -12,6 +12,7 @@ import type { WebInboundMsg } from "../types.js";
 import { stripMentionsForCommand } from "./commands.js";
 import { resolveGroupActivationFor, resolveGroupPolicyFor } from "./group-activation.js";
 import { formatGroupMembers, noteGroupMember } from "./group-members.js";
+import { maybeMarkWhatsAppRoamingSeen } from "./roaming-seen.js";
 
 export type GroupHistoryEntry = {
   sender: string;
@@ -70,6 +71,8 @@ export function applyGroupGating(params: {
   replyLogger: { debug: (obj: unknown, msg: string) => void };
   /** Channel identifier (e.g. "whatsapp", "signal") for gateMode resolution. */
   channel?: string;
+  verbose?: boolean;
+  accountId?: string;
 }) {
   const groupPolicy = resolveGroupPolicyFor(params.cfg, params.conversationId);
   if (groupPolicy.allowlistEnabled && !groupPolicy.allowed) {
@@ -119,24 +122,37 @@ export function applyGroupGating(params: {
       params.logVerbose(
         `Group message blocked by gateMode=${gateModeResult.gateMode} in ${params.conversationId}`,
       );
-      notifyBlocked({
-        platform: channelId,
-        chatName: params.msg.groupSubject ?? params.conversationId,
-        chatId: params.conversationId,
-        senderId: senderE164 || params.msg.senderJid || "unknown",
-        isGroup: true,
-        preview: (params.msg.body ?? "").slice(0, 100),
-        metadata: {
-          "Group Subject": params.msg.groupSubject,
-          "Sender Name": params.msg.senderName,
-          "Sender JID": params.msg.senderJid,
-          Participants: formatGroupMembers({
-            participants: params.msg.groupParticipants,
-            roster: params.groupMemberNames.get(params.groupHistoryKey),
-            fallbackE164: params.msg.senderE164,
-          }),
-        },
-      });
+      // Only send gate-notify for truly "blocked" groups (unknown/new).
+      if (gateModeResult.gateMode === "blocked") {
+        notifyBlocked({
+          platform: channelId,
+          chatName: params.msg.groupSubject ?? params.conversationId,
+          chatId: params.conversationId,
+          senderId: senderE164 || params.msg.senderJid || "unknown",
+          isGroup: true,
+          preview: (params.msg.body ?? "").slice(0, 100),
+          metadata: {
+            "Group Subject": params.msg.groupSubject,
+            "Sender Name": params.msg.senderName,
+            "Sender JID": params.msg.senderJid,
+            Participants: formatGroupMembers({
+              participants: params.msg.groupParticipants,
+              roster: params.groupMemberNames.get(params.groupHistoryKey),
+              fallbackE164: params.msg.senderE164,
+            }),
+          },
+        });
+      }
+
+      if (channelId === "whatsapp" && gateModeResult.gateMode !== "blocked") {
+        maybeMarkWhatsAppRoamingSeen({
+          cfg: params.cfg,
+          msg: params.msg,
+          verbose: params.verbose ?? false,
+          accountId: params.accountId,
+        });
+      }
+
       recordPendingGroupHistoryEntry({
         msg: params.msg,
         groupHistories: params.groupHistories,

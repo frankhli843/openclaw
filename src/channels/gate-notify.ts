@@ -86,6 +86,8 @@ export function formatBlockedNotification(
     ``,
     `Reply with: \`set ${info.chatId} to <mode>\``,
     `Modes: \`silent\` · \`frank-only\` · \`allowlist\` · \`mention\` · \`open\``,
+    ``,
+    `📖 Agent: read skills/gate-control/SKILL.md for gateMode docs before making changes.`,
   ].join("\n");
 }
 

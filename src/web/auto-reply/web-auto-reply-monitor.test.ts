@@ -1,7 +1,15 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const { maybeMarkWhatsAppRoamingSeen } = vi.hoisted(() => ({
+  maybeMarkWhatsAppRoamingSeen: vi.fn(),
+}));
+vi.mock("./monitor/roaming-seen.js", () => ({
+  maybeMarkWhatsAppRoamingSeen,
+}));
+
 import { resolveAgentRoute } from "../../routing/resolve-route.js";
 import { buildMentionConfig } from "./mentions.js";
 import { applyGroupGating, type GroupHistoryEntry } from "./monitor/group-gating.js";
@@ -11,6 +19,7 @@ let sessionDir: string | undefined;
 let sessionStorePath: string;
 
 beforeEach(async () => {
+  maybeMarkWhatsAppRoamingSeen.mockReset();
   sessionDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-group-gating-"));
   sessionStorePath = path.join(sessionDir, "sessions.json");
   await fs.writeFile(sessionStorePath, "{}");
@@ -132,6 +141,79 @@ describe("applyGroupGating", () => {
     });
 
     expect(result.shouldProcess).toBe(true);
+  });
+
+  it("marks roaming seen for gateMode skip when mode is mention", () => {
+    const cfg = makeConfig({
+      channels: {
+        whatsapp: {
+          allowFrom: ["*"],
+          groups: {
+            "123@g.us": { gateMode: "mention" },
+            "*": { requireMention: true },
+          },
+        },
+      },
+    });
+
+    const { result } = runGroupGating({
+      cfg,
+      msg: createGroupMessage({
+        id: "g-mention-skip",
+        body: "no mention here",
+      }),
+    });
+
+    expect(result.shouldProcess).toBe(false);
+    expect(maybeMarkWhatsAppRoamingSeen).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not mark roaming seen for gateMode=blocked", () => {
+    const cfg = makeConfig({
+      channels: {
+        whatsapp: {
+          allowFrom: ["*"],
+          groups: {
+            "123@g.us": { gateMode: "blocked" },
+            "*": { requireMention: true },
+          },
+        },
+      },
+    });
+
+    const { result } = runGroupGating({
+      cfg,
+      msg: createGroupMessage({
+        id: "g-blocked",
+      }),
+    });
+
+    expect(result.shouldProcess).toBe(false);
+    expect(maybeMarkWhatsAppRoamingSeen).not.toHaveBeenCalled();
+  });
+
+  it("does not mark roaming seen for gateMode=silent", () => {
+    const cfg = makeConfig({
+      channels: {
+        whatsapp: {
+          allowFrom: ["*"],
+          groups: {
+            "123@g.us": { gateMode: "silent" },
+            "*": { requireMention: true },
+          },
+        },
+      },
+    });
+
+    const { result } = runGroupGating({
+      cfg,
+      msg: createGroupMessage({
+        id: "g-silent",
+      }),
+    });
+
+    expect(result.shouldProcess).toBe(false);
+    expect(maybeMarkWhatsAppRoamingSeen).not.toHaveBeenCalled();
   });
 
   it("bypasses mention gating for owner /new in group chats", () => {

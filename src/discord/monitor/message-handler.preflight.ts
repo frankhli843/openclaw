@@ -577,24 +577,27 @@ export async function preflightDiscordMessage(
 
       if (gateModeAction.action === "skip") {
         logDebug(`[discord-preflight] drop: gateMode=${gateModeResult.gateMode}`);
-        notifyBlocked({
-          platform: "discord",
-          chatName: channelName ?? messageChannelId,
-          chatId: messageChannelId,
-          senderId: sender.id,
-          isGroup: true,
-          preview: (baseText || "").slice(0, 100),
-          metadata: {
-            Workspace: params.data.guild?.name ?? params.data.guild_id,
-            "Workspace ID": params.data.guild?.id ?? params.data.guild_id,
-            Channel: channelName ?? channelInfo?.name,
-            "Channel ID": messageChannelId,
-            "Channel Topic": channelInfo?.topic,
-            "Parent Channel ID": channelInfo?.parentId,
-            Sender: sender.name,
-            "Sender Tag": sender.tag,
-          },
-        });
+        // Only send gate-notify for truly "blocked" groups (unknown/new).
+        if (gateModeResult.gateMode === "blocked") {
+          notifyBlocked({
+            platform: "discord",
+            chatName: channelName ?? messageChannelId,
+            chatId: messageChannelId,
+            senderId: sender.id,
+            isGroup: true,
+            preview: (baseText || "").slice(0, 100),
+            metadata: {
+              Workspace: params.data.guild?.name ?? params.data.guild_id,
+              "Workspace ID": params.data.guild?.id ?? params.data.guild_id,
+              Channel: channelName ?? channelInfo?.name,
+              "Channel ID": messageChannelId,
+              "Channel Topic": channelInfo?.topic,
+              "Parent Channel ID": channelInfo?.parentId,
+              Sender: sender.name,
+              "Sender Tag": sender.tag,
+            },
+          });
+        }
         recordPendingHistoryEntryIfEnabled({
           historyMap: params.guildHistories,
           historyKey: messageChannelId,

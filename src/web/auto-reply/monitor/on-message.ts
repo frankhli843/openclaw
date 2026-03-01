@@ -139,6 +139,8 @@ export function createWebOnMessageHandler(params: {
         logVerbose,
         replyLogger: params.replyLogger,
         channel: "whatsapp",
+        verbose: params.verbose,
+        accountId: route.accountId,
       });
       if (!gating.shouldProcess) {
         return;
