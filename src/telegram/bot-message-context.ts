@@ -495,21 +495,24 @@ export const buildTelegramMessageContext = async ({
         mentionKeywords,
       });
       if (gateModeAction.action === "skip") {
-        notifyBlocked({
-          platform: "telegram",
-          chatName: msg.chat.title ?? String(chatId),
-          chatId: String(chatId),
-          senderId: senderIdStr,
-          isGroup: true,
-          preview: (rawBody ?? "").slice(0, 100),
-          metadata: {
-            "Chat Title": msg.chat.title,
-            "Chat Username": msg.chat.username,
-            "Chat Type": msg.chat.type,
-            "Sender Name": senderName,
-            "Sender Username": senderUsername,
-          },
-        });
+        // Only send gate-notify for truly "blocked" groups (unknown/new).
+        if (gateModeResult.gateMode === "blocked") {
+          notifyBlocked({
+            platform: "telegram",
+            chatName: msg.chat.title ?? String(chatId),
+            chatId: String(chatId),
+            senderId: senderIdStr,
+            isGroup: true,
+            preview: (rawBody ?? "").slice(0, 100),
+            metadata: {
+              "Chat Title": msg.chat.title,
+              "Chat Username": msg.chat.username,
+              "Chat Type": msg.chat.type,
+              "Sender Name": senderName,
+              "Sender Username": senderUsername,
+            },
+          });
+        }
         return null;
       }
       if (gateModeAction.action === "silent") {

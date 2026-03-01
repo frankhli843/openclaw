@@ -13,6 +13,7 @@ import type { ReplyPayload } from "../auto-reply/types.js";
 import { removeAckReactionAfterReply } from "../channels/ack-reactions.js";
 import { logAckFailure, logTypingFailure } from "../channels/logging.js";
 import { createReplyPrefixOptions } from "../channels/reply-prefix.js";
+import { markSilentSeen } from "../channels/silent-seen-reaction.js";
 import { createTypingCallbacks } from "../channels/typing.js";
 import { resolveMarkdownTableMode } from "../config/markdown-tables.js";
 import { loadSessionStore, resolveStorePath } from "../config/sessions.js";
@@ -753,6 +754,23 @@ export const dispatchTelegramMessage = async ({
   if (statusReactionController && !hasFinalResponse) {
     void statusReactionController.setError().catch((err) => {
       logVerbose(`telegram: status reaction error finalize failed: ${String(err)}`);
+    });
+  }
+
+  // Roaming 👀 — always mark the latest message as "seen", remove from previous
+  if (reactionApi && msg.message_id) {
+    const tgConversationId = `tg:${chatId}`;
+    void markSilentSeen({
+      conversationId: tgConversationId,
+      messageId: String(msg.message_id),
+      adapter: {
+        addReaction: async (msgId, emoji) => {
+          await reactionApi(chatId, Number(msgId), [{ type: "emoji", emoji }]);
+        },
+        removeReaction: async (msgId) => {
+          await reactionApi(chatId, Number(msgId), []);
+        },
+      },
     });
   }
 
