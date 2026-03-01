@@ -16,6 +16,7 @@ import { shouldAckReaction as shouldAckReactionGate } from "../../channels/ack-r
 import { logTypingFailure, logAckFailure } from "../../channels/logging.js";
 import { createReplyPrefixOptions } from "../../channels/reply-prefix.js";
 import { recordInboundSession } from "../../channels/session.js";
+import { markSilentSeen } from "../../channels/silent-seen-reaction.js";
 import {
   createStatusReactionController,
   DEFAULT_TIMING,
@@ -784,6 +785,24 @@ export async function processDiscordMessage(ctx: DiscordMessagePreflightContext)
         void statusReactions.restoreInitial();
       }
     }
+  }
+
+  // Roaming 👀 — always mark the latest message as "seen", remove from previous
+  if (!dispatchError) {
+    void markSilentSeen({
+      conversationId: messageChannelId,
+      messageId: message.id,
+      adapter: {
+        addReaction: (msgId, emoji) =>
+          reactMessageDiscord(messageChannelId, msgId, emoji, {
+            rest: client.rest as never,
+          }).then(() => {}),
+        removeReaction: (msgId, emoji) =>
+          removeReactionDiscord(messageChannelId, msgId, emoji, {
+            rest: client.rest as never,
+          }).then(() => {}),
+      },
+    });
   }
 
   if (!dispatchResult?.queuedFinal) {

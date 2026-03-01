@@ -15,6 +15,7 @@ import {
   updateSessionStoreEntry,
 } from "../../config/sessions.js";
 import type { TypingMode } from "../../config/types.js";
+import { logVerbose } from "../../globals.js";
 import { emitAgentEvent } from "../../infra/agent-events.js";
 import { emitDiagnosticEvent, isDiagnosticsEnabled } from "../../infra/diagnostic-events.js";
 import { enqueueSystemEvent } from "../../infra/system-events.js";
@@ -100,8 +101,8 @@ function appendUnscheduledReminderNote(payloads: ReplyPayload[]): ReplyPayload[]
 // Track sessions pending post-compaction read audit (Layer 3)
 const pendingPostCompactionAudits = new Map<string, boolean>();
 
-const RETRYABLE_IMMEDIATE_ATTEMPTS = 3;
-const RETRYABLE_IMMEDIATE_BACKOFF_MS: readonly number[] = [2_000, 8_000];
+const RETRYABLE_IMMEDIATE_ATTEMPTS = 1;
+const RETRYABLE_IMMEDIATE_BACKOFF_MS: readonly number[] = [];
 
 void ensureDeferredRetryWorkerStarted().catch((err) => {
   defaultRuntime.error?.(`failed to initialize deferred retry worker: ${String(err)}`);
@@ -253,11 +254,18 @@ export async function runReplyAgent(params: {
   }
 
   if (isActive && (shouldFollowup || resolvedQueue.mode === "steer")) {
+    logVerbose(
+      `[agent-runner-diag] ENQUEUE follow-up: sessionId=${followupRun.run.sessionId} queueKey=${queueKey} mode=${resolvedQueue.mode} prompt="${followupRun.prompt.slice(0, 80)}"`,
+    );
     enqueueFollowupRun(queueKey, followupRun, resolvedQueue);
     await touchActiveSessionEntry();
     typing.cleanup();
     return undefined;
   }
+
+  logVerbose(
+    `[agent-runner-diag] NEW RUN: sessionId=${followupRun.run.sessionId} queueKey=${queueKey} isActive=${isActive} isStreaming=${isStreaming} shouldFollowup=${shouldFollowup} shouldSteer=${shouldSteer} mode=${resolvedQueue.mode} prompt="${followupRun.prompt.slice(0, 80)}"`,
+  );
 
   await typingSignals.signalRunStart();
 
@@ -473,7 +481,7 @@ export async function runReplyAgent(params: {
         );
         return finalizeWithFollowup(
           {
-            text: "⚠️ Provider temporarily unavailable. I retried immediately and queued deferred retries with Fibonacci backoff (up to 1 hour). I will post the outcome here.",
+            text: "⚠️ Provider temporarily unavailable. I queued deferred retries at 5s, 10s, 30s, 1m, 5m, and 10m. I will post the outcome here.",
             isError: true,
           },
           queueKey,

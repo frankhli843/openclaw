@@ -8,7 +8,14 @@ import type { FollowupRun } from "./queue.js";
 import { isRoutableChannel, routeReply } from "./route-reply.js";
 import type { TypingController } from "./typing.js";
 
-export const DEFERRED_RETRY_SCHEDULE_MS = [5_000, 10_000, 30_000, 60_000, 5 * 60_000] as const;
+export const DEFERRED_RETRY_SCHEDULE_MS = [
+  5_000,
+  10_000,
+  30_000,
+  60_000,
+  5 * 60_000,
+  10 * 60_000,
+] as const;
 /** Extra buffer added to soonest cooldown expiry (ms). */
 const COOLDOWN_RETRY_BUFFER_MS = 2 * 60_000;
 const RETRY_FAILURE_ALERT_CHANNEL = "1474343755153932394";

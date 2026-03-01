@@ -35,10 +35,10 @@ import { deliverWebReply } from "../deliver-reply.js";
 import { whatsappInboundLog, whatsappOutboundLog } from "../loggers.js";
 import type { WebInboundMsg } from "../types.js";
 import { elide } from "../util.js";
-import { maybeSendAckReaction } from "./ack-reaction.js";
 import { formatGroupMembers } from "./group-members.js";
 import { updateLastRouteInBackground } from "./last-route.js";
 import { buildInboundLine } from "./message-line.js";
+import { maybeMarkWhatsAppRoamingSeen } from "./roaming-seen.js";
 
 export type GroupHistoryEntry = {
   sender: string;
@@ -194,17 +194,12 @@ export async function processMessage(params: {
     return false;
   }
 
-  // Send ack reaction immediately upon message receipt (post-gating)
-  maybeSendAckReaction({
+  // Roaming seen reaction: keep latest message marked as seen.
+  maybeMarkWhatsAppRoamingSeen({
     cfg: params.cfg,
     msg: params.msg,
-    agentId: params.route.agentId,
-    sessionKey: params.route.sessionKey,
-    conversationId,
     verbose: params.verbose,
     accountId: params.route.accountId,
-    info: params.replyLogger.info.bind(params.replyLogger),
-    warn: params.replyLogger.warn.bind(params.replyLogger),
   });
 
   const correlationId = params.msg.id ?? newConnectionId();
