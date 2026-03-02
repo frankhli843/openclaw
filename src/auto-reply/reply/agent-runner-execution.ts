@@ -13,7 +13,6 @@ import {
   sanitizeUserFacingText,
 } from "../../agents/pi-embedded-helpers.js";
 import { runEmbeddedPiAgent } from "../../agents/pi-embedded.js";
-import { sendMessageWhatsApp } from "../../channel-web.js";
 import {
   resolveGroupSessionKey,
   resolveSessionTranscriptPath,
@@ -37,6 +36,11 @@ import {
   SILENT_REPLY_TOKEN,
 } from "../tokens.js";
 import type { GetReplyOptions, ReplyPayload } from "../types.js";
+import {
+  isRetryableAgentFailure,
+  maybeRedirectCompactionResetToLogsGroup,
+  maybeRedirectErrorToLogsGroup,
+} from "./agent-runner-execution.frankclaw.js";
 import {
   buildEmbeddedRunBaseParams,
   buildEmbeddedRunContexts,
@@ -456,15 +460,13 @@ export async function runAgentTurnWithFallback(params: {
         didResetAfterCompactionFailure = true;
         const resetText =
           "⚠️ Context limit exceeded. I've reset our conversation to start fresh - please try again.";
-        // [frankclaw] Redirect to logs group
-        const LOGS_GROUP_1 = process.env.FRANKCLAW_LOGS_GROUP;
-        if (LOGS_GROUP_1) {
-          sendMessageWhatsApp(
-            LOGS_GROUP_1,
-            `${resetText}\nSession: ${params.sessionKey ?? "unknown"}`,
-            { verbose: false },
-          ).catch(() => {});
-          return { kind: "final", payload: { text: SILENT_REPLY_TOKEN } };
+        // [frankclaw] Redirect to logs group if configured
+        const compactionRedirect = maybeRedirectCompactionResetToLogsGroup({
+          resetText,
+          sessionKey: params.sessionKey,
+        });
+        if (compactionRedirect) {
+          return compactionRedirect;
         }
         return {
           kind: "final",
@@ -584,41 +586,33 @@ export async function runAgentTurnWithFallback(params: {
         ? sanitizeUserFacingText(message, { errorContext: true })
         : message;
       const trimmedMessage = safeMessage.replace(/\.\s*$/, "");
-      const retryableFailure =
-        isTransientHttp ||
-        isRateLimitErrorMessage(message) ||
-        fallbackAttempts.some(
-          (attempt) =>
-            attempt.reason === "rate_limit" ||
-            attempt.reason === "timeout" ||
-            (typeof attempt.status === "number" && attempt.status >= 500),
-        );
+      // [frankclaw] Detect retryable failures for deferred retry system
+      const retryableFailure = isRetryableAgentFailure({
+        isTransientHttp,
+        errorMessage: message,
+        fallbackAttempts,
+        isRateLimitError: isRateLimitErrorMessage,
+      });
       const fallbackText = isContextOverflow
         ? "⚠️ Context overflow — prompt too large for this model. Try a shorter message or a larger-context model."
         : isRoleOrderingError
           ? "⚠️ Message ordering conflict - please try again. If this persists, use /new to start a fresh session."
           : `⚠️ Agent failed before reply: ${trimmedMessage}.\nLogs: openclaw logs --follow`;
 
-      // [frankclaw] Redirect errors to logs group instead of the user-facing chat
-      const FRANKCLAW_LOGS_GROUP = process.env.FRANKCLAW_LOGS_GROUP;
-      if (FRANKCLAW_LOGS_GROUP) {
-        const sessionInfo = params.sessionKey ?? "unknown session";
-        const logMessage = `⚠️ Error in ${sessionInfo}\n${fallbackText}`;
-        sendMessageWhatsApp(FRANKCLAW_LOGS_GROUP, logMessage, { verbose: false }).catch((err) => {
-          defaultRuntime.error(`Failed to send error to logs group: ${err}`);
-        });
-        // Auto-reset on context overflow so next message works
-        if (isContextOverflow && params.sessionKey) {
-          await params.resetSessionAfterCompactionFailure(message).catch(() => {});
-        }
-        return {
-          kind: "final",
-          payload: {
-            text: SILENT_REPLY_TOKEN,
-          },
-          retryableFailure,
-          failureMessage: trimmedMessage,
-        };
+      // [frankclaw] Redirect errors to logs group if configured
+      const errorRedirect = await maybeRedirectErrorToLogsGroup({
+        fallbackText,
+        sessionKey: params.sessionKey,
+        isContextOverflow,
+        retryableFailure,
+        failureMessage: trimmedMessage,
+        resetSession:
+          isContextOverflow && params.sessionKey
+            ? (msg) => params.resetSessionAfterCompactionFailure(msg)
+            : undefined,
+      });
+      if (errorRedirect) {
+        return errorRedirect;
       }
 
       return {
