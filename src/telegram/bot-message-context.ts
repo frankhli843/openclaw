@@ -19,11 +19,9 @@ import { buildMentionRegexes, matchesMentionWithExplicit } from "../auto-reply/r
 import type { MsgContext } from "../auto-reply/templating.js";
 import { shouldAckReaction as shouldAckReactionGate } from "../channels/ack-reactions.js";
 import { resolveControlCommandGate } from "../channels/command-gating.js";
-import { notifyBlocked } from "../channels/gate-notify.js";
 import { formatLocationText, toLocationContext } from "../channels/location.js";
 import { logInboundDrop } from "../channels/logging.js";
-import { resolveGateMode, resolveMentionGatingWithBypass } from "../channels/mention-gating.js";
-import { resolveTelegramGroupGateMode } from "../channels/plugins/group-mentions.js";
+import { resolveMentionGatingWithBypass } from "../channels/mention-gating.js";
 import { recordInboundSession } from "../channels/session.js";
 import {
   createStatusReactionController,
@@ -49,6 +47,7 @@ import {
   normalizeAllowFrom,
   normalizeDmAllowFromWithStore,
 } from "./bot-access.js";
+import { resolveTelegramGateModeCheck } from "./bot-message-context.frankclaw.js";
 import {
   buildGroupLabel,
   buildSenderLabel,
@@ -463,57 +462,25 @@ export const buildTelegramMessageContext = async ({
   const replyFromId = msg.reply_to_message?.from?.id;
   const implicitMention = botId != null && replyFromId === botId;
 
-  // --- gateMode check (minimal, Telegram vanilla lifeline) ---
-  let tgGateModeApproved = false;
-  let tgGateModeEffectiveMention = false;
-  if (isGroup) {
-    const gateModeResult = resolveTelegramGroupGateMode({
-      cfg,
-      groupId: String(chatId),
-    });
-    if (gateModeResult?.gateMode) {
-      const mentionKeywords = cfg.agents?.defaults?.mentionKeywords ?? [];
-      const tgAllowFrom = (cfg.channels?.telegram?.allowFrom ?? []).map(String);
-      const senderIdStr = senderId ? String(senderId) : "";
-      const gateModeAction = resolveGateMode({
-        gateMode: gateModeResult.gateMode,
-        senderId: senderIdStr,
-        allowFrom: tgAllowFrom,
-        allowedSenders: gateModeResult.allowedSenders,
-        wasMentioned,
-        messageText: rawBody ?? "",
-        mentionKeywords,
-      });
-      if (gateModeAction.action === "skip") {
-        // Only send gate-notify for truly "blocked" groups (unknown/new).
-        if (gateModeResult.gateMode === "blocked") {
-          notifyBlocked({
-            platform: "telegram",
-            chatName: msg.chat.title ?? String(chatId),
-            chatId: String(chatId),
-            senderId: senderIdStr,
-            isGroup: true,
-            preview: (rawBody ?? "").slice(0, 100),
-            metadata: {
-              "Chat Title": msg.chat.title,
-              "Chat Username": msg.chat.username,
-              "Chat Type": msg.chat.type,
-              "Sender Name": senderName,
-              "Sender Username": senderUsername,
-            },
-          });
-        }
-        return null;
-      }
-      if (gateModeAction.action === "silent") {
-        return null;
-      }
-      // action === "process" — mark approved so legacy mention gate is skipped below
-      tgGateModeApproved = true;
-      tgGateModeEffectiveMention = gateModeAction.effectiveWasMentioned;
-    }
+  // [frankclaw] gateMode check for Telegram groups
+  const tgGateModeCheck = resolveTelegramGateModeCheck({
+    cfg,
+    isGroup,
+    chatId,
+    chatTitle: msg.chat.title,
+    chatUsername: msg.chat.username,
+    chatType: msg.chat.type,
+    senderId,
+    senderName,
+    senderUsername,
+    wasMentioned,
+    rawBody: rawBody ?? "",
+  });
+  if (tgGateModeCheck.shouldDrop) {
+    return null;
   }
-  // --- end gateMode check ---
+  const tgGateModeApproved = tgGateModeCheck.approved;
+  const tgGateModeEffectiveMention = tgGateModeCheck.effectiveMention;
 
   const canDetectMention = Boolean(botUsername) || mentionRegexes.length > 0;
   // When gateMode already approved the message, skip legacy mention gating entirely.
