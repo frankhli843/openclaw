@@ -1,9 +1,7 @@
 import { hasControlCommand } from "../../../auto-reply/command-detection.js";
 import { parseActivationCommand } from "../../../auto-reply/group-activation.js";
 import { recordPendingHistoryEntryIfEnabled } from "../../../auto-reply/reply/history.js";
-import { getChannelDock } from "../../../channels/dock.js";
-import { notifyBlocked } from "../../../channels/gate-notify.js";
-import { resolveGateMode, resolveMentionGating } from "../../../channels/mention-gating.js";
+import { resolveMentionGating } from "../../../channels/mention-gating.js";
 import type { loadConfig } from "../../../config/config.js";
 import { normalizeE164 } from "../../../utils.js";
 import type { MentionConfig } from "../mentions.js";
@@ -11,8 +9,8 @@ import { buildMentionConfig, debugMention, resolveOwnerList } from "../mentions.
 import type { WebInboundMsg } from "../types.js";
 import { stripMentionsForCommand } from "./commands.js";
 import { resolveGroupActivationFor, resolveGroupPolicyFor } from "./group-activation.js";
-import { formatGroupMembers, noteGroupMember } from "./group-members.js";
-import { maybeMarkWhatsAppRoamingSeen } from "./roaming-seen.js";
+import { resolveWebGroupGateModeCheck } from "./group-gating.frankclaw.js";
+import { noteGroupMember } from "./group-members.js";
 
 export type GroupHistoryEntry = {
   sender: string;
@@ -105,94 +103,32 @@ export function applyGroupGating(params: ApplyGroupGatingParams) {
     "group mention debug",
   );
 
-  // --- gateMode check (takes priority over legacy requireMention when configured) ---
-  const channelId = params.channel ?? "whatsapp";
-  const dock = getChannelDock(channelId as Parameters<typeof getChannelDock>[0]);
-  const gateModeResult = dock?.groups?.resolveGateMode?.({
+  // [frankclaw] gateMode check (takes priority over legacy requireMention when configured)
+  const gateModeCheck = resolveWebGroupGateModeCheck({
     cfg: params.cfg,
-    groupId: params.conversationId,
-    accountId: undefined,
+    channel: params.channel ?? "whatsapp",
+    conversationId: params.conversationId,
+    msg: params.msg,
+    groupHistoryKey: params.groupHistoryKey,
+    groupMemberNames: params.groupMemberNames,
+    logVerbose: params.logVerbose,
+    verbose: params.verbose ?? false,
+    accountId: params.accountId,
+    recordHistory: () =>
+      recordPendingGroupHistoryEntry({
+        msg: params.msg,
+        groupHistories: params.groupHistories,
+        groupHistoryKey: params.groupHistoryKey,
+        groupHistoryLimit: params.groupHistoryLimit,
+      }),
   });
-  if (gateModeResult?.gateMode) {
-    const mentionKeywords = params.cfg.agents?.defaults?.mentionKeywords ?? [];
-    const senderE164 = normalizeE164(params.msg.senderE164 ?? "");
-    const allowFrom = (params.cfg.channels?.whatsapp?.allowFrom ?? [])
-      .map((e) => normalizeE164(String(e)))
-      .filter((e): e is string => Boolean(e));
-    const gateModeAction = resolveGateMode({
-      gateMode: gateModeResult.gateMode,
-      senderId: senderE164,
-      allowFrom,
-      allowedSenders: gateModeResult.allowedSenders
-        .map((s) => normalizeE164(String(s)))
-        .filter((s): s is string => Boolean(s)),
-      wasMentioned: params.msg.wasMentioned ?? false,
-      messageText: params.msg.body ?? "",
-      mentionKeywords,
-    });
-
-    if (gateModeAction.action === "skip") {
-      params.logVerbose(
-        `Group message blocked by gateMode=${gateModeResult.gateMode} in ${params.conversationId}`,
-      );
-      // Only send gate-notify for truly "blocked" groups (unknown/new).
-      if (gateModeResult.gateMode === "blocked") {
-        notifyBlocked({
-          platform: channelId,
-          chatName: params.msg.groupSubject ?? params.conversationId,
-          chatId: params.conversationId,
-          senderId: senderE164 || params.msg.senderJid || "unknown",
-          isGroup: true,
-          preview: (params.msg.body ?? "").slice(0, 100),
-          metadata: {
-            "Group Subject": params.msg.groupSubject,
-            "Sender Name": params.msg.senderName,
-            "Sender JID": params.msg.senderJid,
-            Participants: formatGroupMembers({
-              participants: params.msg.groupParticipants,
-              roster: params.groupMemberNames.get(params.groupHistoryKey),
-              fallbackE164: params.msg.senderE164,
-            }),
-          },
-        });
-      }
-
-      if (channelId === "whatsapp" && gateModeResult.gateMode !== "blocked") {
-        maybeMarkWhatsAppRoamingSeen({
-          cfg: params.cfg,
-          msg: params.msg,
-          verbose: params.verbose ?? false,
-          accountId: params.accountId,
-        });
-      }
-
-      recordPendingGroupHistoryEntry({
-        msg: params.msg,
-        groupHistories: params.groupHistories,
-        groupHistoryKey: params.groupHistoryKey,
-        groupHistoryLimit: params.groupHistoryLimit,
-      });
-      return { shouldProcess: false };
-    }
-
-    if (gateModeAction.action === "silent") {
-      params.logVerbose(
-        `Group message silent by gateMode=${gateModeResult.gateMode} in ${params.conversationId}`,
-      );
-      recordPendingGroupHistoryEntry({
-        msg: params.msg,
-        groupHistories: params.groupHistories,
-        groupHistoryKey: params.groupHistoryKey,
-        groupHistoryLimit: params.groupHistoryLimit,
-      });
-      return { shouldProcess: false };
-    }
-
-    // action === "process" — fall through to normal processing
-    params.msg.wasMentioned = gateModeAction.effectiveWasMentioned;
+  if (gateModeCheck.shouldDrop) {
+    return { shouldProcess: false };
+  }
+  if (gateModeCheck.approved) {
+    params.msg.wasMentioned = gateModeCheck.effectiveMention;
     return { shouldProcess: true };
   }
-  // --- end gateMode check (fall through to legacy requireMention) ---
 
   noteGroupMember(
     params.groupMemberNames,
