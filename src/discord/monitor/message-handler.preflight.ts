@@ -11,10 +11,8 @@ import {
 } from "../../auto-reply/reply/mentions.js";
 import { formatAllowlistMatchMeta } from "../../channels/allowlist-match.js";
 import { resolveControlCommandGate } from "../../channels/command-gating.js";
-import { notifyBlocked } from "../../channels/gate-notify.js";
 import { logInboundDrop } from "../../channels/logging.js";
-import { resolveGateMode, resolveMentionGatingWithBypass } from "../../channels/mention-gating.js";
-import { resolveDiscordGroupGateMode } from "../../channels/plugins/group-mentions.js";
+import { resolveMentionGatingWithBypass } from "../../channels/mention-gating.js";
 import { loadConfig } from "../../config/config.js";
 import { isDangerousNameMatchingEnabled } from "../../config/dangerous-name-matching.js";
 import { logVerbose, shouldLogVerbose } from "../../globals.js";
@@ -49,6 +47,7 @@ import {
   resolveDiscordSystemLocation,
   resolveTimestampMs,
 } from "./format.js";
+import { resolveDiscordGateModeCheck } from "./message-handler.preflight.frankclaw.js";
 import type {
   DiscordMessagePreflightContext,
   DiscordMessagePreflightParams,
@@ -621,94 +620,34 @@ export async function preflightDiscordMessage(
     }
   }
 
-  // --- gateMode check (takes priority over legacy requireMention when configured) ---
-  let gateModeApproved = false;
-  let gateModeEffectiveMention = false;
-  if (isGuildMessage) {
-    const gateModeResult = resolveDiscordGroupGateMode({
-      cfg: params.cfg,
-      groupId: messageChannelId,
-      groupChannel: channelName,
-      groupSpace: params.data.guild?.id,
-    });
-    if (gateModeResult?.gateMode) {
-      const mentionKeywords = params.cfg.agents?.defaults?.mentionKeywords ?? [];
-      // Use the DM-level allowFrom (owner identities) for gateMode owner checks.
-      // Fall back to guild-level users lists only if DM allowFrom is not configured.
-      const dmAllowFrom = params.discordConfig?.allowFrom
-        ? params.discordConfig.allowFrom.map(String)
-        : (params.discordConfig?.dm?.allowFrom ?? []).map(String);
-      const allowFrom =
-        dmAllowFrom.length > 0
-          ? dmAllowFrom
-          : params.cfg.channels?.discord?.guilds
-            ? Object.values(params.cfg.channels.discord.guilds).flatMap((g) => {
-                const users: string[] = [];
-                if (g && typeof g === "object" && "users" in g && Array.isArray(g.users)) {
-                  users.push(...g.users.map(String));
-                }
-                return users;
-              })
-            : [];
-      const gateModeAction = resolveGateMode({
-        gateMode: gateModeResult.gateMode,
-        senderId: sender.id,
-        allowFrom,
-        allowedSenders: gateModeResult.allowedSenders.map(String),
-        wasMentioned,
-        messageText: baseText || "",
-        mentionKeywords,
-      });
-
-      if (gateModeAction.action === "skip") {
-        logDebug(`[discord-preflight] drop: gateMode=${gateModeResult.gateMode}`);
-        // Only send gate-notify for truly "blocked" groups (unknown/new).
-        if (gateModeResult.gateMode === "blocked") {
-          notifyBlocked({
-            platform: "discord",
-            chatName: channelName ?? messageChannelId,
-            chatId: messageChannelId,
-            senderId: sender.id,
-            isGroup: true,
-            preview: (baseText || "").slice(0, 100),
-            metadata: {
-              Workspace: params.data.guild?.name ?? params.data.guild_id,
-              "Workspace ID": params.data.guild?.id ?? params.data.guild_id,
-              Channel: channelName ?? channelInfo?.name,
-              "Channel ID": messageChannelId,
-              "Channel Topic": channelInfo?.topic,
-              "Parent Channel ID": channelInfo?.parentId,
-              Sender: sender.name,
-              "Sender Tag": sender.tag,
-            },
-          });
-        }
-        recordPendingHistoryEntryIfEnabled({
-          historyMap: params.guildHistories,
-          historyKey: messageChannelId,
-          limit: params.historyLimit,
-          entry: historyEntry ?? null,
-        });
-        return null;
-      }
-
-      if (gateModeAction.action === "silent") {
-        logDebug(`[discord-preflight] silent: gateMode=${gateModeResult.gateMode}`);
-        recordPendingHistoryEntryIfEnabled({
-          historyMap: params.guildHistories,
-          historyKey: messageChannelId,
-          limit: params.historyLimit,
-          entry: historyEntry ?? null,
-        });
-        return null;
-      }
-
-      // action === "process" — mark approved so legacy mention gate is skipped below
-      gateModeApproved = true;
-      gateModeEffectiveMention = gateModeAction.effectiveWasMentioned;
-    }
+  // [frankclaw] gateMode check (takes priority over legacy requireMention when configured)
+  const gateModeCheck = resolveDiscordGateModeCheck({
+    cfg: params.cfg,
+    isGuildMessage,
+    messageChannelId,
+    channelName,
+    channelInfo: channelInfo ?? undefined,
+    guildData: { guild: params.data.guild ?? undefined, guild_id: params.data.guild_id },
+    discordConfig: params.discordConfig,
+    senderId: sender.id,
+    senderName: sender.name,
+    senderTag: sender.tag,
+    wasMentioned,
+    baseText: baseText || "",
+    logDebug,
+    recordHistory: () =>
+      recordPendingHistoryEntryIfEnabled({
+        historyMap: params.guildHistories,
+        historyKey: messageChannelId,
+        limit: params.historyLimit,
+        entry: historyEntry ?? null,
+      }),
+  });
+  if (gateModeCheck.shouldDrop) {
+    return null;
   }
-  // --- end gateMode check ---
+  const gateModeApproved = gateModeCheck.approved;
+  const gateModeEffectiveMention = gateModeCheck.effectiveMention;
 
   const canDetectMention = Boolean(botId) || mentionRegexes.length > 0;
   // When gateMode already approved the message, skip legacy mention gating entirely.
