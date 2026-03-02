@@ -1,4 +1,3 @@
-import { parseDurationMs } from "../../cli/parse-duration.js";
 import type { CronConfig, CronRetryOn } from "../../config/types.cron.js";
 import type { HeartbeatRunResult } from "../../infra/heartbeat-wake.js";
 import { DEFAULT_AGENT_ID } from "../../routing/session-key.js";
@@ -11,7 +10,6 @@ import type {
   CronRunOutcome,
   CronRunStatus,
   CronRunTelemetry,
-  CronSelfHealState,
 } from "../types.js";
 import {
   computeJobNextRunAtMs,
@@ -21,6 +19,11 @@ import {
   resolveJobPayloadTextForMain,
 } from "./jobs.js";
 import { locked } from "./locked.js";
+import {
+  applySelfHealOnError,
+  clearSelfHealOnSuccess,
+  shouldBypassDurableQueueForCronJob,
+} from "./self-heal.frankclaw.js";
 import type { CronEvent, CronServiceState } from "./state.js";
 import { ensureLoaded, persist } from "./store.js";
 import { DEFAULT_JOB_TIMEOUT_MS, resolveCronJobTimeoutMs } from "./timeout-policy.js";
@@ -47,6 +50,8 @@ type TimedCronRunOutcome = CronRunOutcome &
     deliveryAttempted?: boolean;
     startedAt: number;
     endedAt: number;
+    /** The scheduled nextRunAtMs at the time the job was picked up (for self-heal tracking). */
+    scheduledAtMs?: number;
   };
 
 export async function executeJobCoreWithTimeout(
@@ -114,82 +119,6 @@ function errorBackoffMs(
   return scheduleMs[Math.max(0, idx)];
 }
 
-/**
- * Cron self-heal:
- * - For recurring cron jobs (schedule.kind="cron"), transient infra failures can be
- *   retried after a cooldown window.
- * - Retries are per run (deduped by the scheduled run timestamp).
- * - One-shot at jobs are not eligible.
- */
-const DEFAULT_SELF_HEAL_RETRY_DELAY = "30m";
-const DEFAULT_SELF_HEAL_MAX_ATTEMPTS_PER_RUN = 2;
-const DEFAULT_SELF_HEAL_MATCHERS = [
-  "rate limit",
-  "too many requests",
-  "429",
-  "quota",
-  "throttl",
-  "cooldown",
-  "no available auth profile",
-  "auth profile",
-  "announce delivery failed",
-  "cron announce delivery failed",
-];
-
-type ResolvedCronSelfHealConfig = {
-  enabled: boolean;
-  retryDelayMs: number;
-  maxAttemptsPerRun: number;
-  matchers: string[];
-};
-
-function resolveCronSelfHealConfig(cronConfig?: CronConfig): ResolvedCronSelfHealConfig {
-  const enabled = cronConfig?.selfHeal?.enabled !== false;
-  let retryDelayMs = parseDurationMs(DEFAULT_SELF_HEAL_RETRY_DELAY, { defaultUnit: "m" });
-  const rawDelay = cronConfig?.selfHeal?.retryDelay;
-  if (typeof rawDelay === "string" && rawDelay.trim()) {
-    try {
-      retryDelayMs = parseDurationMs(rawDelay.trim(), { defaultUnit: "m" });
-    } catch {
-      retryDelayMs = parseDurationMs(DEFAULT_SELF_HEAL_RETRY_DELAY, { defaultUnit: "m" });
-    }
-  }
-  const maxAttemptsRaw = cronConfig?.selfHeal?.maxAttemptsPerRun;
-  const maxAttemptsPerRun =
-    typeof maxAttemptsRaw === "number" && Number.isFinite(maxAttemptsRaw)
-      ? Math.max(1, Math.floor(maxAttemptsRaw))
-      : DEFAULT_SELF_HEAL_MAX_ATTEMPTS_PER_RUN;
-  const matchersRaw = cronConfig?.selfHeal?.match;
-  const matchers =
-    Array.isArray(matchersRaw) && matchersRaw.length > 0
-      ? matchersRaw.map((x) => (typeof x === "string" ? x.trim() : "")).filter((x) => x)
-      : DEFAULT_SELF_HEAL_MATCHERS;
-  return { enabled, retryDelayMs: Math.max(0, retryDelayMs), maxAttemptsPerRun, matchers };
-}
-
-function isTransientCronInfraError(error: string | undefined, cfg: ResolvedCronSelfHealConfig) {
-  if (!cfg.enabled) return false;
-  const raw = typeof error === "string" ? error.trim() : "";
-  if (!raw) return false;
-  const lower = raw.toLowerCase();
-  return cfg.matchers.some((m) => {
-    const needle = m.toLowerCase();
-    return needle ? lower.includes(needle) : false;
-  });
-}
-
-function formatCronSelfHealAlert(params: {
-  job: CronJob;
-  originRunAtMs: number;
-  attempt: number;
-  maxAttempts: number;
-  error?: string;
-}): string {
-  const runIso = new Date(params.originRunAtMs).toISOString();
-  const errText = params.error ? String(params.error) : "<no error>";
-  return `⚠️ Cron self-heal give-up: job=${params.job.id} name=${params.job.name} run=${runIso} attempt=${params.attempt}/${params.maxAttempts} error=${errText}`;
-}
-
 /** Default max retries for one-shot jobs on transient errors (#24355). */
 const DEFAULT_MAX_TRANSIENT_RETRIES = 3;
 
@@ -221,13 +150,7 @@ function resolveRetryConfig(cronConfig?: CronConfig) {
   };
 }
 
-export function shouldBypassDurableQueueForCronJob(job: CronJob): boolean {
-  return (
-    job.sessionTarget === "main" &&
-    job.wakeMode === "now" &&
-    job.payload.kind === "systemEvent"
-  );
-}
+export { shouldBypassDurableQueueForCronJob } from "./self-heal.frankclaw.js";
 
 function resolveDeliveryStatus(params: { job: CronJob; delivered?: boolean }): CronDeliveryStatus {
   if (params.delivered === true) {
@@ -369,6 +292,7 @@ export function applyJobResult(
     delivered?: boolean;
     startedAt: number;
     endedAt: number;
+    scheduledAtMs?: number;
   },
 ): boolean {
   job.state.runningAtMs = undefined;
@@ -414,6 +338,8 @@ export function applyJobResult(
   } else {
     job.state.consecutiveErrors = 0;
     job.state.lastFailureAlertAtMs = undefined;
+    // [frankclaw] Clear self-heal state on success/skipped.
+    clearSelfHealOnSuccess(job);
   }
 
   const shouldDelete =
@@ -464,30 +390,41 @@ export function applyJobResult(
         }
       }
     } else if (result.status === "error" && job.enabled) {
-      // Apply exponential backoff for errored jobs to prevent retry storms.
-      const backoff = errorBackoffMs(job.state.consecutiveErrors ?? 1);
-      let normalNext: number | undefined;
-      try {
-        normalNext = computeJobNextRunAtMs(job, result.endedAt);
-      } catch (err) {
-        // If the schedule expression/timezone throws (croner edge cases),
-        // record the schedule error (auto-disables after repeated failures)
-        // and fall back to backoff-only schedule so the state update is not lost.
-        recordScheduleComputeError({ state, job, err });
-      }
-      const backoffNext = result.endedAt + backoff;
-      // Use whichever is later: the natural next run or the backoff delay.
-      job.state.nextRunAtMs =
-        normalNext !== undefined ? Math.max(normalNext, backoffNext) : backoffNext;
-      state.deps.log.info(
-        {
-          jobId: job.id,
-          consecutiveErrors: job.state.consecutiveErrors,
-          backoffMs: backoff,
-          nextRunAtMs: job.state.nextRunAtMs,
+      // [frankclaw] Self-heal: for cron-schedule jobs, try automatic retry on transient infra errors.
+      const selfHealHandled = applySelfHealOnError({
+        state,
+        job,
+        result: {
+          status: "error",
+          error: result.error,
+          startedAt: result.startedAt,
+          endedAt: result.endedAt,
+          scheduledAtMs: result.scheduledAtMs,
         },
-        "cron: applying error backoff",
-      );
+        errorBackoffMs: (n) => errorBackoffMs(n),
+      });
+      if (!selfHealHandled) {
+        // Self-heal did not schedule a retry — use upstream error backoff.
+        const backoff = errorBackoffMs(job.state.consecutiveErrors ?? 1);
+        let normalNext: number | undefined;
+        try {
+          normalNext = computeJobNextRunAtMs(job, result.endedAt);
+        } catch (err) {
+          recordScheduleComputeError({ state, job, err });
+        }
+        const backoffNext = result.endedAt + backoff;
+        job.state.nextRunAtMs =
+          normalNext !== undefined ? Math.max(normalNext, backoffNext) : backoffNext;
+        state.deps.log.info(
+          {
+            jobId: job.id,
+            consecutiveErrors: job.state.consecutiveErrors,
+            backoffMs: backoff,
+            nextRunAtMs: job.state.nextRunAtMs,
+          },
+          "cron: applying error backoff",
+        );
+      }
     } else if (job.enabled) {
       let naturalNext: number | undefined;
       try {
@@ -538,6 +475,7 @@ function applyOutcomeToStoredJob(state: CronServiceState, result: TimedCronRunOu
     delivered: result.delivered,
     startedAt: result.startedAt,
     endedAt: result.endedAt,
+    scheduledAtMs: result.scheduledAtMs,
   });
 
   emitJobFinished(state, job, result, result.startedAt);
@@ -658,14 +596,16 @@ export async function onTimer(state: CronServiceState) {
       return due.map((j) => ({
         id: j.id,
         job: j,
+        scheduledAtMs: j.state.nextRunAtMs, // [frankclaw] Capture for self-heal tracking
       }));
     });
 
     const runDueJob = async (params: {
       id: string;
       job: CronJob;
+      scheduledAtMs?: number;
     }): Promise<TimedCronRunOutcome> => {
-      const { id, job } = params;
+      const { id, job, scheduledAtMs } = params;
       const startedAt = state.deps.nowMs();
       job.state.runningAtMs = startedAt;
       emit(state, { jobId: job.id, action: "started", runAtMs: startedAt });
@@ -673,7 +613,7 @@ export async function onTimer(state: CronServiceState) {
 
       try {
         const result = await executeJobCoreWithTimeout(state, job);
-        return { jobId: id, ...result, startedAt, endedAt: state.deps.nowMs() };
+        return { jobId: id, scheduledAtMs, ...result, startedAt, endedAt: state.deps.nowMs() };
       } catch (err) {
         const errorText = isAbortError(err) ? timeoutErrorMessage() : String(err);
         state.deps.log.warn(
@@ -682,6 +622,7 @@ export async function onTimer(state: CronServiceState) {
         );
         return {
           jobId: id,
+          scheduledAtMs,
           status: "error",
           error: errorText,
           startedAt,
