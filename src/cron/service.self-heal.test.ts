@@ -111,9 +111,11 @@ describe("cron retry/backoff behavior", () => {
     const storedJob = state.store?.jobs.find((j) => j.id === job.id);
     expect(storedJob?.state.lastStatus).toBe("error");
     expect(storedJob?.state.consecutiveErrors).toBe(1);
-    expect(storedJob?.state.selfHeal).toBeUndefined();
-    // cron expression next minute should dominate first 30s backoff
-    expect(storedJob?.state.nextRunAtMs).toBe(dueAt + 60_000);
+    // Self-heal should schedule a retry (transient "rate limit" matches)
+    expect(storedJob?.state.selfHeal).toBeDefined();
+    expect(storedJob?.state.selfHeal?.attempts).toBe(1);
+    // nextRunAtMs should be endedAt + 30m (self-heal retry delay)
+    expect(storedJob?.state.nextRunAtMs).toBeGreaterThan(dueAt + 60_000);
 
     now = storedJob?.state.nextRunAtMs ?? dueAt + 60_000;
     await onTimer(state);
@@ -121,6 +123,8 @@ describe("cron retry/backoff behavior", () => {
     const afterSuccess = state.store?.jobs.find((j) => j.id === job.id);
     expect(afterSuccess?.state.lastStatus).toBe("ok");
     expect(afterSuccess?.state.consecutiveErrors).toBe(0);
+    // Self-heal state should be cleared on success
+    expect(afterSuccess?.state.selfHeal).toBeUndefined();
   });
 
   it("increments consecutiveErrors across repeated cron failures", async () => {
@@ -171,7 +175,8 @@ describe("cron retry/backoff behavior", () => {
     storedJob = state.store?.jobs.find((j) => j.id === job.id);
     expect(storedJob?.state.lastStatus).toBe("error");
     expect(storedJob?.state.consecutiveErrors).toBe(2);
-    expect(sendDeadLetterAlert).not.toHaveBeenCalled();
+    // Self-heal should send a give-up alert after maxAttemptsPerRun exhausted
+    expect(sendDeadLetterAlert).toHaveBeenCalledTimes(1);
   });
 
   it("retries one-shot at jobs on transient errors", async () => {
