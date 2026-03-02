@@ -46,7 +46,7 @@ export type CronConfig = {
   sessionRetention?: string | false;
 
   /**
-   * Cron self-heal retry settings.
+   * [frankclaw] Cron self-heal retry settings.
    *
    * For recurring cron jobs (schedule.kind="cron"), when a run fails with a matching
    * transient infra error, the scheduler can automatically reschedule a bounded retry

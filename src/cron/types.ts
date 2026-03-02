@@ -114,6 +114,7 @@ export type CronPayloadPatch =
       bestEffortDeliver?: boolean;
     };
 
+/** [frankclaw] Cron self-heal state for automatic retry tracking. */
 export type CronSelfHealState = {
   /** The scheduled run time (from nextRunAtMs) of the original cron tick that failed. */
   originRunAtMs: number;

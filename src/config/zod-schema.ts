@@ -247,7 +247,7 @@ export const OpenClawSchema = z
         remoteCdpHandshakeTimeoutMs: z.number().int().nonnegative().optional(),
         color: z.string().optional(),
         executablePath: z.string().optional(),
-        userDataDir: z.string().optional(),
+        userDataDir: z.string().optional(), // [frankclaw]
         headless: z.boolean().optional(),
         noSandbox: z.boolean().optional(),
         attachOnly: z.boolean().optional(),
@@ -406,6 +406,7 @@ export const OpenClawSchema = z
         webhook: HttpUrlSchema.optional(),
         webhookToken: z.string().optional().register(sensitive),
         sessionRetention: z.union([z.string(), z.literal(false)]).optional(),
+        // [frankclaw] Cron self-heal retry configuration
         selfHeal: z
           .object({
             enabled: z.boolean().optional(),
