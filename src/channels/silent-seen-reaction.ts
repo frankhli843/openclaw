@@ -7,9 +7,15 @@
  * in each conversation carries the 👀.
  *
  * Channel-agnostic: each channel provides an adapter with add/remove helpers.
+ *
+ * Tracking is persisted to disk so old 👀 reactions are cleaned up even after
+ * a gateway restart.
  */
 
+import * as fs from "node:fs";
+import * as path from "node:path";
 import { logVerbose } from "../globals.js";
+import { resolveStateDir } from "../config/paths.js";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -33,10 +39,55 @@ export type SilentSeenOptions = {
   log?: (msg: string) => void;
 };
 
+// ─── Persistence ─────────────────────────────────────────────────────────────
+
+/** Override for tests — when set, skip disk I/O entirely. */
+let _persistenceDisabled = false;
+
+function getTrackingFilePath(): string {
+  return path.join(resolveStateDir(), "silent-seen-tracking.json");
+}
+
+function loadFromDisk(log: (msg: string) => void): Map<string, string> {
+  if (_persistenceDisabled) {return new Map();}
+  try {
+    const filePath = getTrackingFilePath();
+    if (!fs.existsSync(filePath)) {return new Map();}
+    const raw = fs.readFileSync(filePath, "utf-8");
+    const data: Record<string, string> = JSON.parse(raw);
+    return new Map(Object.entries(data));
+  } catch (err) {
+    log(`silent-seen: failed to load tracking from disk: ${String(err)}`);
+    return new Map();
+  }
+}
+
+function saveToDisk(map: Map<string, string>, log: (msg: string) => void): void {
+  if (_persistenceDisabled) {return;}
+  try {
+    const filePath = getTrackingFilePath();
+    const dir = path.dirname(filePath);
+    if (!fs.existsSync(dir)) {fs.mkdirSync(dir, { recursive: true });}
+    const data = Object.fromEntries(map);
+    fs.writeFileSync(filePath, JSON.stringify(data), "utf-8");
+  } catch (err) {
+    log(`silent-seen: failed to save tracking to disk: ${String(err)}`);
+  }
+}
+
 // ─── State ───────────────────────────────────────────────────────────────────
 
 /** conversationId → messageId of the last 👀'd message */
-const lastSeenByConversation = new Map<string, string>();
+let lastSeenByConversation: Map<string, string> | null = null;
+let _diskLoaded = false;
+
+function getMap(log: (msg: string) => void): Map<string, string> {
+  if (!_diskLoaded) {
+    lastSeenByConversation = loadFromDisk(log);
+    _diskLoaded = true;
+  }
+  return lastSeenByConversation!;
+}
 
 // ─── Public API ──────────────────────────────────────────────────────────────
 
@@ -50,7 +101,8 @@ export async function markSilentSeen(options: SilentSeenOptions): Promise<void> 
   const log = options.log ?? logVerbose;
   const { conversationId, messageId, adapter } = options;
 
-  const previousMessageId = lastSeenByConversation.get(conversationId);
+  const map = getMap(log);
+  const previousMessageId = map.get(conversationId);
 
   log(
     `silent-seen: conversation=${conversationId} current=${messageId} previous=${previousMessageId ?? "none"}`,
@@ -73,7 +125,8 @@ export async function markSilentSeen(options: SilentSeenOptions): Promise<void> 
   try {
     log(`silent-seen: adding ${emoji} to message ${messageId}`);
     await adapter.addReaction(messageId, emoji);
-    lastSeenByConversation.set(conversationId, messageId);
+    map.set(conversationId, messageId);
+    saveToDisk(map, log);
     log(`silent-seen: added ${emoji} to message ${messageId}`);
   } catch (err) {
     log(`silent-seen: failed to add ${emoji} to message ${messageId}: ${String(err)}`);
@@ -92,10 +145,12 @@ export async function clearSilentSeen(options: {
 }): Promise<void> {
   const emoji = options.emoji ?? "👀";
   const log = options.log ?? logVerbose;
-  const previousMessageId = lastSeenByConversation.get(options.conversationId);
+  const map = getMap(log);
+  const previousMessageId = map.get(options.conversationId);
 
   if (previousMessageId) {
-    lastSeenByConversation.delete(options.conversationId);
+    map.delete(options.conversationId);
+    saveToDisk(map, log);
     try {
       await options.adapter.removeReaction(previousMessageId, emoji);
     } catch (err) {
@@ -108,10 +163,21 @@ export async function clearSilentSeen(options: {
 
 /** @internal — for tests only */
 export function _getTrackedMessageId(conversationId: string): string | undefined {
-  return lastSeenByConversation.get(conversationId);
+  return getMap(logVerbose).get(conversationId);
 }
 
 /** @internal — for tests only */
 export function _clearAllTracking(): void {
-  lastSeenByConversation.clear();
+  if (lastSeenByConversation) {lastSeenByConversation.clear();}
+  _diskLoaded = false;
+}
+
+/** @internal — for tests only: disable disk persistence */
+export function _disablePersistence(): void {
+  _persistenceDisabled = true;
+}
+
+/** @internal — for tests only: re-enable disk persistence */
+export function _enablePersistence(): void {
+  _persistenceDisabled = false;
 }

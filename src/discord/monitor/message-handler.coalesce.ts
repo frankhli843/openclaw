@@ -69,6 +69,34 @@ export function createCoalescedDiscordMessageHandler(params: CoalescedMessageHan
       }
     }
 
+    // Defence-in-depth: strip the bot's own messages from the batch.
+    // The inbound handler should already filter them before enqueueing, but
+    // if any slip through (e.g. catch-up recovery), remove them here so they
+    // cannot poison the coalesced synthetic message's author field.
+    const botId = params.botUserId;
+    if (botId) {
+      for (let i = regularEvents.length - 1; i >= 0; i--) {
+        if (regularEvents[i].data.author?.id === botId) {
+          console.info(
+            `[coalesce-diag] removing bot-self event from batch: msgId=${regularEvents[i].data.message?.id ?? "?"}`,
+          );
+          regularEvents.splice(i, 1);
+        }
+      }
+      for (let i = commandEvents.length - 1; i >= 0; i--) {
+        if (commandEvents[i].data.author?.id === botId) {
+          commandEvents.splice(i, 1);
+        }
+      }
+      // If all events were bot messages, nothing to process.
+      if (regularEvents.length === 0 && commandEvents.length === 0) {
+        console.info(
+          `[coalesce-diag] batch contained only bot-self messages, skipping`,
+        );
+        return;
+      }
+    }
+
     // Fast-lane commands: process individually first.
     for (const { data } of commandEvents) {
       const ctx = await preflightDiscordMessage({

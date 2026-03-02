@@ -705,6 +705,18 @@ export async function monitorDiscordProvider(opts: MonitorDiscordOpts = {}) {
     console.info(
       `[discord-inbound] MESSAGE_CREATE: msgId=${messageId ?? "null"} channelId=${channelId ?? "null"} author=${authorId} content="${contentPreview}"`,
     );
+
+    // Filter out the bot's own messages before enqueueing.  Discord fires
+    // MESSAGE_CREATE for outgoing messages too.  If they enter the durable
+    // queue they can end up as the `lastData` in a coalesced batch, causing
+    // preflight to drop the entire batch (it sees bot author → reject).
+    if (botUserId && authorId === botUserId) {
+      console.info(
+        `[discord-inbound] SKIP own message: msgId=${messageId ?? "null"} channelId=${channelId ?? "null"}`,
+      );
+      return;
+    }
+
     if (!messageId || !channelId) {
       console.info(
         `[discord-inbound] FALLBACK to base handler: msgId=${messageId ?? "null"} channelId=${channelId ?? "null"} (missing id)`,
