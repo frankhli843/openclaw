@@ -496,6 +496,22 @@ export function createDiscordInboundDurableQueue(options: DurableDiscordInboundQ
         await removeJob(job.id);
       }
     } catch (err) {
+      // If the coalesced handler's preflight rejected the batch (e.g. mention-gating
+      // in a thread), fall back to processing each message individually through the
+      // single-message path which handles thread context correctly per-message.
+      const errCode =
+        err && typeof err === "object" && "code" in err
+          ? String((err as { code?: unknown }).code)
+          : null;
+      if (errCode === "COALESCE_PREFLIGHT_REJECTED") {
+        console.info(
+          `[durable-queue-diag] batch preflight rejected — falling back to individual processing: ${batch.length} jobs orderingKey=${batch[0]?.event.orderingKey}`,
+        );
+        for (const job of batch) {
+          await processOne(job);
+        }
+        return;
+      }
       // On failure, release all jobs back to queued with backoff
       for (const job of batch) {
         job.attempts += 1;

@@ -325,13 +325,12 @@ describe("coalesced message batch loss scenarios", () => {
   });
 
   describe("Preflight filtering drops coalesced batch", () => {
-    it("when preflight returns null for coalesced message, ALL batched messages are lost", async () => {
+    it("when preflight returns null for coalesced batch, throws COALESCE_PREFLIGHT_REJECTED for fallback", async () => {
       /**
-       * This is the critical path that causes message loss.
-       *
-       * If preflight rejects the synthetic coalesced message (e.g., due to
-       * mention-gating), ALL messages in the batch are effectively dropped
-       * since they were already consumed from the durable queue.
+       * FIXED: Previously, preflight rejection silently dropped ALL messages.
+       * Now the coalesced handler throws COALESCE_PREFLIGHT_REJECTED so the
+       * durable queue can fall back to processing each message individually
+       * through the single-message path (which handles thread context correctly).
        */
       mocks.preflightDiscordMessage.mockResolvedValue(null); // preflight rejects
 
@@ -350,14 +349,12 @@ describe("coalesced message batch loss scenarios", () => {
         }),
       ];
 
-      await handler(events, client);
+      // Should throw so the durable queue can fall back to individual processing
+      await expect(handler(events, client)).rejects.toThrow("COALESCE_PREFLIGHT_REJECTED");
 
       // Preflight was called but returned null → processDiscordMessage never called
       expect(mocks.preflightDiscordMessage).toHaveBeenCalledTimes(1);
       expect(mocks.processDiscordMessage).not.toHaveBeenCalled();
-
-      // Both messages m1 and m2 are now permanently lost.
-      // They were consumed from the durable queue but never processed.
     });
   });
 });

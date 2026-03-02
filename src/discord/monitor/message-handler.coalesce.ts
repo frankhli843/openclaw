@@ -200,8 +200,16 @@ export function createCoalescedDiscordMessageHandler(params: CoalescedMessageHan
 
     if (!ctx) {
       console.info(
-        `[coalesce-diag] DROPPED batch at preflight: ${regularEvents.length} msgs channelId=${events[0]?.channelId ?? "?"}`,
+        `[coalesce-diag] batch preflight rejected: ${regularEvents.length} msgs channelId=${events[0]?.channelId ?? "?"} — falling back to individual processing`,
       );
+      // Preflight rejected the coalesced synthetic message (e.g. mention-gating
+      // in a thread where the batch lacks @mention context). Throw a sentinel
+      // error so the durable queue can fall back to processing each message
+      // individually through the single-message path, which handles thread
+      // context and mention-gating correctly per-message.
+      const err = new Error("COALESCE_PREFLIGHT_REJECTED");
+      (err as Error & { code: string }).code = "COALESCE_PREFLIGHT_REJECTED";
+      throw err;
     } else {
       console.info(
         `[coalesce-diag] batch preflight passed: ${regularEvents.length} msgs wasMentioned=${ctx.wasMentioned} effectiveMentioned=${ctx.effectiveWasMentioned}`,
