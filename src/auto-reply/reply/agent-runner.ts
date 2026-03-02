@@ -41,19 +41,20 @@ import {
 import { runMemoryFlushIfNeeded } from "./agent-runner-memory.js";
 import { buildReplyPayloads } from "./agent-runner-payloads.js";
 import { appendUsageLine, formatResponseUsageLine } from "./agent-runner-utils.js";
+import {
+  buildScheduleDeferredRetry,
+  buildSendProgrammaticRetryUpdate,
+  handleRetryableRunOutcome,
+  initDeferredRetryWorker,
+} from "./agent-runner.frankclaw.js";
 import { createAudioAsVoiceBuffer, createBlockReplyPipeline } from "./block-reply-pipeline.js";
 import { resolveEffectiveBlockStreamingConfig } from "./block-streaming.js";
-import {
-  ensureDeferredRetryWorkerStarted,
-  enqueueDeferredRetry,
-} from "./deferred-retry-runtime.js";
 import { createFollowupRunner } from "./followup-runner.js";
 import { resolveOriginMessageProvider, resolveOriginMessageTo } from "./origin-routing.js";
 import { readPostCompactionContext } from "./post-compaction-context.js";
 import { resolveActiveRunQueueAction } from "./queue-policy.js";
 import { enqueueFollowupRun, type FollowupRun, type QueueSettings } from "./queue.js";
 import { createReplyToModeFilterForChannel, resolveReplyToMode } from "./reply-threading.js";
-import { isRoutableChannel, routeReply } from "./route-reply.js";
 import { incrementRunCompactionCount, persistRunSessionUsage } from "./session-run-accounting.js";
 import { createTypingSignaler } from "./typing-mode.js";
 import type { TypingController } from "./typing.js";
@@ -94,17 +95,6 @@ function appendUnscheduledReminderNote(payloads: ReplyPayload[]): ReplyPayload[]
     };
   });
 }
-
-// Track sessions pending post-compaction read audit (Layer 3)
-const pendingPostCompactionAudits = new Map<string, boolean>();
-
-const RETRYABLE_IMMEDIATE_ATTEMPTS = 1;
-const RETRYABLE_IMMEDIATE_BACKOFF_MS: readonly number[] = [];
-
-void ensureDeferredRetryWorkerStarted().catch((err) => {
-  defaultRuntime.error?.(`failed to initialize deferred retry worker: ${String(err)}`);
-});
-
 
 export async function runReplyAgent(params: {
   commandBody: string;
@@ -168,11 +158,8 @@ export async function runReplyAgent(params: {
   const activeSessionStore = sessionStore;
   let activeIsNewSession = isNewSession;
 
-  try {
-    await ensureDeferredRetryWorkerStarted();
-  } catch (err) {
-    defaultRuntime.error?.(`failed to start deferred retry worker: ${String(err)}`);
-  }
+  // [frankclaw] Initialize deferred retry worker
+  await initDeferredRetryWorker();
 
   const isHeartbeat = opts?.isHeartbeat === true;
   const typingSignals = createTypingSignaler({
@@ -303,40 +290,15 @@ export async function runReplyAgent(params: {
     agentCfgContextTokens,
   });
 
-  const sendProgrammaticRetryUpdate = async (text: string) => {
-    const payload: ReplyPayload = { text, isError: true };
-    const channel = followupRun.originatingChannel;
-    const to = followupRun.originatingTo;
-    if (isRoutableChannel(channel) && to) {
-      const result = await routeReply({
-        payload,
-        channel,
-        to,
-        sessionKey: followupRun.run.sessionKey,
-        accountId: followupRun.originatingAccountId,
-        threadId: followupRun.originatingThreadId,
-        cfg: followupRun.run.config,
-      });
-      if (result.ok) {
-        return;
-      }
-      defaultRuntime.error?.(`retry update route failed: ${result.error ?? "unknown"}`);
-    }
-    if (opts?.onBlockReply) {
-      await opts.onBlockReply(payload);
-    }
-  };
-
-  const scheduleDeferredRetry = async (message: string) => {
-    try {
-      await enqueueDeferredRetry(followupRun, message);
-    } catch (err) {
-      defaultRuntime.error?.(`failed to enqueue deferred retry: ${String(err)}`);
-      await sendProgrammaticRetryUpdate(
-        `⚠️ Deferred retry enqueue failed. Last error: ${message}. Please retry manually.`,
-      );
-    }
-  };
+  // [frankclaw] Deferred retry support
+  const sendProgrammaticRetryUpdate = buildSendProgrammaticRetryUpdate({
+    followupRun,
+    onBlockReply: opts?.onBlockReply ? (p: ReplyPayload) => opts.onBlockReply!(p) : undefined,
+  });
+  const scheduleDeferredRetry = buildScheduleDeferredRetry({
+    followupRun,
+    sendRetryUpdate: sendProgrammaticRetryUpdate,
+  });
 
   let responseUsageLine: string | undefined;
   type SessionResetOptions = {
@@ -450,13 +412,13 @@ export async function runReplyAgent(params: {
       resolvedVerboseLevel,
     });
 
-    if (runOutcome.kind === "final" && runOutcome.retryableFailure) {
-      for (let attempt = 2; attempt <= RETRYABLE_IMMEDIATE_ATTEMPTS; attempt += 1) {
-        const backoffMs = RETRYABLE_IMMEDIATE_BACKOFF_MS[attempt - 2] ?? 0;
-        if (backoffMs > 0) {
-          await new Promise<void>((resolve) => setTimeout(resolve, backoffMs));
-        }
-        runOutcome = await runAgentTurnWithFallback({
+    // [frankclaw] Handle retryable failures with immediate + deferred retry
+    const retryResult = await handleRetryableRunOutcome({
+      runOutcome,
+      isHeartbeat,
+      scheduleDeferredRetry,
+      rerunAgent: () =>
+        runAgentTurnWithFallback({
           commandBody,
           followupRun,
           sessionCtx,
@@ -478,27 +440,16 @@ export async function runReplyAgent(params: {
           activeSessionStore,
           storePath,
           resolvedVerboseLevel,
-        });
-        if (runOutcome.kind !== "final" || !runOutcome.retryableFailure) {
-          break;
-        }
+        }),
+    });
+    if (retryResult) {
+      runOutcome = retryResult.outcome;
+      if (retryResult.deferredPayload) {
+        return finalizeWithFollowup(retryResult.deferredPayload, queueKey, runFollowupTurn);
       }
     }
 
     if (runOutcome.kind === "final") {
-      if (runOutcome.retryableFailure && !isHeartbeat) {
-        await scheduleDeferredRetry(
-          runOutcome.failureMessage ?? runOutcome.payload.text ?? "unknown error",
-        );
-        return finalizeWithFollowup(
-          {
-            text: "⚠️ Provider temporarily unavailable. I queued deferred retries at 5s, 10s, 30s, 1m, 5m, and 10m. I will post the outcome here.",
-            isError: true,
-          },
-          queueKey,
-          runFollowupTurn,
-        );
-      }
       return finalizeWithFollowup(runOutcome.payload, queueKey, runFollowupTurn);
     }
 
