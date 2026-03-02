@@ -319,7 +319,7 @@ describe("durable queue concurrency", () => {
      * - Key B should start processing WITHOUT waiting for key A to finish
      */
     const startTimes: Map<string, number> = new Map();
-    let resolveA: (() => void) | null = null;
+    let resolveA: (() => void) | undefined;
 
     const queue = createDiscordInboundDurableQueue({
       accountId: "test",

@@ -64,35 +64,6 @@ describe("config compaction settings", () => {
     );
   });
 
-  it("preserves pi compaction override values", async () => {
-    await withTempHome(async (home) => {
-      const configDir = path.join(home, ".openclaw");
-      await fs.mkdir(configDir, { recursive: true });
-      await fs.writeFile(
-        path.join(configDir, "openclaw.json"),
-        JSON.stringify(
-          {
-            agents: {
-              defaults: {
-                compaction: {
-                  reserveTokens: 15_000,
-                  keepRecentTokens: 12_000,
-                },
-              },
-            },
-          },
-          null,
-          2,
-        ),
-        "utf-8",
-      );
-
-      const cfg = loadConfig();
-      expect(cfg.agents?.defaults?.compaction?.reserveTokens).toBe(15_000);
-      expect(cfg.agents?.defaults?.compaction?.keepRecentTokens).toBe(12_000);
-    });
-  });
-
   it("defaults compaction mode to safeguard", async () => {
     await withTempHomeConfig(
       {

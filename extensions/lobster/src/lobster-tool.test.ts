@@ -66,13 +66,6 @@ function fakeCtx(overrides: Partial<OpenClawPluginToolContext> = {}): OpenClawPl
   };
 }
 
-function setProcessPlatform(platform: NodeJS.Platform) {
-  Object.defineProperty(process, "platform", {
-    value: platform,
-    configurable: true,
-  });
-}
-
 describe("lobster plugin tool", () => {
   let tempDir = "";
   const originalProcessState = snapshotPlatformPathEnv();

@@ -37,16 +37,6 @@ describe("registerSubCliCommands", () => {
     return program;
   };
 
-  const createRegisteredProgram = (argv: string[], name?: string) => {
-    process.argv = argv;
-    const program = new Command();
-    if (name) {
-      program.name(name);
-    }
-    registerSubCliCommands(program, process.argv);
-    return program;
-  };
-
   beforeEach(() => {
     if (originalDisableLazySubcommands === undefined) {
       delete process.env.OPENCLAW_DISABLE_LAZY_SUBCOMMANDS;

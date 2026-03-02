@@ -45,6 +45,8 @@ vi.mock("./message-utils.js", () => ({
 import type { DurableDiscordInboundEvent } from "./inbound-durable-queue.js";
 import { createCoalescedDiscordMessageHandler } from "./message-handler.coalesce.js";
 
+type CoalescedParams = Parameters<typeof createCoalescedDiscordMessageHandler>[0];
+
 const BOT_USER_ID = "bot-123";
 const USER_ID = "user-456";
 
@@ -88,12 +90,12 @@ function makeEvent(overrides: {
 
 function createHandler() {
   return createCoalescedDiscordMessageHandler({
-    cfg: { messages: { ackReactionScope: "group-mentions" } } as any,
+    cfg: { messages: { ackReactionScope: "group-mentions" } } as unknown,
     accountId: "test-account",
-    runtime: {},
+    runtime: {} as unknown,
     botUserId: BOT_USER_ID,
-    guildEntries: [],
-  });
+    guildEntries: {} as unknown,
+  } as unknown as CoalescedParams);
 }
 
 const fakeClient = {} as Client;
@@ -102,7 +104,13 @@ describe("coalesced message handler — bot-self message filtering", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.hasControlCommand.mockReturnValue(false);
-    mocks.resolveDiscordMessageText.mockImplementation((msg: any) => msg?.content ?? "");
+    mocks.resolveDiscordMessageText.mockImplementation((msg: unknown) => {
+      if (msg && typeof msg === "object" && "content" in msg) {
+        const content = (msg as { content?: unknown }).content;
+        return typeof content === "string" ? content : "";
+      }
+      return "";
+    });
     mocks.buildCollectPrompt.mockReturnValue("coalesced body");
     mocks.preflightDiscordMessage.mockResolvedValue({
       wasMentioned: true,
@@ -187,7 +195,11 @@ describe("coalesced message handler — bot-self message filtering", () => {
     const handler = createHandler();
 
     const events = [
-      makeEvent({ messageId: "msg1", content: "Does the AI know about skills?", authorId: USER_ID }),
+      makeEvent({
+        messageId: "msg1",
+        content: "Does the AI know about skills?",
+        authorId: USER_ID,
+      }),
       makeEvent({ messageId: "msg2", content: "Does it require other skills?", authorId: USER_ID }),
       makeEvent({ messageId: "msg3", content: "It shouldn't SSH directly", authorId: USER_ID }),
       makeEvent({
@@ -208,21 +220,21 @@ describe("coalesced message handler — bot-self message filtering", () => {
     expect(mocks.buildCollectPrompt).toHaveBeenCalledTimes(1);
     const collectArgs = mocks.buildCollectPrompt.mock.calls[0][0];
     expect(collectArgs.items).toHaveLength(3);
-    expect(collectArgs.items.map((i: any) => i.data.message.id)).toEqual([
-      "msg1",
-      "msg2",
-      "msg3",
-    ]);
+    expect(
+      collectArgs.items.map(
+        (i: unknown) => (i as { data: { message: { id: string } } }).data.message.id,
+      ),
+    ).toEqual(["msg1", "msg2", "msg3"]);
   });
 
   it("should not filter messages when botUserId is not set", async () => {
     const handler = createCoalescedDiscordMessageHandler({
-      cfg: { messages: { ackReactionScope: "group-mentions" } } as any,
+      cfg: { messages: { ackReactionScope: "group-mentions" } } as unknown,
       accountId: "test-account",
-      runtime: {},
+      runtime: {} as unknown,
       botUserId: undefined,
-      guildEntries: [],
-    });
+      guildEntries: {} as unknown,
+    } as unknown as CoalescedParams);
 
     const events = [
       makeEvent({ messageId: "msg1", content: "user msg", authorId: USER_ID }),
@@ -245,9 +257,7 @@ describe("coalesced message handler — bot-self message filtering", () => {
   });
 
   it("should filter bot messages from command events too", async () => {
-    mocks.hasControlCommand.mockImplementation((text?: string) =>
-      text?.startsWith("/") ?? false,
-    );
+    mocks.hasControlCommand.mockImplementation((text?: string) => text?.startsWith("/") ?? false);
 
     const handler = createHandler();
 

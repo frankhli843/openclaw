@@ -137,19 +137,6 @@ describe("nodes-cli coverage", () => {
     return getNodeInvokeCall();
   };
 
-  const createNodesProgram = () => {
-    const program = new Command();
-    program.exitOverride();
-    registerNodesCli(program);
-    return program;
-  };
-
-  const runNodesCommand = async (args: string[]) => {
-    const program = createNodesProgram();
-    await program.parseAsync(args, { from: "user" });
-    return getNodeInvokeCall();
-  };
-
   beforeAll(async () => {
     ({ registerNodesCli } = await import("./nodes-cli.js"));
   });

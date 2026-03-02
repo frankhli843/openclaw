@@ -16,6 +16,8 @@ import {
   normalizeExecApprovals,
   parseExecArgvToken,
   normalizeSafeBins,
+  isSafeBinUsage,
+  resolveSafeBins,
   requiresExecApproval,
   resolveCommandResolution,
   resolveCommandResolutionFromArgv,
@@ -669,8 +671,8 @@ describe("exec approvals shell allowlist (chained commands)", () => {
     for (const [name, fixture] of Object.entries(SAFE_BIN_PROFILE_FIXTURES)) {
       const profile = SAFE_BIN_PROFILES[name];
       expect(profile).toBeDefined();
-      const fixtureBlockedFlags = fixture.blockedFlags ?? [];
-      const compiledBlockedFlags = profile?.blockedFlags ?? new Set<string>();
+      const fixtureBlockedFlags = fixture.deniedFlags ?? [];
+      const compiledBlockedFlags = profile?.deniedFlags ?? new Set<string>();
       for (const blockedFlag of fixtureBlockedFlags) {
         expect(compiledBlockedFlags.has(blockedFlag)).toBe(true);
       }

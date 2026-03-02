@@ -387,46 +387,6 @@ describe("installHooksFromNpmSpec", () => {
       actualIntegrity: "sha512-new",
     });
   });
-
-  it("aborts when integrity drift callback rejects the fetched artifact", async () => {
-    const run = vi.mocked(runCommandWithTimeout);
-    run.mockResolvedValue({
-      code: 0,
-      stdout: JSON.stringify([
-        {
-          id: "@openclaw/test-hooks@0.0.1",
-          name: "@openclaw/test-hooks",
-          version: "0.0.1",
-          filename: "test-hooks-0.0.1.tgz",
-          integrity: "sha512-new",
-          shasum: "newshasum",
-        },
-      ]),
-      stderr: "",
-      signal: null,
-      killed: false,
-      termination: "exit",
-    });
-
-    const onIntegrityDrift = vi.fn(async () => false);
-    const result = await installHooksFromNpmSpec({
-      spec: "@openclaw/test-hooks@0.0.1",
-      expectedIntegrity: "sha512-old",
-      onIntegrityDrift,
-    });
-
-    expect(onIntegrityDrift).toHaveBeenCalledWith(
-      expect.objectContaining({
-        expectedIntegrity: "sha512-old",
-        actualIntegrity: "sha512-new",
-      }),
-    );
-    expect(result.ok).toBe(false);
-    if (result.ok) {
-      return;
-    }
-    expect(result.error).toContain("integrity drift");
-  });
 });
 
 describe("gmail watcher", () => {

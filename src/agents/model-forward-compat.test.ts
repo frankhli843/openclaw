@@ -1,7 +1,11 @@
 import type { Api, Model } from "@mariozechner/pi-ai";
 import { describe, expect, it } from "vitest";
 import { resolveForwardCompatModel } from "./model-forward-compat.js";
-import type { ModelRegistry } from "./pi-model-discovery.js";
+type ModelRegistry = {
+  find(provider: string, modelId: string): Model<Api> | null;
+};
+
+type ForwardCompatRegistry = Parameters<typeof resolveForwardCompatModel>[2];
 
 function createTemplateModel(provider: string, id: string): Model<Api> {
   return {
@@ -30,7 +34,11 @@ describe("agents/model-forward-compat", () => {
     const registry = createRegistry({
       "anthropic/claude-opus-4-5": createTemplateModel("anthropic", "claude-opus-4-5"),
     });
-    const model = resolveForwardCompatModel("anthropic", "claude-opus-4-6", registry);
+    const model = resolveForwardCompatModel(
+      "anthropic",
+      "claude-opus-4-6",
+      registry as unknown as ForwardCompatRegistry,
+    );
     expect(model?.id).toBe("claude-opus-4-6");
     expect(model?.name).toBe("claude-opus-4-6");
     expect(model?.provider).toBe("anthropic");
@@ -43,7 +51,11 @@ describe("agents/model-forward-compat", () => {
         "claude-sonnet-4.5-20260219",
       ),
     });
-    const model = resolveForwardCompatModel("anthropic", "claude-sonnet-4.6-20260219", registry);
+    const model = resolveForwardCompatModel(
+      "anthropic",
+      "claude-sonnet-4.6-20260219",
+      registry as unknown as ForwardCompatRegistry,
+    );
     expect(model?.id).toBe("claude-sonnet-4.6-20260219");
     expect(model?.name).toBe("claude-sonnet-4.6-20260219");
     expect(model?.provider).toBe("anthropic");
@@ -53,7 +65,11 @@ describe("agents/model-forward-compat", () => {
     const registry = createRegistry({
       "anthropic/claude-opus-4-5": createTemplateModel("anthropic", "claude-opus-4-5"),
     });
-    const model = resolveForwardCompatModel("openai", "claude-opus-4-6", registry);
+    const model = resolveForwardCompatModel(
+      "openai",
+      "claude-opus-4-6",
+      registry as unknown as ForwardCompatRegistry,
+    );
     expect(model).toBeUndefined();
   });
 });

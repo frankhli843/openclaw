@@ -73,12 +73,12 @@ afterAll(async () => {
   await fs.rm(fixtureRoot, { recursive: true, force: true });
 });
 
-describe("cron self-heal", () => {
-  it("schedules exactly one retry ~30m later for transient infra errors on cron jobs", async () => {
+describe("cron retry/backoff behavior", () => {
+  it("applies cron backoff and clears retry state once a later run succeeds", async () => {
     const storePath = await makeStorePath();
     const dueAt = Date.parse("2026-02-25T15:00:00.000Z");
 
-    const job = createDueCronIsolatedJob({ id: "self-heal-job", nowMs: dueAt, nextRunAtMs: dueAt });
+    const job = createDueCronIsolatedJob({ id: "cron-backoff", nowMs: dueAt, nextRunAtMs: dueAt });
     await fs.writeFile(storePath, JSON.stringify({ version: 1, jobs: [job] }, null, 2), "utf-8");
 
     let now = dueAt;
@@ -87,7 +87,6 @@ describe("cron self-heal", () => {
       .mockResolvedValueOnce({ status: "error", error: "429 rate limit reached" })
       .mockResolvedValueOnce({ status: "ok", summary: "ok" });
 
-    const sendDeadLetterAlert = vi.fn();
     const state = createCronServiceState({
       cronEnabled: true,
       storePath,
@@ -104,33 +103,32 @@ describe("cron self-heal", () => {
       enqueueSystemEvent: vi.fn(),
       requestHeartbeatNow: vi.fn(),
       runIsolatedAgentJob: runner,
-      sendDeadLetterAlert,
+      sendDeadLetterAlert: vi.fn(),
     });
 
     await onTimer(state);
 
     const storedJob = state.store?.jobs.find((j) => j.id === job.id);
     expect(storedJob?.state.lastStatus).toBe("error");
-    expect(storedJob?.state.selfHeal?.originRunAtMs).toBe(dueAt);
-    expect(storedJob?.state.selfHeal?.attempts).toBe(1);
-    expect(storedJob?.state.nextRunAtMs).toBe(dueAt + 30 * 60_000);
-    expect(sendDeadLetterAlert).not.toHaveBeenCalled();
+    expect(storedJob?.state.consecutiveErrors).toBe(1);
+    expect(storedJob?.state.selfHeal).toBeUndefined();
+    // cron expression next minute should dominate first 30s backoff
+    expect(storedJob?.state.nextRunAtMs).toBe(dueAt + 60_000);
 
-    // Retry attempt succeeds.
-    now = storedJob?.state.nextRunAtMs ?? dueAt + 30 * 60_000;
+    now = storedJob?.state.nextRunAtMs ?? dueAt + 60_000;
     await onTimer(state);
 
-    const storedJobAfterRetry = state.store?.jobs.find((j) => j.id === job.id);
-    expect(storedJobAfterRetry?.state.lastStatus).toBe("ok");
-    expect(storedJobAfterRetry?.state.selfHeal).toBeUndefined();
+    const afterSuccess = state.store?.jobs.find((j) => j.id === job.id);
+    expect(afterSuccess?.state.lastStatus).toBe("ok");
+    expect(afterSuccess?.state.consecutiveErrors).toBe(0);
   });
 
-  it("alerts when the retry fails and does not schedule further retries for the same run", async () => {
+  it("increments consecutiveErrors across repeated cron failures", async () => {
     const storePath = await makeStorePath();
     const dueAt = Date.parse("2026-02-25T15:10:00.000Z");
 
     const job = createDueCronIsolatedJob({
-      id: "self-heal-alert",
+      id: "cron-repeated-errors",
       nowMs: dueAt,
       nextRunAtMs: dueAt,
     });
@@ -164,30 +162,25 @@ describe("cron self-heal", () => {
     });
 
     await onTimer(state);
-    const storedJob = state.store?.jobs.find((j) => j.id === job.id);
-    expect(storedJob?.state.lastStatus).toBe("error");
-    expect(storedJob?.state.selfHeal?.attempts).toBe(1);
-    expect(storedJob?.state.nextRunAtMs).toBe(dueAt + 30 * 60_000);
-    expect(sendDeadLetterAlert).not.toHaveBeenCalled();
+    let storedJob = state.store?.jobs.find((j) => j.id === job.id);
+    expect(storedJob?.state.consecutiveErrors).toBe(1);
 
-    now = storedJob?.state.nextRunAtMs ?? dueAt + 30 * 60_000;
+    now = storedJob?.state.nextRunAtMs ?? dueAt + 60_000;
     await onTimer(state);
 
-    const afterRetry = state.store?.jobs.find((j) => j.id === job.id);
-    expect(afterRetry?.state.lastStatus).toBe("error");
-    expect(sendDeadLetterAlert).toHaveBeenCalledTimes(1);
-    // After giving up, ensure we cool down for at least the retry window.
-    expect(afterRetry?.state.nextRunAtMs).toBe(dueAt + 60 * 60_000);
+    storedJob = state.store?.jobs.find((j) => j.id === job.id);
+    expect(storedJob?.state.lastStatus).toBe("error");
+    expect(storedJob?.state.consecutiveErrors).toBe(2);
+    expect(sendDeadLetterAlert).not.toHaveBeenCalled();
   });
 
-  it("does not apply self-heal retries to one-shot at jobs by default", async () => {
+  it("retries one-shot at jobs on transient errors", async () => {
     const storePath = await makeStorePath();
     const dueAt = Date.parse("2026-02-25T15:20:00.000Z");
 
     const job = createDueAtIsolatedJob({ id: "one-shot-at", nowMs: dueAt, nextRunAtMs: dueAt });
     await fs.writeFile(storePath, JSON.stringify({ version: 1, jobs: [job] }, null, 2), "utf-8");
 
-    let now = dueAt;
     const runner = vi.fn().mockResolvedValueOnce({ status: "error", error: "rate limit" });
 
     const state = createCronServiceState({
@@ -202,7 +195,7 @@ describe("cron self-heal", () => {
         },
       },
       log: noopLogger,
-      nowMs: () => now,
+      nowMs: () => dueAt,
       enqueueSystemEvent: vi.fn(),
       requestHeartbeatNow: vi.fn(),
       runIsolatedAgentJob: runner,
@@ -212,8 +205,8 @@ describe("cron self-heal", () => {
     await onTimer(state);
 
     const storedJob = state.store?.jobs.find((j) => j.id === job.id);
-    expect(storedJob?.enabled).toBe(false);
-    expect(storedJob?.state.nextRunAtMs).toBeUndefined();
-    expect(storedJob?.state.selfHeal).toBeUndefined();
+    expect(storedJob?.enabled).toBe(true);
+    expect(storedJob?.state.nextRunAtMs).toBe(dueAt + 30_000);
+    expect(storedJob?.state.consecutiveErrors).toBe(1);
   });
 });

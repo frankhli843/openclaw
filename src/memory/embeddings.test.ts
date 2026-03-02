@@ -112,7 +112,7 @@ describe("embedding provider remote overrides", () => {
       config: cfg as never,
       provider: "openai",
       remote: {
-        baseUrl: "https://example.com/v1",
+        baseUrl: "https://127.0.0.1/v1",
         apiKey: "  remote-key  ",
         headers: {
           "X-Shared": "remote",
@@ -129,7 +129,7 @@ describe("embedding provider remote overrides", () => {
     expect(authModule.resolveApiKeyForProvider).not.toHaveBeenCalled();
     const url = fetchMock.mock.calls[0]?.[0];
     const init = fetchMock.mock.calls[0]?.[1] as RequestInit | undefined;
-    expect(url).toBe("https://example.com/v1/embeddings");
+    expect(url).toBe("https://127.0.0.1/v1/embeddings");
     const headers = (init?.headers ?? {}) as Record<string, string>;
     expect(headers.Authorization).toBe("Bearer remote-key");
     expect(headers["Content-Type"]).toBe("application/json");
@@ -157,7 +157,7 @@ describe("embedding provider remote overrides", () => {
       config: cfg as never,
       provider: "openai",
       remote: {
-        baseUrl: "https://example.com/v1",
+        baseUrl: "https://127.0.0.1/v1",
         apiKey: "   ",
       },
       model: "text-embedding-3-small",

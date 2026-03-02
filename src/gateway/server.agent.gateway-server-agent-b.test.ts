@@ -13,7 +13,6 @@ import {
   agentCommand,
   connectWebchatClient,
   connectOk,
-  connectWebchatClient,
   installGatewayTestHooks,
   onceMessage,
   rpcReq,

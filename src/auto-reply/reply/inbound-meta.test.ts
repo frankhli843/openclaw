@@ -26,6 +26,14 @@ function parseSenderInfoPayload(text: string): Record<string, unknown> {
   return JSON.parse(match[1]) as Record<string, unknown>;
 }
 
+function parseThreadContextPayload(text: string): Record<string, unknown> {
+  const match = text.match(/Thread context \(untrusted metadata\):\n```json\n([\s\S]*?)\n```/);
+  if (!match?.[1]) {
+    throw new Error("missing thread context json block");
+  }
+  return JSON.parse(match[1]) as Record<string, unknown>;
+}
+
 describe("buildInboundMetaSystemPrompt", () => {
   it("includes session-stable routing fields", () => {
     const prompt = buildInboundMetaSystemPrompt({
