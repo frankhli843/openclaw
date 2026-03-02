@@ -15,7 +15,7 @@ import {
   createSessionVisibilityGuard,
   createAgentToAgentPolicy,
   extractAssistantText,
-  isRequesterSpawnedSessionVisible,
+  isResolvedSessionVisibleToRequester,
   resolveEffectiveSessionToolsVisibility,
   resolveSessionReference,
   resolveSandboxedSessionToolContext,
@@ -176,33 +176,19 @@ export function createSessionsSendTool(opts?: {
       const displayKey = resolvedSession.displayKey;
       const resolvedViaSessionId = resolvedSession.resolvedViaSessionId;
 
-      // Guardrail: prevent cross-channel debug relay pollution into live Discord channel/thread
-      // sessions. This keeps forced-thread Discord flows stable while still allowing normal
-      // in-channel Discord session sends.
-      const isDiscordChannelSession = /^agent:[^:]+:discord:channel:/.test(resolvedKey);
-      if (isDiscordChannelSession && opts?.agentChannel !== "discord") {
+      const visible = await isResolvedSessionVisibleToRequester({
+        requesterSessionKey: effectiveRequesterKey,
+        targetSessionKey: resolvedKey,
+        restrictToSpawned,
+        resolvedViaSessionId,
+      });
+      if (!visible) {
         return jsonResult({
           runId: crypto.randomUUID(),
           status: "forbidden",
-          error:
-            "Cross-channel sessions_send into Discord channel sessions is blocked. Use channel-native messaging or run from a Discord-bound session.",
+          error: `Session not visible from this sandboxed agent session: ${sessionKey}`,
           sessionKey: displayKey,
         });
-      }
-
-      if (restrictToSpawned && !resolvedViaSessionId && resolvedKey !== effectiveRequesterKey) {
-        const ok = await isRequesterSpawnedSessionVisible({
-          requesterSessionKey: effectiveRequesterKey,
-          targetSessionKey: resolvedKey,
-        });
-        if (!ok) {
-          return jsonResult({
-            runId: crypto.randomUUID(),
-            status: "forbidden",
-            error: `Session not visible from this sandboxed agent session: ${sessionKey}`,
-            sessionKey: displayKey,
-          });
-        }
       }
       const timeoutSeconds =
         typeof params.timeoutSeconds === "number" && Number.isFinite(params.timeoutSeconds)

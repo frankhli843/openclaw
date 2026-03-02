@@ -7,7 +7,11 @@ import { buildAgentSessionKey } from "../../routing/resolve-route.js";
 import { truncateUtf16Safe } from "../../utils.js";
 import type { DiscordChannelConfigResolved } from "./allow-list.js";
 import type { DiscordMessageEvent } from "./listeners.js";
-import { resolveDiscordChannelInfo, resolveDiscordMessageChannelId } from "./message-utils.js";
+import {
+  resolveDiscordChannelInfo,
+  resolveDiscordEmbedText,
+  resolveDiscordMessageChannelId,
+} from "./message-utils.js";
 
 export type DiscordThreadChannel = {
   id: string;
@@ -131,8 +135,12 @@ export async function resolveDiscordThreadParentInfo(params: {
   channelInfo: import("./message-utils.js").DiscordChannelInfo | null;
 }): Promise<DiscordThreadParentInfo> {
   const { threadChannel, channelInfo, client } = params;
-  const parentId =
+  let parentId =
     threadChannel.parentId ?? threadChannel.parent?.id ?? channelInfo?.parentId ?? undefined;
+  if (!parentId && threadChannel.id) {
+    const threadInfo = await resolveDiscordChannelInfo(client, threadChannel.id);
+    parentId = threadInfo?.parentId ?? undefined;
+  }
   if (!parentId) {
     return {};
   }
@@ -174,7 +182,7 @@ export async function resolveDiscordThreadStarter(params: {
       Routes.channelMessage(messageChannelId, params.channel.id),
     )) as {
       content?: string | null;
-      embeds?: Array<{ description?: string | null }>;
+      embeds?: Array<{ title?: string | null; description?: string | null }>;
       member?: { nick?: string | null; displayName?: string | null };
       author?: {
         id?: string | null;
@@ -187,7 +195,9 @@ export async function resolveDiscordThreadStarter(params: {
       logVerbose?.(`discord thread-starter: API returned null/undefined`);
       return null;
     }
-    const text = starter.content?.trim() ?? starter.embeds?.[0]?.description?.trim() ?? "";
+    const content = starter.content?.trim() ?? "";
+    const embedText = resolveDiscordEmbedText(starter.embeds?.[0]);
+    const text = content || embedText;
     if (!text) {
       logVerbose?.(
         `discord thread-starter: empty content (content=${JSON.stringify(starter.content)}, embeds=${starter.embeds?.length ?? 0})`,

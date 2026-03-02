@@ -1,11 +1,10 @@
-import { resolveSessionAgentId } from "../agents/agent-scope.js";
 import { resolveAnnounceTargetFromKey } from "../agents/tools/sessions-send-helpers.js";
 import { normalizeChannelId } from "../channels/plugins/index.js";
 import type { CliDeps } from "../cli/deps.js";
-import { loadConfig } from "../config/config.js";
-import { resolveMainSessionKeyFromConfig, type SessionEntry } from "../config/sessions.js";
+import { resolveMainSessionKeyFromConfig } from "../config/sessions.js";
 import { parseSessionThreadInfo } from "../config/sessions/delivery-info.js";
 import { deliverOutboundPayloads } from "../infra/outbound/deliver.js";
+import { buildOutboundSessionContext } from "../infra/outbound/session-context.js";
 import { resolveOutboundTarget } from "../infra/outbound/targets.js";
 import {
   consumeRestartSentinel,
@@ -33,9 +32,6 @@ export async function scheduleRestartSentinelWake(_params: { deps: CliDeps }) {
     return;
   }
 
-  // Resolve delivery context first so the queued agent turn can explicitly reply
-  // to the same channel that triggered the restart. If nothing is known, default
-  // to Discord #general (1474343755153932394).
   const { baseSessionKey, threadId: sessionThreadId } = parseSessionThreadInfo(sessionKey);
 
   const { cfg, entry } = loadSessionEntry(sessionKey);
@@ -107,15 +103,34 @@ export async function scheduleRestartSentinelWake(_params: { deps: CliDeps }) {
     return;
   }
 
+  const threadId =
+    payload.threadId ??
+    parsedTarget?.threadId ?? // From resolveAnnounceTargetFromKey (extracts :topic:N)
+    sessionThreadId ??
+    (origin?.threadId != null ? String(origin.threadId) : undefined);
+
+  // Slack uses replyToId (thread_ts) for threading, not threadId.
+  // The reply path does this mapping but deliverOutboundPayloads does not,
+  // so we must convert here to ensure post-restart notifications land in
+  // the originating Slack thread. See #17716.
+  const isSlack = channel === "slack";
+  const replyToId = isSlack && threadId != null && threadId !== "" ? String(threadId) : undefined;
+  const resolvedThreadId = isSlack ? undefined : threadId;
+  const outboundSession = buildOutboundSessionContext({
+    cfg,
+    sessionKey,
+  });
+
   try {
     await deliverOutboundPayloads({
       cfg,
       channel,
       to: resolved.to,
       accountId: origin?.accountId,
-      threadId,
+      replyToId,
+      threadId: resolvedThreadId,
       payloads: [{ text: message }],
-      agentId: resolveSessionAgentId({ sessionKey, config: cfg }),
+      session: outboundSession,
       bestEffort: true,
     });
   } catch (err) {

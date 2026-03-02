@@ -1,8 +1,15 @@
 import type { ChannelType, Client, Message } from "@buape/carbon";
 import { StickerFormatType, type APIAttachment, type APIStickerItem } from "discord-api-types/v10";
+import { buildMediaPayload } from "../../channels/plugins/media-payload.js";
 import { logVerbose } from "../../globals.js";
-import { fetchRemoteMedia } from "../../media/fetch.js";
+import type { SsrFPolicy } from "../../infra/net/ssrf.js";
+import { fetchRemoteMedia, type FetchLike } from "../../media/fetch.js";
 import { saveMediaBuffer } from "../../media/store.js";
+
+const DISCORD_MEDIA_SSRF_POLICY: SsrFPolicy = {
+  allowedHostnames: ["cdn.discordapp.com", "media.discordapp.net"],
+  allowRfc2544BenchmarkRange: true,
+};
 
 export type DiscordMediaInfo = {
   path: string;
@@ -144,14 +151,8 @@ export function resolveDiscordMessageStickers(message: Message): APIStickerItem[
   if (normalized.length > 0) {
     return normalized;
   }
-  const rawData =
-    (
-      message as unknown as {
-        rawData?: { sticker_items?: unknown; stickers?: unknown };
-        _rawData?: { sticker_items?: unknown; stickers?: unknown };
-      }
-    ).rawData ??
-    (message as unknown as { _rawData?: { sticker_items?: unknown; stickers?: unknown } })._rawData;
+  const rawData = (message as { rawData?: { sticker_items?: unknown; stickers?: unknown } })
+    .rawData;
   return normalizeStickerItems(rawData?.sticker_items ?? rawData?.stickers);
 }
 
@@ -166,6 +167,7 @@ export function hasDiscordMessageStickers(message: Message): boolean {
 export async function resolveMediaList(
   message: Message,
   maxBytes: number,
+  fetchImpl?: FetchLike,
 ): Promise<DiscordMediaInfo[]> {
   const out: DiscordMediaInfo[] = [];
   // Carbon attachments can be a live Collection (Map-like) or serialized {} or array.
@@ -188,10 +190,18 @@ export async function resolveMediaList(
   const resolvedAttachments: APIAttachment[] =
     normalizedAtt ?? (rawMsg.rawData ?? rawMsg._rawData)?.attachments ?? [];
   await appendResolvedMediaFromAttachments({
-    attachments: resolvedAttachments,
+    attachments: message.attachments ?? [],
     maxBytes,
     out,
     errorPrefix: "discord: failed to download attachment",
+    fetchImpl,
+  });
+  await appendResolvedMediaFromStickers({
+    stickers: resolveDiscordMessageStickers(message),
+    maxBytes,
+    out,
+    errorPrefix: "discord: failed to download sticker",
+    fetchImpl,
   });
   await appendResolvedMediaFromStickers({
     stickers: resolveDiscordMessageStickers(message),
@@ -205,6 +215,7 @@ export async function resolveMediaList(
 export async function resolveForwardedMediaList(
   message: Message,
   maxBytes: number,
+  fetchImpl?: FetchLike,
 ): Promise<DiscordMediaInfo[]> {
   const snapshots = resolveDiscordMessageSnapshots(message);
   if (snapshots.length === 0) {
@@ -217,6 +228,14 @@ export async function resolveForwardedMediaList(
       maxBytes,
       out,
       errorPrefix: "discord: failed to download forwarded attachment",
+      fetchImpl,
+    });
+    await appendResolvedMediaFromStickers({
+      stickers: snapshot.message ? resolveDiscordSnapshotStickers(snapshot.message) : [],
+      maxBytes,
+      out,
+      errorPrefix: "discord: failed to download forwarded sticker",
+      fetchImpl,
     });
     await appendResolvedMediaFromStickers({
       stickers: snapshot.message ? resolveDiscordSnapshotStickers(snapshot.message) : [],
@@ -233,6 +252,7 @@ async function appendResolvedMediaFromAttachments(params: {
   maxBytes: number;
   out: DiscordMediaInfo[];
   errorPrefix: string;
+  fetchImpl?: FetchLike;
 }) {
   const attachments = params.attachments;
   if (!attachments || attachments.length === 0) {
@@ -243,6 +263,9 @@ async function appendResolvedMediaFromAttachments(params: {
       const fetched = await fetchRemoteMedia({
         url: attachment.url,
         filePathHint: attachment.filename ?? attachment.url,
+        maxBytes: params.maxBytes,
+        fetchImpl: params.fetchImpl,
+        ssrfPolicy: DISCORD_MEDIA_SSRF_POLICY,
       });
       const saved = await saveMediaBuffer(
         fetched.buffer,
@@ -258,6 +281,131 @@ async function appendResolvedMediaFromAttachments(params: {
     } catch (err) {
       const id = attachment.id ?? attachment.url;
       logVerbose(`${params.errorPrefix} ${id}: ${String(err)}`);
+      // Preserve attachment context even when remote fetch is blocked/fails.
+      params.out.push({
+        path: attachment.url,
+        contentType: attachment.content_type,
+        placeholder: inferPlaceholder(attachment),
+      });
+    }
+  }
+}
+
+type DiscordStickerAssetCandidate = {
+  url: string;
+  fileName: string;
+};
+
+function resolveStickerAssetCandidates(sticker: APIStickerItem): DiscordStickerAssetCandidate[] {
+  const baseName = sticker.name?.trim() || `sticker-${sticker.id}`;
+  switch (sticker.format_type) {
+    case StickerFormatType.GIF:
+      return [
+        {
+          url: `${DISCORD_STICKER_ASSET_BASE_URL}/${sticker.id}.gif`,
+          fileName: `${baseName}.gif`,
+        },
+      ];
+    case StickerFormatType.Lottie:
+      return [
+        {
+          url: `${DISCORD_STICKER_ASSET_BASE_URL}/${sticker.id}.png?size=160`,
+          fileName: `${baseName}.png`,
+        },
+        {
+          url: `${DISCORD_STICKER_ASSET_BASE_URL}/${sticker.id}.json`,
+          fileName: `${baseName}.json`,
+        },
+      ];
+    case StickerFormatType.APNG:
+    case StickerFormatType.PNG:
+    default:
+      return [
+        {
+          url: `${DISCORD_STICKER_ASSET_BASE_URL}/${sticker.id}.png`,
+          fileName: `${baseName}.png`,
+        },
+      ];
+  }
+}
+
+function formatStickerError(err: unknown): string {
+  if (err instanceof Error) {
+    return err.message;
+  }
+  if (typeof err === "string") {
+    return err;
+  }
+  try {
+    return JSON.stringify(err) ?? "unknown error";
+  } catch {
+    return "unknown error";
+  }
+}
+
+function inferStickerContentType(sticker: APIStickerItem): string | undefined {
+  switch (sticker.format_type) {
+    case StickerFormatType.GIF:
+      return "image/gif";
+    case StickerFormatType.APNG:
+    case StickerFormatType.Lottie:
+    case StickerFormatType.PNG:
+      return "image/png";
+    default:
+      return undefined;
+  }
+}
+
+async function appendResolvedMediaFromStickers(params: {
+  stickers?: APIStickerItem[] | null;
+  maxBytes: number;
+  out: DiscordMediaInfo[];
+  errorPrefix: string;
+  fetchImpl?: FetchLike;
+}) {
+  const stickers = params.stickers;
+  if (!stickers || stickers.length === 0) {
+    return;
+  }
+  for (const sticker of stickers) {
+    const candidates = resolveStickerAssetCandidates(sticker);
+    let lastError: unknown;
+    for (const candidate of candidates) {
+      try {
+        const fetched = await fetchRemoteMedia({
+          url: candidate.url,
+          filePathHint: candidate.fileName,
+          maxBytes: params.maxBytes,
+          fetchImpl: params.fetchImpl,
+          ssrfPolicy: DISCORD_MEDIA_SSRF_POLICY,
+        });
+        const saved = await saveMediaBuffer(
+          fetched.buffer,
+          fetched.contentType,
+          "inbound",
+          params.maxBytes,
+        );
+        params.out.push({
+          path: saved.path,
+          contentType: saved.contentType,
+          placeholder: "<media:sticker>",
+        });
+        lastError = null;
+        break;
+      } catch (err) {
+        lastError = err;
+      }
+    }
+    if (lastError) {
+      logVerbose(`${params.errorPrefix} ${sticker.id}: ${formatStickerError(lastError)}`);
+      const fallback = candidates[0];
+      if (fallback) {
+        params.out.push({
+          path: fallback.url,
+          contentType: inferStickerContentType(sticker),
+          placeholder: "<media:sticker>",
+        });
+      }
     }
   }
 }
@@ -415,52 +563,32 @@ function buildDiscordMediaPlaceholder(params: {
   return attachmentText || stickerText || "";
 }
 
+export function resolveDiscordEmbedText(
+  embed?: { title?: string | null; description?: string | null } | null,
+): string {
+  const title = embed?.title?.trim() || "";
+  const description = embed?.description?.trim() || "";
+  if (title && description) {
+    return `${title}\n${description}`;
+  }
+  return title || description || "";
+}
+
 export function resolveDiscordMessageText(
   message: Message,
   options?: { fallbackText?: string; includeForwarded?: boolean },
 ): string {
-  const rawMessage = message as unknown as {
-    content?: string;
-    attachments?: APIAttachment[];
-    embeds?: Array<{ description?: string }>;
-    rawData?: {
-      content?: string;
-      attachments?: APIAttachment[];
-      embeds?: Array<{ description?: string }>;
-    };
-    _rawData?: {
-      content?: string;
-      attachments?: APIAttachment[];
-      embeds?: Array<{ description?: string }>;
-    };
-  };
-  const rawData = rawMessage.rawData ?? rawMessage._rawData;
-  const content = rawMessage.content ?? rawData?.content;
-  // Carbon attachments can be:
-  //   1) Live: a Collection (Map-like, has .values() iterator and .size)
-  //   2) Serialized: {} (empty plain object after JSON round-trip)
-  //   3) Already an array (if pre-normalized)
-  // Convert any iterable Collection to array, then fall back to rawData.
-  const rawAttachments = rawMessage.attachments;
-  const normalizedAttachments: APIAttachment[] | null = Array.isArray(rawAttachments)
-    ? rawAttachments.length > 0
-      ? rawAttachments
-      : null
-    : rawAttachments &&
-        typeof rawAttachments === "object" &&
-        "size" in rawAttachments &&
-        typeof (rawAttachments as { values?: unknown }).values === "function"
-      ? Array.from(rawAttachments as unknown as Iterable<APIAttachment>)
-      : null;
-  const attachments = normalizedAttachments ?? rawData?.attachments;
-  const embeds = rawMessage.embeds ?? rawData?.embeds;
+  const embedText = resolveDiscordEmbedText(
+    (message.embeds?.[0] as { title?: string | null; description?: string | null } | undefined) ??
+      null,
+  );
   const baseText =
-    content?.trim() ||
+    message.content?.trim() ||
     buildDiscordMediaPlaceholder({
-      attachments: attachments ?? undefined,
+      attachments: message.attachments ?? undefined,
       stickers: resolveDiscordMessageStickers(message),
     }) ||
-    embeds?.[0]?.description ||
+    embedText ||
     options?.fallbackText?.trim() ||
     "";
   if (!options?.includeForwarded) {
@@ -524,8 +652,7 @@ function resolveDiscordSnapshotMessageText(snapshot: DiscordSnapshotMessage): st
     attachments: snapshot.attachments ?? undefined,
     stickers: resolveDiscordSnapshotStickers(snapshot),
   });
-  const embed = snapshot.embeds?.[0];
-  const embedText = embed?.description?.trim() || embed?.title?.trim() || "";
+  const embedText = resolveDiscordEmbedText(snapshot.embeds?.[0]);
   return content || attachmentText || embedText || "";
 }
 
@@ -562,15 +689,5 @@ export function buildDiscordMediaPayload(
   MediaUrls?: string[];
   MediaTypes?: string[];
 } {
-  const first = mediaList[0];
-  const mediaPaths = mediaList.map((media) => media.path);
-  const mediaTypes = mediaList.map((media) => media.contentType).filter(Boolean) as string[];
-  return {
-    MediaPath: first?.path,
-    MediaType: first?.contentType,
-    MediaUrl: first?.path,
-    MediaPaths: mediaPaths.length > 0 ? mediaPaths : undefined,
-    MediaUrls: mediaPaths.length > 0 ? mediaPaths : undefined,
-    MediaTypes: mediaTypes.length > 0 ? mediaTypes : undefined,
-  };
+  return buildMediaPayload(mediaList);
 }

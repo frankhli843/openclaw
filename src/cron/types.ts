@@ -22,12 +22,24 @@ export type CronDelivery = {
   mode: CronDeliveryMode;
   channel?: CronMessageChannel;
   to?: string;
+  /** Explicit channel account id for multi-account setups (e.g. multiple Telegram bots). */
+  accountId?: string;
   bestEffort?: boolean;
+  /** Separate destination for failure notifications. */
+  failureDestination?: CronFailureDestination;
+};
+
+export type CronFailureDestination = {
+  channel?: CronMessageChannel;
+  to?: string;
+  accountId?: string;
+  mode?: "announce" | "webhook";
 };
 
 export type CronDeliveryPatch = Partial<CronDelivery>;
 
 export type CronRunStatus = "ok" | "error" | "skipped";
+export type CronDeliveryStatus = "delivered" | "not-delivered" | "unknown" | "not-requested";
 
 export type CronUsageSummary = {
   input_tokens?: number;
@@ -46,9 +58,22 @@ export type CronRunTelemetry = {
 export type CronRunOutcome = {
   status: CronRunStatus;
   error?: string;
+  /** Optional classifier for execution errors to guide fallback behavior. */
+  errorKind?: "delivery-target";
   summary?: string;
   sessionId?: string;
   sessionKey?: string;
+};
+
+export type CronFailureAlert = {
+  after?: number;
+  channel?: CronMessageChannel;
+  to?: string;
+  cooldownMs?: number;
+  /** Delivery mode: announce (via messaging channels) or webhook (HTTP POST). */
+  mode?: "announce" | "webhook";
+  /** Account ID for multi-account channel configurations. */
+  accountId?: string;
 };
 
 export type CronPayload =
@@ -58,9 +83,13 @@ export type CronPayload =
       message: string;
       /** Optional model override (provider/model or alias). */
       model?: string;
+      /** Optional per-job fallback models; overrides agent/global fallbacks when defined. */
+      fallbacks?: string[];
       thinking?: string;
       timeoutSeconds?: number;
       allowUnsafeExternalContent?: boolean;
+      /** If true, run with lightweight bootstrap context. */
+      lightContext?: boolean;
       deliver?: boolean;
       channel?: CronMessageChannel;
       to?: string;
@@ -73,9 +102,12 @@ export type CronPayloadPatch =
       kind: "agentTurn";
       message?: string;
       model?: string;
+      fallbacks?: string[];
       thinking?: string;
       timeoutSeconds?: number;
       allowUnsafeExternalContent?: boolean;
+      /** If true, run with lightweight bootstrap context. */
+      lightContext?: boolean;
       deliver?: boolean;
       channel?: CronMessageChannel;
       to?: string;
@@ -97,15 +129,26 @@ export type CronJobState = {
   nextRunAtMs?: number;
   runningAtMs?: number;
   lastRunAtMs?: number;
+  /** Preferred execution outcome field. */
+  lastRunStatus?: CronRunStatus;
+  /** Back-compat alias for lastRunStatus. */
   lastStatus?: "ok" | "error" | "skipped";
   lastError?: string;
   lastDurationMs?: number;
   /** Number of consecutive execution errors (reset on success). Used for backoff. */
   consecutiveErrors?: number;
+  /** Last failure alert timestamp (ms since epoch) for cooldown gating. */
+  lastFailureAlertAtMs?: number;
   /** Number of consecutive schedule computation errors. Auto-disables job after threshold. */
   scheduleErrorCount?: number;
   /** Self-heal retry tracking (only used for schedule.kind="cron" jobs). */
   selfHeal?: CronSelfHealState;
+  /** Explicit delivery outcome, separate from execution outcome. */
+  lastDeliveryStatus?: CronDeliveryStatus;
+  /** Delivery-specific error text when available. */
+  lastDeliveryError?: string;
+  /** Whether the last run's output was delivered to the target channel. */
+  lastDelivered?: boolean;
 };
 
 export type CronJob = {
@@ -124,6 +167,7 @@ export type CronJob = {
   wakeMode: CronWakeMode;
   payload: CronPayload;
   delivery?: CronDelivery;
+  failureAlert?: CronFailureAlert | false;
   state: CronJobState;
 };
 

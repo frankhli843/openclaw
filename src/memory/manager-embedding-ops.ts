@@ -704,8 +704,12 @@ export abstract class MemoryManagerEmbeddingOps extends MemoryManagerSyncOps {
     }
 
     const content = options.content ?? (await fs.readFile(entry.absPath, "utf-8"));
-    const rawChunks = chunkMarkdown(content, this.settings.chunking).filter(
-      (chunk) => chunk.text.trim().length > 0,
+    const chunks = enforceEmbeddingMaxInputTokens(
+      this.provider,
+      chunkMarkdown(content, this.settings.chunking).filter(
+        (chunk) => chunk.text.trim().length > 0,
+      ),
+      EMBEDDING_BATCH_MAX_TOKENS,
     );
     // Prepend file path to each chunk's text for better search recall
     for (const chunk of rawChunks) {

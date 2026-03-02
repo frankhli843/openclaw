@@ -2,13 +2,24 @@ import fs from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import path from "node:path";
 import type { OpenClawConfig } from "../config/config.js";
+import { openBoundaryFileSync } from "../infra/boundary-file-read.js";
 import { resolveControlUiRootSync } from "../infra/control-ui-assets.js";
+import { isWithinDir } from "../infra/path-safety.js";
+import { openVerifiedFileSync } from "../infra/safe-open-sync.js";
+import { AVATAR_MAX_BYTES } from "../shared/avatar-policy.js";
 import { DEFAULT_ASSISTANT_IDENTITY, resolveAssistantIdentity } from "./assistant-identity.js";
 import {
   CONTROL_UI_BOOTSTRAP_CONFIG_PATH,
   type ControlUiBootstrapConfig,
 } from "./control-ui-contract.js";
 import { buildControlUiCspHeader } from "./control-ui-csp.js";
+import {
+  isReadHttpMethod,
+  respondMethodNotAllowed,
+  respondNotFound as respondControlUiNotFound,
+  respondPlainText,
+} from "./control-ui-http-utils.js";
+import { classifyControlUiRequest } from "./control-ui-routing.js";
 import {
   buildControlUiAvatarUrl,
   CONTROL_UI_AVATAR_PREFIX,
@@ -120,7 +131,7 @@ export function handleControlUiAvatarRequest(
   if (!urlRaw) {
     return false;
   }
-  if (req.method !== "GET" && req.method !== "HEAD") {
+  if (!isReadHttpMethod(req.method)) {
     return false;
   }
 
@@ -139,7 +150,7 @@ export function handleControlUiAvatarRequest(
   const agentIdParts = pathname.slice(pathWithBase.length).split("/").filter(Boolean);
   const agentId = agentIdParts[0] ?? "";
   if (agentIdParts.length !== 1 || !agentId || !isValidAgentId(agentId)) {
-    respondNotFound(res);
+    respondControlUiNotFound(res);
     return true;
   }
 
@@ -157,41 +168,86 @@ export function handleControlUiAvatarRequest(
 
   const resolved = opts.resolveAvatar(agentId);
   if (resolved.kind !== "local") {
-    respondNotFound(res);
+    respondControlUiNotFound(res);
     return true;
   }
 
-  if (req.method === "HEAD") {
-    res.statusCode = 200;
-    res.setHeader("Content-Type", contentTypeForExt(path.extname(resolved.filePath).toLowerCase()));
-    res.setHeader("Cache-Control", "no-cache");
-    res.end();
+  const safeAvatar = resolveSafeAvatarFile(resolved.filePath);
+  if (!safeAvatar) {
+    respondControlUiNotFound(res);
     return true;
   }
+  try {
+    if (req.method === "HEAD") {
+      res.statusCode = 200;
+      res.setHeader("Content-Type", contentTypeForExt(path.extname(safeAvatar.path).toLowerCase()));
+      res.setHeader("Cache-Control", "no-cache");
+      res.end();
+      return true;
+    }
 
-  serveFile(res, resolved.filePath);
-  return true;
+    serveResolvedFile(res, safeAvatar.path, fs.readFileSync(safeAvatar.fd));
+    return true;
+  } finally {
+    fs.closeSync(safeAvatar.fd);
+  }
 }
 
-function respondNotFound(res: ServerResponse) {
-  res.statusCode = 404;
-  res.setHeader("Content-Type", "text/plain; charset=utf-8");
-  res.end("Not Found");
-}
-
-function serveFile(res: ServerResponse, filePath: string) {
+function setStaticFileHeaders(res: ServerResponse, filePath: string) {
   const ext = path.extname(filePath).toLowerCase();
   res.setHeader("Content-Type", contentTypeForExt(ext));
   // Static UI should never be cached aggressively while iterating; allow the
   // browser to revalidate.
   res.setHeader("Cache-Control", "no-cache");
-  res.end(fs.readFileSync(filePath));
 }
 
-function serveIndexHtml(res: ServerResponse, indexPath: string) {
+function serveResolvedFile(res: ServerResponse, filePath: string, body: Buffer) {
+  setStaticFileHeaders(res, filePath);
+  res.end(body);
+}
+
+function serveResolvedIndexHtml(res: ServerResponse, body: string) {
   res.setHeader("Content-Type", "text/html; charset=utf-8");
   res.setHeader("Cache-Control", "no-cache");
-  res.end(fs.readFileSync(indexPath, "utf8"));
+  res.end(body);
+}
+
+function isExpectedSafePathError(error: unknown): boolean {
+  const code =
+    typeof error === "object" && error !== null && "code" in error ? String(error.code) : "";
+  return code === "ENOENT" || code === "ENOTDIR" || code === "ELOOP";
+}
+
+function resolveSafeAvatarFile(filePath: string): { path: string; fd: number } | null {
+  const opened = openVerifiedFileSync({
+    filePath,
+    rejectPathSymlink: true,
+    maxBytes: AVATAR_MAX_BYTES,
+  });
+  if (!opened.ok) {
+    return null;
+  }
+  return { path: opened.path, fd: opened.fd };
+}
+
+function resolveSafeControlUiFile(
+  rootReal: string,
+  filePath: string,
+): { path: string; fd: number } | null {
+  const opened = openBoundaryFileSync({
+    absolutePath: filePath,
+    rootPath: rootReal,
+    rootRealPath: rootReal,
+    boundaryLabel: "control ui root",
+    skipLexicalRootCheck: true,
+  });
+  if (!opened.ok) {
+    if (opened.reason === "io") {
+      throw opened.error;
+    }
+    return null;
+  }
+  return { path: opened.path, fd: opened.fd };
 }
 
 function isSafeRelativePath(relPath: string) {
@@ -199,6 +255,9 @@ function isSafeRelativePath(relPath: string) {
     return false;
   }
   const normalized = path.posix.normalize(relPath);
+  if (path.posix.isAbsolute(normalized) || path.win32.isAbsolute(normalized)) {
+    return false;
+  }
   if (normalized.startsWith("../") || normalized === "..") {
     return false;
   }
@@ -217,36 +276,33 @@ export function handleControlUiHttpRequest(
   if (!urlRaw) {
     return false;
   }
-  if (req.method !== "GET" && req.method !== "HEAD") {
-    res.statusCode = 405;
-    res.setHeader("Content-Type", "text/plain; charset=utf-8");
-    res.end("Method Not Allowed");
-    return true;
-  }
-
   const url = new URL(urlRaw, "http://localhost");
   const basePath = normalizeControlUiBasePath(opts?.basePath);
   const pathname = url.pathname;
-
-  if (!basePath) {
-    if (pathname === "/ui" || pathname.startsWith("/ui/")) {
-      applyControlUiSecurityHeaders(res);
-      respondNotFound(res);
-      return true;
-    }
+  const route = classifyControlUiRequest({
+    basePath,
+    pathname,
+    search: url.search,
+    method: req.method,
+  });
+  if (route.kind === "not-control-ui") {
+    return false;
   }
-
-  if (basePath) {
-    if (pathname === basePath) {
-      applyControlUiSecurityHeaders(res);
-      res.statusCode = 302;
-      res.setHeader("Location", `${basePath}/${url.search}`);
-      res.end();
-      return true;
-    }
-    if (!pathname.startsWith(`${basePath}/`)) {
-      return false;
-    }
+  if (route.kind === "not-found") {
+    applyControlUiSecurityHeaders(res);
+    respondControlUiNotFound(res);
+    return true;
+  }
+  if (route.kind === "method-not-allowed") {
+    respondMethodNotAllowed(res);
+    return true;
+  }
+  if (route.kind === "redirect") {
+    applyControlUiSecurityHeaders(res);
+    res.statusCode = 302;
+    res.setHeader("Location", route.location);
+    res.end();
+    return true;
   }
 
   applyControlUiSecurityHeaders(res);
@@ -282,17 +338,17 @@ export function handleControlUiHttpRequest(
 
   const rootState = opts?.root;
   if (rootState?.kind === "invalid") {
-    res.statusCode = 503;
-    res.setHeader("Content-Type", "text/plain; charset=utf-8");
-    res.end(
+    respondPlainText(
+      res,
+      503,
       `Control UI assets not found at ${rootState.path}. Build them with \`pnpm ui:build\` (auto-installs UI deps), or update gateway.controlUi.root.`,
     );
     return true;
   }
   if (rootState?.kind === "missing") {
-    res.statusCode = 503;
-    res.setHeader("Content-Type", "text/plain; charset=utf-8");
-    res.end(
+    respondPlainText(
+      res,
+      503,
       "Control UI assets not found. Build them with `pnpm ui:build` (auto-installs UI deps), or run `pnpm ui:dev` during development.",
     );
     return true;
@@ -307,9 +363,28 @@ export function handleControlUiHttpRequest(
           cwd: process.cwd(),
         });
   if (!root) {
-    res.statusCode = 503;
-    res.setHeader("Content-Type", "text/plain; charset=utf-8");
-    res.end(
+    respondPlainText(
+      res,
+      503,
+      "Control UI assets not found. Build them with `pnpm ui:build` (auto-installs UI deps), or run `pnpm ui:dev` during development.",
+    );
+    return true;
+  }
+
+  const rootReal = (() => {
+    try {
+      return fs.realpathSync(root);
+    } catch (error) {
+      if (isExpectedSafePathError(error)) {
+        return null;
+      }
+      throw error;
+    }
+  })();
+  if (!rootReal) {
+    respondPlainText(
+      res,
+      503,
       "Control UI assets not found. Build them with `pnpm ui:build` (auto-installs UI deps), or run `pnpm ui:dev` during development.",
     );
     return true;
@@ -330,22 +405,43 @@ export function handleControlUiHttpRequest(
   const requested = rel && !rel.endsWith("/") ? rel : `${rel}index.html`;
   const fileRel = requested || "index.html";
   if (!isSafeRelativePath(fileRel)) {
-    respondNotFound(res);
+    respondControlUiNotFound(res);
     return true;
   }
 
-  const filePath = path.join(root, fileRel);
-  if (!filePath.startsWith(root)) {
-    respondNotFound(res);
+  const filePath = path.resolve(root, fileRel);
+  if (!isWithinDir(root, filePath)) {
+    respondControlUiNotFound(res);
     return true;
   }
 
-  if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
-    if (path.basename(filePath) === "index.html") {
-      serveIndexHtml(res, filePath);
+  const safeFile = resolveSafeControlUiFile(rootReal, filePath);
+  if (safeFile) {
+    try {
+      if (req.method === "HEAD") {
+        res.statusCode = 200;
+        setStaticFileHeaders(res, safeFile.path);
+        res.end();
+        return true;
+      }
+      if (path.basename(safeFile.path) === "index.html") {
+        serveResolvedIndexHtml(res, fs.readFileSync(safeFile.fd, "utf8"));
+        return true;
+      }
+      serveResolvedFile(res, safeFile.path, fs.readFileSync(safeFile.fd));
       return true;
+    } finally {
+      fs.closeSync(safeFile.fd);
     }
-    serveFile(res, filePath);
+  }
+
+  // If the requested path looks like a static asset (known extension), return
+  // 404 rather than falling through to the SPA index.html fallback.  We check
+  // against the same set of extensions that contentTypeForExt() recognises so
+  // that dotted SPA routes (e.g. /user/jane.doe, /v2.0) still get the
+  // client-side router fallback.
+  if (STATIC_ASSET_EXTENSIONS.has(path.extname(fileRel).toLowerCase())) {
+    respondControlUiNotFound(res);
     return true;
   }
 
@@ -361,11 +457,22 @@ export function handleControlUiHttpRequest(
 
   // SPA fallback (client-side router): serve index.html for unknown paths.
   const indexPath = path.join(root, "index.html");
-  if (fs.existsSync(indexPath)) {
-    serveIndexHtml(res, indexPath);
-    return true;
+  const safeIndex = resolveSafeControlUiFile(rootReal, indexPath);
+  if (safeIndex) {
+    try {
+      if (req.method === "HEAD") {
+        res.statusCode = 200;
+        setStaticFileHeaders(res, safeIndex.path);
+        res.end();
+        return true;
+      }
+      serveResolvedIndexHtml(res, fs.readFileSync(safeIndex.fd, "utf8"));
+      return true;
+    } finally {
+      fs.closeSync(safeIndex.fd);
+    }
   }
 
-  respondNotFound(res);
+  respondControlUiNotFound(res);
   return true;
 }

@@ -1,5 +1,5 @@
 import Foundation
-import Network
+import OpenClawKit
 
 enum GatewayRemoteConfig {
     private static func isLoopbackHost(_ rawHost: String) -> Bool {
@@ -74,7 +74,7 @@ enum GatewayRemoteConfig {
         guard scheme == "ws" || scheme == "wss" else { return nil }
         let host = url.host?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !host.isEmpty else { return nil }
-        if scheme == "ws", !self.isLoopbackHost(host) {
+        if scheme == "ws", !LoopbackHost.isLoopbackHost(host) {
             return nil
         }
         if scheme == "ws", url.port == nil {

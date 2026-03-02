@@ -22,6 +22,26 @@ export type GroupHistoryEntry = {
   senderJid?: string;
 };
 
+type ApplyGroupGatingParams = {
+  cfg: ReturnType<typeof loadConfig>;
+  msg: WebInboundMsg;
+  conversationId: string;
+  groupHistoryKey: string;
+  agentId: string;
+  sessionKey: string;
+  baseMentionConfig: MentionConfig;
+  authDir?: string;
+  groupHistories: Map<string, GroupHistoryEntry[]>;
+  groupHistoryLimit: number;
+  groupMemberNames: Map<string, Map<string, string>>;
+  logVerbose: (msg: string) => void;
+  replyLogger: { debug: (obj: unknown, msg: string) => void };
+  /** Channel identifier (e.g. "whatsapp", "signal") for gateMode resolution. */
+  channel?: string;
+  verbose?: boolean;
+  accountId?: string;
+};
+
 function isOwnerSender(baseMentionConfig: MentionConfig, msg: WebInboundMsg) {
   const sender = normalizeE164(msg.senderE164 ?? "");
   if (!sender) {
@@ -55,25 +75,18 @@ function recordPendingGroupHistoryEntry(params: {
   });
 }
 
-export function applyGroupGating(params: {
-  cfg: ReturnType<typeof loadConfig>;
-  msg: WebInboundMsg;
-  conversationId: string;
-  groupHistoryKey: string;
-  agentId: string;
-  sessionKey: string;
-  baseMentionConfig: MentionConfig;
-  authDir?: string;
-  groupHistories: Map<string, GroupHistoryEntry[]>;
-  groupHistoryLimit: number;
-  groupMemberNames: Map<string, Map<string, string>>;
-  logVerbose: (msg: string) => void;
-  replyLogger: { debug: (obj: unknown, msg: string) => void };
-  /** Channel identifier (e.g. "whatsapp", "signal") for gateMode resolution. */
-  channel?: string;
-  verbose?: boolean;
-  accountId?: string;
-}) {
+function skipGroupMessageAndStoreHistory(params: ApplyGroupGatingParams, verboseMessage: string) {
+  params.logVerbose(verboseMessage);
+  recordPendingGroupHistoryEntry({
+    msg: params.msg,
+    groupHistories: params.groupHistories,
+    groupHistoryKey: params.groupHistoryKey,
+    groupHistoryLimit: params.groupHistoryLimit,
+  });
+  return { shouldProcess: false } as const;
+}
+
+export function applyGroupGating(params: ApplyGroupGatingParams) {
   const groupPolicy = resolveGroupPolicyFor(params.cfg, params.conversationId);
   if (groupPolicy.allowlistEnabled && !groupPolicy.allowed) {
     params.logVerbose(`Skipping group message ${params.conversationId} (not in allowlist)`);
@@ -198,14 +211,10 @@ export function applyGroupGating(params: {
   const shouldBypassMention = owner && hasControlCommand(commandBody, params.cfg);
 
   if (activationCommand.hasCommand && !owner) {
-    params.logVerbose(`Ignoring /activation from non-owner in group ${params.conversationId}`);
-    recordPendingGroupHistoryEntry({
-      msg: params.msg,
-      groupHistories: params.groupHistories,
-      groupHistoryKey: params.groupHistoryKey,
-      groupHistoryLimit: params.groupHistoryLimit,
-    });
-    return { shouldProcess: false };
+    return skipGroupMessageAndStoreHistory(
+      params,
+      `Ignoring /activation from non-owner in group ${params.conversationId}`,
+    );
   }
 
   const wasMentioned = mentionDebug.wasMentioned;
@@ -235,16 +244,10 @@ export function applyGroupGating(params: {
   });
   params.msg.wasMentioned = mentionGate.effectiveWasMentioned;
   if (!shouldBypassMention && requireMention && mentionGate.shouldSkip) {
-    params.logVerbose(
+    return skipGroupMessageAndStoreHistory(
+      params,
       `Group message stored for context (no mention detected) in ${params.conversationId}: ${params.msg.body}`,
     );
-    recordPendingGroupHistoryEntry({
-      msg: params.msg,
-      groupHistories: params.groupHistories,
-      groupHistoryKey: params.groupHistoryKey,
-      groupHistoryLimit: params.groupHistoryLimit,
-    });
-    return { shouldProcess: false };
   }
 
   return { shouldProcess: true };
