@@ -711,11 +711,6 @@ export abstract class MemoryManagerEmbeddingOps extends MemoryManagerSyncOps {
       ),
       EMBEDDING_BATCH_MAX_TOKENS,
     );
-    // Prepend file path to each chunk's text for better search recall
-    for (const chunk of rawChunks) {
-      chunk.text = `[${entry.path}]\n${chunk.text}`;
-    }
-    const chunks = enforceEmbeddingMaxInputTokens(this.provider, rawChunks);
     if (options.source === "sessions" && "lineMap" in entry) {
       remapChunkLines(chunks, entry.lineMap);
     }

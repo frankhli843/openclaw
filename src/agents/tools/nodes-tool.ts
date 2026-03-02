@@ -97,20 +97,6 @@ function extractPairingRequestId(message: string): string | null {
   return value.length > 0 ? value : null;
 }
 
-function isPairingRequiredMessage(message: string): boolean {
-  const lower = message.toLowerCase();
-  return lower.includes("pairing required") || lower.includes("not_paired");
-}
-
-function extractPairingRequestId(message: string): string | null {
-  const match = message.match(/\(requestId:\s*([^)]+)\)/i);
-  if (!match) {
-    return null;
-  }
-  const value = (match[1] ?? "").trim();
-  return value.length > 0 ? value : null;
-}
-
 // Flattened schema: runtime validates per-action requirements.
 const NodesToolSchema = Type.Object({
   action: stringEnum(NODES_TOOL_ACTIONS),

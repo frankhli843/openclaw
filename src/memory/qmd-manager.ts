@@ -1903,19 +1903,11 @@ export class QmdMemoryManager implements MemorySearchManager {
         if (typeof entry.docid !== "string" || !entry.docid.trim()) {
           continue;
         }
-        const withCollection = {
-          ...entry,
-          docid: normalizedDocId,
-          collection: entry.collection ?? collectionName,
-        } satisfies QmdQueryResult;
-        const prev = bestByDocId.get(normalizedDocId);
+        const prev = bestByDocId.get(entry.docid);
         const prevScore = typeof prev?.score === "number" ? prev.score : Number.NEGATIVE_INFINITY;
-        const nextScore =
-          typeof withCollection.score === "number"
-            ? withCollection.score
-            : Number.NEGATIVE_INFINITY;
+        const nextScore = typeof entry.score === "number" ? entry.score : Number.NEGATIVE_INFINITY;
         if (!prev || nextScore > prevScore) {
-          bestByDocId.set(normalizedDocId, withCollection);
+          bestByDocId.set(entry.docid, entry);
         }
       }
     }

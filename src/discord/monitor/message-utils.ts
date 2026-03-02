@@ -170,25 +170,6 @@ export async function resolveMediaList(
   fetchImpl?: FetchLike,
 ): Promise<DiscordMediaInfo[]> {
   const out: DiscordMediaInfo[] = [];
-  // Carbon attachments can be a live Collection (Map-like) or serialized {} or array.
-  const rawMsg = message as unknown as {
-    attachments?: unknown;
-    rawData?: { attachments?: APIAttachment[] };
-    _rawData?: { attachments?: APIAttachment[] };
-  };
-  const rawAtt = rawMsg.attachments;
-  const normalizedAtt: APIAttachment[] | null = Array.isArray(rawAtt)
-    ? rawAtt.length > 0
-      ? rawAtt
-      : null
-    : rawAtt &&
-        typeof rawAtt === "object" &&
-        "size" in rawAtt &&
-        typeof (rawAtt as { values?: unknown }).values === "function"
-      ? Array.from(rawAtt as unknown as Iterable<APIAttachment>)
-      : null;
-  const resolvedAttachments: APIAttachment[] =
-    normalizedAtt ?? (rawMsg.rawData ?? rawMsg._rawData)?.attachments ?? [];
   await appendResolvedMediaFromAttachments({
     attachments: message.attachments ?? [],
     maxBytes,
@@ -202,12 +183,6 @@ export async function resolveMediaList(
     out,
     errorPrefix: "discord: failed to download sticker",
     fetchImpl,
-  });
-  await appendResolvedMediaFromStickers({
-    stickers: resolveDiscordMessageStickers(message),
-    maxBytes,
-    out,
-    errorPrefix: "discord: failed to download sticker",
   });
   return out;
 }
@@ -236,12 +211,6 @@ export async function resolveForwardedMediaList(
       out,
       errorPrefix: "discord: failed to download forwarded sticker",
       fetchImpl,
-    });
-    await appendResolvedMediaFromStickers({
-      stickers: snapshot.message ? resolveDiscordSnapshotStickers(snapshot.message) : [],
-      maxBytes,
-      out,
-      errorPrefix: "discord: failed to download forwarded sticker",
     });
   }
   return out;
@@ -406,100 +375,6 @@ async function appendResolvedMediaFromStickers(params: {
           placeholder: "<media:sticker>",
         });
       }
-    }
-  }
-}
-
-type DiscordStickerAssetCandidate = {
-  url: string;
-  fileName: string;
-};
-
-function resolveStickerAssetCandidates(sticker: APIStickerItem): DiscordStickerAssetCandidate[] {
-  const baseName = sticker.name?.trim() || `sticker-${sticker.id}`;
-  switch (sticker.format_type) {
-    case StickerFormatType.GIF:
-      return [
-        {
-          url: `${DISCORD_STICKER_ASSET_BASE_URL}/${sticker.id}.gif`,
-          fileName: `${baseName}.gif`,
-        },
-      ];
-    case StickerFormatType.Lottie:
-      return [
-        {
-          url: `${DISCORD_STICKER_ASSET_BASE_URL}/${sticker.id}.png?size=160`,
-          fileName: `${baseName}.png`,
-        },
-        {
-          url: `${DISCORD_STICKER_ASSET_BASE_URL}/${sticker.id}.json`,
-          fileName: `${baseName}.json`,
-        },
-      ];
-    case StickerFormatType.APNG:
-    case StickerFormatType.PNG:
-    default:
-      return [
-        {
-          url: `${DISCORD_STICKER_ASSET_BASE_URL}/${sticker.id}.png`,
-          fileName: `${baseName}.png`,
-        },
-      ];
-  }
-}
-
-function formatStickerError(err: unknown): string {
-  if (err instanceof Error) {
-    return err.message;
-  }
-  if (typeof err === "string") {
-    return err;
-  }
-  try {
-    return JSON.stringify(err) ?? "unknown error";
-  } catch {
-    return "unknown error";
-  }
-}
-
-async function appendResolvedMediaFromStickers(params: {
-  stickers?: APIStickerItem[] | null;
-  maxBytes: number;
-  out: DiscordMediaInfo[];
-  errorPrefix: string;
-}) {
-  const stickers = params.stickers;
-  if (!stickers || stickers.length === 0) {
-    return;
-  }
-  for (const sticker of stickers) {
-    const candidates = resolveStickerAssetCandidates(sticker);
-    let lastError: unknown;
-    for (const candidate of candidates) {
-      try {
-        const fetched = await fetchRemoteMedia({
-          url: candidate.url,
-          filePathHint: candidate.fileName,
-        });
-        const saved = await saveMediaBuffer(
-          fetched.buffer,
-          fetched.contentType,
-          "inbound",
-          params.maxBytes,
-        );
-        params.out.push({
-          path: saved.path,
-          contentType: saved.contentType,
-          placeholder: "<media:sticker>",
-        });
-        lastError = null;
-        break;
-      } catch (err) {
-        lastError = err;
-      }
-    }
-    if (lastError) {
-      logVerbose(`${params.errorPrefix} ${sticker.id}: ${formatStickerError(lastError)}`);
     }
   }
 }

@@ -105,19 +105,6 @@ async function openVerifiedLocalFile(
     throw err;
   }
 
-  if (!opened.realPath.startsWith(rootWithSep)) {
-    await opened.handle.close().catch(() => {});
-    throw new SafeOpenError("invalid-path", "path escapes root");
-  }
-
-  return opened;
-}
-
-export async function readLocalFileSafely(params: {
-  filePath: string;
-  maxBytes?: number;
-}): Promise<SafeLocalReadResult> {
-  const opened = await openVerifiedLocalFile(params.filePath);
   try {
     const [stat, lstat] = await Promise.all([handle.stat(), fs.lstat(filePath)]);
     if (lstat.isSymbolicLink()) {

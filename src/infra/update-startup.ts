@@ -297,48 +297,6 @@ function clearAutoState(nextState: UpdateCheckState): void {
   delete nextState.autoFirstSeenAt;
 }
 
-function sameUpdateAvailable(a: UpdateAvailable | null, b: UpdateAvailable | null): boolean {
-  if (a === b) {
-    return true;
-  }
-  if (!a || !b) {
-    return false;
-  }
-  return (
-    a.currentVersion === b.currentVersion &&
-    a.latestVersion === b.latestVersion &&
-    a.channel === b.channel
-  );
-}
-
-function setUpdateAvailableCache(params: {
-  next: UpdateAvailable | null;
-  onUpdateAvailableChange?: (updateAvailable: UpdateAvailable | null) => void;
-}): void {
-  if (sameUpdateAvailable(updateAvailableCache, params.next)) {
-    return;
-  }
-  updateAvailableCache = params.next;
-  params.onUpdateAvailableChange?.(params.next);
-}
-
-function resolvePersistedUpdateAvailable(state: UpdateCheckState): UpdateAvailable | null {
-  const latestVersion = state.lastAvailableVersion?.trim();
-  if (!latestVersion) {
-    return null;
-  }
-  const cmp = compareSemverStrings(VERSION, latestVersion);
-  if (cmp == null || cmp >= 0) {
-    return null;
-  }
-  const channel = state.lastAvailableTag?.trim() || DEFAULT_PACKAGE_CHANNEL;
-  return {
-    currentVersion: VERSION,
-    latestVersion,
-    channel,
-  };
-}
-
 export async function runGatewayUpdateCheck(params: {
   cfg: ReturnType<typeof loadConfig>;
   log: { info: (msg: string, meta?: Record<string, unknown>) => void };

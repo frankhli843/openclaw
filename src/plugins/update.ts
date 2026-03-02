@@ -63,16 +63,6 @@ type InstallIntegrityDrift = {
   };
 };
 
-type InstallIntegrityDrift = {
-  spec: string;
-  expectedIntegrity: string;
-  actualIntegrity: string;
-  resolution: {
-    resolvedSpec?: string;
-    version?: string;
-  };
-};
-
 async function readInstalledPackageVersion(dir: string): Promise<string | undefined> {
   const manifestPath = path.join(dir, "package.json");
   const opened = openBoundaryFileSync({

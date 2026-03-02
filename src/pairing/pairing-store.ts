@@ -318,16 +318,6 @@ function readAllowFromStateForPathSyncWithExists(
   }
 }
 
-function readAllowFromStateForPathSync(channel: PairingChannel, filePath: string): string[] {
-  try {
-    const raw = fs.readFileSync(filePath, "utf8");
-    const parsed = JSON.parse(raw) as AllowFromStore;
-    return normalizeAllowFromList(channel, parsed);
-  } catch {
-    return [];
-  }
-}
-
 async function readAllowFromState(params: {
   channel: PairingChannel;
   entry: string | number;

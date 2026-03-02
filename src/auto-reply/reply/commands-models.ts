@@ -381,14 +381,6 @@ export const handleModelsCommand: CommandHandler = async (params, allowTextComma
     });
   const modelsAgentDir = resolveAgentDir(params.cfg, modelsAgentId);
 
-  const modelsAgentId =
-    params.agentId ??
-    resolveSessionAgentId({
-      sessionKey: params.sessionKey,
-      config: params.cfg,
-    });
-  const modelsAgentDir = resolveAgentDir(params.cfg, modelsAgentId);
-
   const reply = await resolveModelsCommandReply({
     cfg: params.cfg,
     commandBodyNormalized,

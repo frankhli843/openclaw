@@ -70,20 +70,6 @@ function formatSessionExpiry(expiresAt: number) {
   return new Date(expiresAt).toISOString();
 }
 
-async function persistSessionEntry(params: Parameters<CommandHandler>[0]): Promise<boolean> {
-  if (!params.sessionEntry || !params.sessionStore || !params.sessionKey) {
-    return false;
-  }
-  params.sessionEntry.updatedAt = Date.now();
-  params.sessionStore[params.sessionKey] = params.sessionEntry;
-  if (params.storePath) {
-    await updateSessionStore(params.storePath, (store) => {
-      store[params.sessionKey] = params.sessionEntry as SessionEntry;
-    });
-  }
-  return true;
-}
-
 export const handleActivationCommand: CommandHandler = async (params, allowTextCommands) => {
   if (!allowTextCommands) {
     return null;

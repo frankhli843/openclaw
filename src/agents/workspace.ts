@@ -87,35 +87,6 @@ async function readWorkspaceFileWithGuards(params: {
   }
 }
 
-// File content cache with mtime invalidation to avoid redundant reads
-const workspaceFileCache = new Map<string, { content: string; mtimeMs: number }>();
-
-/**
- * Read file with caching based on mtime. Returns cached content if file
- * hasn't changed, otherwise reads from disk and updates cache.
- */
-async function readFileWithCache(filePath: string): Promise<string> {
-  try {
-    const stats = await fs.stat(filePath);
-    const mtimeMs = stats.mtimeMs;
-    const cached = workspaceFileCache.get(filePath);
-
-    // Return cached content if mtime matches
-    if (cached && cached.mtimeMs === mtimeMs) {
-      return cached.content;
-    }
-
-    // Read from disk and update cache
-    const content = await fs.readFile(filePath, "utf-8");
-    workspaceFileCache.set(filePath, { content, mtimeMs });
-    return content;
-  } catch (error) {
-    // Remove from cache if file doesn't exist or is unreadable
-    workspaceFileCache.delete(filePath);
-    throw error;
-  }
-}
-
 function stripFrontMatter(content: string): string {
   if (!content.startsWith("---")) {
     return content;

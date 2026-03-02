@@ -4,7 +4,7 @@ import type { GroupToolPolicyConfig } from "../../config/types.tools.js";
 import type { OutboundDeliveryResult, OutboundSendDeps } from "../../infra/outbound/deliver.js";
 import type { OutboundIdentity } from "../../infra/outbound/identity.js";
 import type { RuntimeEnv } from "../../runtime.js";
-import type { ChannelGroupGateModeResult } from "./group-mentions.js";
+import type { ChannelGroupGateModeResult } from "../../config/group-policy.js";
 import type {
   ChannelAccountSnapshot,
   ChannelAccountState,

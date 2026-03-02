@@ -233,40 +233,6 @@ function resolvePinnedClientMetadata(params: {
   };
 }
 
-type ControlUiAuthPolicy = {
-  allowInsecureAuthConfigured: boolean;
-  dangerouslyDisableDeviceAuth: boolean;
-  allowBypass: boolean;
-  device: ConnectParams["device"] | null | undefined;
-};
-
-function resolveControlUiAuthPolicy(params: {
-  isControlUi: boolean;
-  controlUiConfig:
-    | {
-        allowInsecureAuth?: boolean;
-        dangerouslyDisableDeviceAuth?: boolean;
-      }
-    | undefined;
-  deviceRaw: ConnectParams["device"] | null | undefined;
-}): ControlUiAuthPolicy {
-  const allowInsecureAuthConfigured =
-    params.isControlUi && params.controlUiConfig?.allowInsecureAuth === true;
-  const dangerouslyDisableDeviceAuth =
-    params.isControlUi && params.controlUiConfig?.dangerouslyDisableDeviceAuth === true;
-  return {
-    allowInsecureAuthConfigured,
-    dangerouslyDisableDeviceAuth,
-    // `allowInsecureAuth` must not bypass secure-context/device-auth requirements.
-    allowBypass: dangerouslyDisableDeviceAuth,
-    device: dangerouslyDisableDeviceAuth ? null : params.deviceRaw,
-  };
-}
-
-function shouldSkipControlUiPairing(policy: ControlUiAuthPolicy, sharedAuthOk: boolean): boolean {
-  return policy.allowBypass && sharedAuthOk;
-}
-
 export function attachGatewayWsMessageHandler(params: {
   socket: WebSocket;
   upgradeReq: IncomingMessage;
@@ -979,19 +945,6 @@ export function attachGatewayWsMessageHandler(params: {
                   const ok = await requirePairing("scope-upgrade");
                   if (!ok) {
                     return;
-                  }
-                } else {
-                  const scopesAllowed = roleScopesAllow({
-                    role,
-                    requestedScopes: scopes,
-                    allowedScopes: pairedScopes,
-                  });
-                  if (!scopesAllowed) {
-                    logUpgradeAudit("scope-upgrade", pairedRoles, pairedScopes);
-                    const ok = await requirePairing("scope-upgrade");
-                    if (!ok) {
-                      return;
-                    }
                   }
                 }
               }

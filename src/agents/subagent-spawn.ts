@@ -17,9 +17,9 @@ import { resolveAgentConfig, resolveAgentWorkspaceDir } from "./agent-scope.js";
 import { AGENT_LANE_SUBAGENT } from "./lanes.js";
 import { resolveSubagentSpawnModelSelection } from "./model-selection.js";
 import { resolveSandboxRuntimeStatus } from "./sandbox/runtime-status.js";
+import { runSpawnSubagentWithDurableQueue } from "./subagent-spawn.frankclaw.js";
 import { buildSubagentSystemPrompt } from "./subagent-announce.js";
 import { getSubagentDepthFromSessionStore } from "./subagent-depth.js";
-import { loadSubagentInstructions, prependSubagentInstructions } from "./subagent-instructions.js";
 import { countActiveRunsForSession, registerSubagentRun } from "./subagent-registry.js";
 import { readStringParam } from "./tools/common.js";
 import {
@@ -108,38 +108,6 @@ export type SpawnSubagentResult = {
     relDir: string;
   };
 };
-
-const SUBAGENT_DURABLE_QUEUE = createDurableJobQueue();
-
-function isQueueExcludedSubagentTask(params: { task: string; label?: string }): boolean {
-  const text = `${params.task} ${params.label ?? ""}`.toLowerCase();
-  return text.includes("verifier") || text.includes("healer") || text.includes("checkup");
-}
-
-async function sendSubagentDeadLetterAlert(params: {
-  reason: string;
-  task: string;
-  label?: string;
-  error?: string;
-}) {
-  const labelPart = params.label?.trim() ? ` label=${params.label.trim()}` : "";
-  const errorPart = params.error ? ` error=${params.error}` : "";
-  const message = `⚠️ Subagent durable queue dead-letter: reason=${params.reason}${labelPart} task=${params.task.slice(0, 140)}${errorPart}`;
-  try {
-    await callGateway({
-      method: "send",
-      params: {
-        channel: "discord",
-        to: "1474343755153932394",
-        message,
-        idempotencyKey: `subagent-dlq:${crypto.randomUUID()}`,
-      },
-      timeoutMs: 10_000,
-    });
-  } catch {
-    // Best effort alert path only.
-  }
-}
 
 export function splitModelRef(ref?: string) {
   if (!ref) {
@@ -276,7 +244,7 @@ async function ensureThreadBindingForSubagentSpawn(params: {
   }
 }
 
-export async function spawnSubagentDirect(
+async function spawnSubagentDirectCore(
   params: SpawnSubagentParams,
   ctx: SpawnSubagentContext,
 ): Promise<SpawnSubagentResult> {
@@ -924,55 +892,9 @@ export async function spawnSubagentDirect(
   params: SpawnSubagentParams,
   ctx: SpawnSubagentContext,
 ): Promise<SpawnSubagentResult> {
-  const excluded = isQueueExcludedSubagentTask({ task: params.task, label: params.label });
-  if (excluded) {
-    return await spawnSubagentDirectCore(params, ctx);
-  }
-
-  try {
-    const result = await SUBAGENT_DURABLE_QUEUE.run({
-      queue: "subagent-spawn-jobs",
-      kind: "subagent-spawn",
-      payload: { params, ctx },
-      run: async ({ params: runParams, ctx: runCtx }) =>
-        await spawnSubagentDirectCore(runParams, runCtx),
-      verify: async ({ result: runResult }) => {
-        if (runResult.status === "forbidden") {
-          return { ok: true, detail: runResult.error };
-        }
-        if (runResult.status !== "accepted") {
-          return { ok: false, detail: runResult.error ?? "subagent spawn was not accepted" };
-        }
-        if (!runResult.runId?.trim()) {
-          return { ok: false, detail: "subagent spawn missing run id" };
-        }
-        return { ok: true };
-      },
-      heal: async ({ payload }) => {
-        const retried = await spawnSubagentDirectCore(payload.params, payload.ctx);
-        if (retried.status !== "accepted") {
-          return {
-            ok: false,
-            detail: retried.error ?? "healer retry did not produce an accepted subagent",
-          };
-        }
-        return { ok: true, result: retried };
-      },
-      onDeadLetter: async ({ reason, error }) => {
-        await sendSubagentDeadLetterAlert({
-          reason,
-          task: params.task,
-          label: params.label,
-          error,
-        });
-      },
-    });
-
-    return result;
-  } catch (err) {
-    return {
-      status: "error",
-      error: err instanceof Error ? err.message : String(err),
-    };
-  }
+  return await runSpawnSubagentWithDurableQueue({
+    params,
+    ctx,
+    runCore: spawnSubagentDirectCore,
+  });
 }

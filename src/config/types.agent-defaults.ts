@@ -277,6 +277,14 @@ export type AgentDefaultsConfig = {
   };
   /** Optional sandbox settings for non-main sessions. */
   sandbox?: AgentSandboxConfig;
+
+  // ── frankclaw extensions ──────────────────────────────────────────────
+  /** Global mention keywords that trigger agent response in gated groups. */
+  mentionKeywords?: string[];
+  /** Discord channel id for blocked-message gate notifications. */
+  gateNotifyChannel?: string;
+  /** Discord user id to mention in gate-blocked notifications. */
+  gateNotifyOwner?: string;
 };
 
 export type AgentCompactionMode = "default" | "safeguard";

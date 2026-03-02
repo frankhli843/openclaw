@@ -66,13 +66,6 @@ function isTrustedShellPath(shell: string): boolean {
   return registeredShells?.has(shell) === true;
 }
 
-function resolveTimeoutMs(timeoutMs: number | undefined): number {
-  if (typeof timeoutMs !== "number" || !Number.isFinite(timeoutMs)) {
-    return DEFAULT_TIMEOUT_MS;
-  }
-  return Math.max(0, timeoutMs);
-}
-
 function resolveShell(env: NodeJS.ProcessEnv): string {
   const shell = env.SHELL?.trim();
   if (shell && isTrustedShellPath(shell)) {

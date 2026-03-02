@@ -384,9 +384,6 @@ export async function runCronIsolatedAgentTurn(params: {
       `${commandBody}\n\nReturn your summary as plain text; it will be delivered automatically. If the task explicitly calls for messaging a specific external recipient, note who/where it should go instead of sending it yourself.`.trim();
   }
 
-  const subagentInstructions = await loadSubagentInstructions(workspaceDir);
-  commandBody = prependSubagentInstructions(commandBody, subagentInstructions);
-
   const existingSkillsSnapshot = cronSession.sessionEntry.skillsSnapshot;
   const skillsSnapshot = resolveCronSkillsSnapshot({
     workspaceDir,

@@ -96,9 +96,6 @@ export function buildInboundUserContextPrefix(ctx: TemplateContext): string {
   const resolvedMessageId = messageId ?? messageIdFull;
   const timestampStr = formatConversationTimestamp(ctx.Timestamp);
 
-  const messageId = safeTrim(ctx.MessageSid);
-  const messageIdFull = safeTrim(ctx.MessageSidFull);
-  const threadLabel = safeTrim(ctx.ThreadLabel);
   const conversationInfo = {
     message_id: shouldIncludeConversationInfo ? resolvedMessageId : undefined,
     reply_to_id: shouldIncludeConversationInfo ? safeTrim(ctx.ReplyToId) : undefined,

@@ -135,6 +135,8 @@ function resolveDiscordChannelEntry<TEntry>(
 
 type SlackChannelPolicyEntry = {
   requireMention?: boolean;
+  gateMode?: GateMode;
+  allowedSenders?: Array<string | number>;
   tools?: GroupToolPolicyConfig;
   toolsBySender?: GroupToolPolicyBySenderConfig;
 };

@@ -20,14 +20,12 @@ import {
 } from "../hooks/internal-hooks.js";
 import { loadInternalHooks } from "../hooks/loader.js";
 import { isTruthyEnvValue } from "../infra/env.js";
-import { startScheduledAgentPoller } from "../infra/scheduled-agent.js";
 import type { loadOpenClawPlugins } from "../plugins/loader.js";
 import { type PluginServicesHandle, startPluginServices } from "../plugins/services.js";
 import { startBrowserControlServerIfEnabled } from "./server-browser.js";
 import {
   scheduleRestartSentinelWake,
   shouldWakeFromRestartSentinel,
-  enqueuePostRestartWake,
 } from "./server-restart-sentinel.js";
 import { startGatewayMemoryBackend } from "./server-startup-memory.js";
 
@@ -181,16 +179,6 @@ export async function startGatewaySidecars(params: {
 
   void startGatewayMemoryBackend({ cfg: params.cfg, log: params.log }).catch((err) => {
     params.log.warn(`qmd memory startup initialization failed: ${String(err)}`);
-  });
-
-  startScheduledAgentPoller();
-
-  // Always enqueue a post-restart agent wake (the poller will dispatch it after 30s).
-  // This runs on EVERY startup regardless of how the restart happened (CLI, systemd,
-  // crash recovery, internal SIGUSR1). The group:"restart" dedup key ensures rapid
-  // restarts don't stack up multiple wake messages.
-  void enqueuePostRestartWake({ deps: params.deps }).catch((err) => {
-    params.log.warn(`post-restart wake enqueue failed: ${String(err)}`);
   });
 
   if (shouldWakeFromRestartSentinel()) {

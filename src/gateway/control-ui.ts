@@ -445,16 +445,6 @@ export function handleControlUiHttpRequest(
     return true;
   }
 
-  // If the requested path looks like a static asset (known extension), return
-  // 404 rather than falling through to the SPA index.html fallback.  We check
-  // against the same set of extensions that contentTypeForExt() recognises so
-  // that dotted SPA routes (e.g. /user/jane.doe, /v2.0) still get the
-  // client-side router fallback.
-  if (STATIC_ASSET_EXTENSIONS.has(path.extname(fileRel).toLowerCase())) {
-    respondNotFound(res);
-    return true;
-  }
-
   // SPA fallback (client-side router): serve index.html for unknown paths.
   const indexPath = path.join(root, "index.html");
   const safeIndex = resolveSafeControlUiFile(rootReal, indexPath);

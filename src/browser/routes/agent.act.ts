@@ -18,31 +18,6 @@ import {
 import type { BrowserRouteRegistrar } from "./types.js";
 import { jsonError, toBoolean, toNumber, toStringArray, toStringOrEmpty } from "./utils.js";
 
-function resolveDownloadPathOrRespond(res: BrowserResponse, requestedPath: string): string | null {
-  const downloadPathResult = resolvePathWithinRoot({
-    rootDir: DEFAULT_DOWNLOAD_DIR,
-    requestedPath,
-    scopeLabel: "downloads directory",
-  });
-  if (!downloadPathResult.ok) {
-    res.status(400).json({ error: downloadPathResult.error });
-    return null;
-  }
-  return downloadPathResult.path;
-}
-
-function buildDownloadRequestBase(cdpUrl: string, targetId: string, timeoutMs: number | undefined) {
-  return {
-    cdpUrl,
-    targetId,
-    timeoutMs: timeoutMs ?? undefined,
-  };
-}
-
-function respondWithDownloadResult(res: BrowserResponse, targetId: string, result: unknown) {
-  res.json({ ok: true, targetId, download: result });
-}
-
 export function registerBrowserAgentActRoutes(
   app: BrowserRouteRegistrar,
   ctx: BrowserRouteContext,

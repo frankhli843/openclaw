@@ -73,11 +73,6 @@ function resolveToolErrorWarningPolicy(params: {
   if (normalizedToolName === "sessions_send") {
     return { showWarning: false, includeDetails };
   }
-  const normalizedToolName = params.lastToolError.toolName.trim().toLowerCase();
-  const verboseEnabled = params.verboseLevel === "on" || params.verboseLevel === "full";
-  if ((normalizedToolName === "exec" || normalizedToolName === "bash") && !verboseEnabled) {
-    return false;
-  }
   const isMutatingToolError =
     params.lastToolError.mutatingAction ?? isLikelyMutatingToolName(params.lastToolError.toolName);
   if (isMutatingToolError) {

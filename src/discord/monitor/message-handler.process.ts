@@ -9,7 +9,6 @@ import {
   clearHistoryEntriesIfEnabled,
 } from "../../auto-reply/reply/history.js";
 import { finalizeInboundContext } from "../../auto-reply/reply/inbound-context.js";
-import { createNoProgressWatchdog } from "../../auto-reply/reply/no-progress-watchdog.js";
 import { createReplyDispatcherWithTyping } from "../../auto-reply/reply/reply-dispatcher.js";
 import type { ReplyPayload } from "../../auto-reply/types.js";
 import { shouldAckReaction as shouldAckReactionGate } from "../../channels/ack-reactions.js";
@@ -234,7 +233,8 @@ export async function processDiscordMessage(ctx: DiscordMessagePreflightContext)
     previousTimestamp,
     envelope: envelopeOptions,
   });
-  const shouldIncludeChannelHistory = !isDirectMessage && !(isGuildMessage && !threadChannel);
+  const shouldIncludeChannelHistory =
+    !isDirectMessage && !(isGuildMessage && channelConfig?.autoThread && !threadChannel);
   if (shouldIncludeChannelHistory) {
     combinedBody = buildPendingHistoryContextFromMap({
       historyMap: guildHistories,
@@ -677,36 +677,6 @@ export async function processDiscordMessage(ctx: DiscordMessagePreflightContext)
     },
   });
 
-  const watchdogAbort = new AbortController();
-  const queueWatchdog = createNoProgressWatchdog({
-    softTimeoutMs: cfg.messages?.queue?.watchdogSoftMs ?? 120_000,
-    graceTimeoutMs: cfg.messages?.queue?.watchdogGraceMs ?? 45_000,
-    rateLimitGraceMs: cfg.messages?.queue?.watchdogRateLimitGraceMs ?? 45_000,
-    onSoftTimeout: async () => {
-      await statusReactions.setTool("watchdog");
-      const deferredText = "⏳ Still working on this request; extending processing window.";
-      const replyToId = replyReference.use();
-      await deliverDiscordReply({
-        replies: [{ text: deferredText }],
-        target: deliverTarget,
-        token,
-        accountId,
-        rest: client.rest,
-        runtime,
-        replyToId,
-        replyToMode,
-        textLimit,
-        maxLinesPerMessage: discordConfig?.maxLinesPerMessage,
-        tableMode,
-        chunkMode,
-      });
-      replyReference.markSent();
-    },
-    onHardTimeout: async () => {
-      watchdogAbort.abort(new Error("discord no-progress watchdog timeout"));
-    },
-  });
-
   let dispatchResult: Awaited<ReturnType<typeof dispatchInboundMessage>> | null = null;
   let dispatchError = false;
   try {
@@ -716,7 +686,6 @@ export async function processDiscordMessage(ctx: DiscordMessagePreflightContext)
       dispatcher,
       replyOptions: {
         ...replyOptions,
-        abortSignal: watchdogAbort.signal,
         skillFilter: channelConfig?.skills,
         disableBlockStreaming:
           disableBlockStreamingForDraft ??
@@ -747,44 +716,17 @@ export async function processDiscordMessage(ctx: DiscordMessagePreflightContext)
             }
           : undefined,
         onModelSelected,
-        onReasoningStream: async (payload) => {
-          queueWatchdog.touch();
-          queueWatchdog.noteRateLimitDelay(payload.text);
+        onReasoningStream: async () => {
           await statusReactions.setThinking();
         },
         onToolStart: async (payload) => {
-          queueWatchdog.touch();
-          if (payload.phase) {
-            queueWatchdog.noteRateLimitDelay(payload.phase);
-          }
           await statusReactions.setTool(payload.name);
         },
       },
     });
-    queueWatchdog.markStatus("sent");
   } catch (err) {
     dispatchError = true;
-    if (watchdogAbort.signal.aborted) {
-      const replyToId = replyReference.use();
-      await deliverDiscordReply({
-        replies: [{ text: "⚠️ Request timed out after extended wait. Please retry." }],
-        target: deliverTarget,
-        token,
-        accountId,
-        rest: client.rest,
-        runtime,
-        replyToId,
-        replyToMode,
-        textLimit,
-        maxLinesPerMessage: discordConfig?.maxLinesPerMessage,
-        tableMode,
-        chunkMode,
-      });
-      replyReference.markSent();
-      dispatchResult = { queuedFinal: true, counts: dispatcher.getQueuedCounts() };
-    } else {
-      throw err;
-    }
+    throw err;
   } finally {
     try {
       // Must stop() first to flush debounced content before clear() wipes state.
@@ -813,24 +755,6 @@ export async function processDiscordMessage(ctx: DiscordMessagePreflightContext)
         void statusReactions.restoreInitial();
       }
     }
-  }
-
-  // Roaming 👀 — always mark the latest message as "seen", remove from previous
-  if (!dispatchError) {
-    void markSilentSeen({
-      conversationId: messageChannelId,
-      messageId: message.id,
-      adapter: {
-        addReaction: (msgId, emoji) =>
-          reactMessageDiscord(messageChannelId, msgId, emoji, {
-            rest: client.rest as never,
-          }).then(() => {}),
-        removeReaction: (msgId, emoji) =>
-          removeReactionDiscord(messageChannelId, msgId, emoji, {
-            rest: client.rest as never,
-          }).then(() => {}),
-      },
-    });
   }
 
   if (!dispatchResult?.queuedFinal) {

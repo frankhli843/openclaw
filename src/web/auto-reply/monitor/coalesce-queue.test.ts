@@ -1,15 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { WebInboundMsg } from "../types.js";
 
 const mocks = vi.hoisted(() => ({
   hasControlCommand: vi.fn<(text?: string) => boolean>(),
-  buildCollectPrompt:
-    vi.fn<
-      (params: {
-        title: string;
-        items: unknown[];
-        renderItem: (item: unknown, index: number) => string;
-      }) => string
-    >(),
+  buildCollectPrompt: vi.fn<
+    (params: {
+      title: string;
+      items: WebInboundMsg[];
+      renderItem: (item: WebInboundMsg, index: number) => string;
+    }) => string
+  >(),
 }));
 
 vi.mock("../../../auto-reply/command-detection.js", () => ({
@@ -20,13 +20,13 @@ vi.mock("../../../utils/queue-helpers.js", () => ({
   buildCollectPrompt: mocks.buildCollectPrompt,
 }));
 
-import type { WebInboundMsg } from "../types.js";
 import { createWebCoalesceQueue } from "./coalesce-queue.js";
 
 function makeMsg(
   overrides: Partial<WebInboundMsg> & { body: string; from: string },
 ): WebInboundMsg {
   return {
+    ...overrides,
     from: overrides.from,
     conversationId: overrides.conversationId ?? overrides.from,
     to: overrides.to ?? "+10000000001",
@@ -37,7 +37,6 @@ function makeMsg(
     sendComposing: vi.fn().mockResolvedValue(undefined),
     reply: vi.fn().mockResolvedValue(undefined),
     sendMedia: vi.fn().mockResolvedValue(undefined),
-    ...overrides,
   } as WebInboundMsg;
 }
 
@@ -55,7 +54,7 @@ async function flush() {
 }
 
 describe("createWebCoalesceQueue", () => {
-  let processOne: ReturnType<typeof vi.fn>;
+  let processOne: ReturnType<typeof vi.fn<(msg: WebInboundMsg) => Promise<void>>>;
   const cfg = { messages: {} } as unknown as ReturnType<
     typeof import("../../../config/config.js").loadConfig
   >;

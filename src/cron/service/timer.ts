@@ -221,6 +221,14 @@ function resolveRetryConfig(cronConfig?: CronConfig) {
   };
 }
 
+export function shouldBypassDurableQueueForCronJob(job: CronJob): boolean {
+  return (
+    job.sessionTarget === "main" &&
+    job.wakeMode === "now" &&
+    job.payload.kind === "systemEvent"
+  );
+}
+
 function resolveDeliveryStatus(params: { job: CronJob; delivered?: boolean }): CronDeliveryStatus {
   if (params.delivered === true) {
     return "delivered";

@@ -191,15 +191,6 @@ function buildSkillStatus(
       ? bundledNames.has(entry.skill.name)
       : entry.skill.source === "openclaw-bundled";
 
-  const requirementStatus = evaluateEntryMetadataRequirementsForCurrentPlatform({
-    always,
-    metadata: entry.metadata,
-    frontmatter: entry.frontmatter,
-    hasLocalBin: hasBinary,
-    remote: eligibility?.remote,
-    isEnvSatisfied,
-    isConfigSatisfied,
-  });
   const { emoji, homepage, required, missing, requirementsSatisfied, configChecks } =
     evaluateEntryRequirementsForCurrentPlatform({
       always,

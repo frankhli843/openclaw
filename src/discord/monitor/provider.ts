@@ -60,9 +60,7 @@ import {
   DiscordReactionRemoveListener,
   registerDiscordListener,
 } from "./listeners.js";
-import { createCoalescedDiscordMessageHandler } from "./message-handler.coalesce.js";
 import { createDiscordMessageHandler } from "./message-handler.js";
-import { resolveDiscordMessageChannelId } from "./message-utils.js";
 import {
   createDiscordCommandArgFallbackButton,
   createDiscordModelPickerFallbackButton,
@@ -680,10 +678,6 @@ export async function monitorDiscordProvider(opts: MonitorDiscordOpts = {}) {
       pendingGatewayErrors: earlyGatewayErrorGuard.pendingErrors,
       releaseEarlyGatewayErrorGuard,
     });
-  } catch (err) {
-    if (!sawDisallowedIntents && !isDiscordDisallowedIntentsError(err)) {
-      throw err;
-    }
   } finally {
     releaseEarlyGatewayErrorGuard();
     if (!lifecycleStarted) {
