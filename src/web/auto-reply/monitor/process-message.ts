@@ -28,6 +28,7 @@ import {
   resolveDmGroupAccessWithCommandGate,
 } from "../../../security/dm-policy-shared.js";
 import { jidToE164, normalizeE164 } from "../../../utils.js";
+import { resolveWhatsAppAccount } from "../../accounts.js";
 import { newConnectionId } from "../../reconnect.js";
 import { formatError } from "../../session.js";
 import { deliverWebReply } from "../deliver-reply.js";
@@ -417,6 +418,9 @@ export async function processMessage(params: {
         deliver: async (payload: ReplyPayload, info) => {
           queueWatchdog.touch();
           queueWatchdog.noteRateLimitDelay(payload.text);
+          if (info.kind !== "final") {
+            return;
+          }
           await deliverWebReply({
             replyResult: payload,
             msg: params.msg,
@@ -426,30 +430,23 @@ export async function processMessage(params: {
             chunkMode,
             replyLogger: params.replyLogger,
             connectionId: params.connectionId,
-            // Tool + block updates are noisy; skip their log lines.
-            skipLog: info.kind !== "final",
+            skipLog: false,
             tableMode,
           });
           didSendReply = true;
-          if (info.kind === "tool") {
-            params.rememberSentText(payload.text, {});
-            return;
-          }
-          const shouldLog = info.kind === "final" && payload.text ? true : undefined;
+          const shouldLog = payload.text ? true : undefined;
           params.rememberSentText(payload.text, {
             combinedBody,
             combinedBodySessionKey: params.route.sessionKey,
             logVerboseMessage: shouldLog,
           });
-          if (info.kind === "final") {
-            const fromDisplay =
-              params.msg.chatType === "group" ? conversationId : (params.msg.from ?? "unknown");
-            const hasMedia = Boolean(payload.mediaUrl || payload.mediaUrls?.length);
-            whatsappOutboundLog.info(`Auto-replied to ${fromDisplay}${hasMedia ? " (media)" : ""}`);
-            if (shouldLogVerbose()) {
-              const preview = payload.text != null ? elide(payload.text, 400) : "<media>";
-              whatsappOutboundLog.debug(`Reply body: ${preview}${hasMedia ? " (media)" : ""}`);
-            }
+          const fromDisplay =
+            params.msg.chatType === "group" ? conversationId : (params.msg.from ?? "unknown");
+          const hasMedia = Boolean(payload.mediaUrl || payload.mediaUrls?.length);
+          whatsappOutboundLog.info(`Auto-replied to ${fromDisplay}${hasMedia ? " (media)" : ""}`);
+          if (shouldLogVerbose()) {
+            const preview = payload.text != null ? elide(payload.text, 400) : "<media>";
+            whatsappOutboundLog.debug(`Reply body: ${preview}${hasMedia ? " (media)" : ""}`);
           }
         },
         onError: (err, info) => {
@@ -467,10 +464,8 @@ export async function processMessage(params: {
       },
       replyOptions: {
         abortSignal: watchdogAbort.signal,
-        disableBlockStreaming:
-          typeof params.cfg.channels?.whatsapp?.blockStreaming === "boolean"
-            ? !params.cfg.channels.whatsapp.blockStreaming
-            : undefined,
+        // WhatsApp monitor sends only final payloads; block streaming must remain disabled.
+        disableBlockStreaming: true,
         onModelSelected,
         onReasoningStream: async (payload) => {
           queueWatchdog.touch();
