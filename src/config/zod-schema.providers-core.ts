@@ -27,12 +27,17 @@ import {
   MSTeamsReplyStyleSchema,
   ProviderCommandsSchema,
   SecretRefSchema,
+  SecretInputSchema,
   ReplyToModeSchema,
   RetryConfigSchema,
   TtsConfigSchema,
   requireAllowlistAllowFrom,
   requireOpenAllowFrom,
 } from "./zod-schema.core.js";
+import {
+  validateSlackSigningSecretRequirements,
+  validateTelegramWebhookSecretRequirements,
+} from "./zod-schema.secret-input-validation.js";
 import { sensitive } from "./zod-schema.sensitive.js";
 
 const ToolPolicyBySenderSchema = z.record(z.string(), ToolPolicySchema).optional();
@@ -60,6 +65,7 @@ export const TelegramTopicSchema = z
     requireMention: z.boolean().optional(),
     gateMode: GateModeSchema.optional(),
     allowedSenders: z.array(z.union([z.string(), z.number()])).optional(),
+    disableAudioPreflight: z.boolean().optional(),
     groupPolicy: GroupPolicySchema.optional(),
     skills: z.array(z.string()).optional(),
     enabled: z.boolean().optional(),
@@ -73,6 +79,7 @@ export const TelegramGroupSchema = z
     requireMention: z.boolean().optional(),
     gateMode: GateModeSchema.optional(),
     allowedSenders: z.array(z.union([z.string(), z.number()])).optional(),
+    disableAudioPreflight: z.boolean().optional(),
     groupPolicy: GroupPolicySchema.optional(),
     tools: ToolPolicySchema,
     toolsBySender: ToolPolicyBySenderSchema,
@@ -156,7 +163,7 @@ export const TelegramAccountSchemaBase = z
     customCommands: z.array(TelegramCustomCommandSchema).optional(),
     configWrites: z.boolean().optional(),
     dmPolicy: DmPolicySchema.optional().default("pairing"),
-    botToken: z.string().optional().register(sensitive),
+    botToken: SecretInputSchema.optional().register(sensitive),
     tokenFile: z.string().optional(),
     replyToMode: ReplyToModeSchema.optional(),
     groups: z.record(z.string(), TelegramGroupSchema.optional()).optional(),
@@ -193,9 +200,7 @@ export const TelegramAccountSchemaBase = z
       .describe(
         "Public HTTPS webhook URL registered with Telegram for inbound updates. This must be internet-reachable and requires channels.telegram.webhookSecret.",
       ),
-    webhookSecret: z
-      .string()
-      .optional()
+    webhookSecret: SecretInputSchema.optional()
       .describe(
         "Secret token sent to Telegram during webhook registration and verified on inbound webhook requests. Telegram returns this value for verification; this is not the gateway auth token and not the bot token.",
       )
@@ -296,17 +301,8 @@ export const TelegramConfigSchema = TelegramAccountSchemaBase.extend({
     }
   }
 
-  const baseWebhookUrl = typeof value.webhookUrl === "string" ? value.webhookUrl.trim() : "";
-  const baseWebhookSecret =
-    typeof value.webhookSecret === "string" ? value.webhookSecret.trim() : "";
-  if (baseWebhookUrl && !baseWebhookSecret) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: "channels.telegram.webhookUrl requires channels.telegram.webhookSecret",
-      path: ["webhookSecret"],
-    });
-  }
   if (!value.accounts) {
+    validateTelegramWebhookSecretRequirements(value, ctx);
     return;
   }
   for (const [accountId, account] of Object.entries(value.accounts)) {
@@ -336,23 +332,8 @@ export const TelegramConfigSchema = TelegramAccountSchemaBase.extend({
       message:
         'channels.telegram.accounts.*.dmPolicy="allowlist" requires channels.telegram.allowFrom or channels.telegram.accounts.*.allowFrom to contain at least one sender ID',
     });
-
-    const accountWebhookUrl =
-      typeof account.webhookUrl === "string" ? account.webhookUrl.trim() : "";
-    if (!accountWebhookUrl) {
-      continue;
-    }
-    const accountSecret =
-      typeof account.webhookSecret === "string" ? account.webhookSecret.trim() : "";
-    if (!accountSecret && !baseWebhookSecret) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message:
-          "channels.telegram.accounts.*.webhookUrl requires channels.telegram.webhookSecret or channels.telegram.accounts.*.webhookSecret",
-        path: ["accounts", accountId, "webhookSecret"],
-      });
-    }
   }
+  validateTelegramWebhookSecretRequirements(value, ctx);
 });
 
 export const DiscordDmSchema = z
@@ -436,7 +417,7 @@ export const DiscordAccountSchema = z
     enabled: z.boolean().optional(),
     commands: ProviderCommandsSchema,
     configWrites: z.boolean().optional(),
-    token: z.string().optional().register(sensitive),
+    token: SecretInputSchema.optional().register(sensitive),
     proxy: z.string().optional(),
     allowBots: z.boolean().optional(),
     dangerouslyAllowNameMatching: z.boolean().optional(),
@@ -527,7 +508,7 @@ export const DiscordAccountSchema = z
     pluralkit: z
       .object({
         enabled: z.boolean().optional(),
-        token: z.string().optional().register(sensitive),
+        token: SecretInputSchema.optional().register(sensitive),
       })
       .strict()
       .optional(),
@@ -780,16 +761,16 @@ export const SlackAccountSchema = z
   .object({
     name: z.string().optional(),
     mode: z.enum(["socket", "http"]).optional(),
-    signingSecret: z.string().optional().register(sensitive),
+    signingSecret: SecretInputSchema.optional().register(sensitive),
     webhookPath: z.string().optional(),
     capabilities: z.array(z.string()).optional(),
     markdown: MarkdownConfigSchema,
     enabled: z.boolean().optional(),
     commands: ProviderCommandsSchema,
     configWrites: z.boolean().optional(),
-    botToken: z.string().optional().register(sensitive),
-    appToken: z.string().optional().register(sensitive),
-    userToken: z.string().optional().register(sensitive),
+    botToken: SecretInputSchema.optional().register(sensitive),
+    appToken: SecretInputSchema.optional().register(sensitive),
+    userToken: SecretInputSchema.optional().register(sensitive),
     userTokenReadOnly: z.boolean().optional().default(true),
     allowBots: z.boolean().optional(),
     dangerouslyAllowNameMatching: z.boolean().optional(),
@@ -854,7 +835,7 @@ export const SlackAccountSchema = z
 
 export const SlackConfigSchema = SlackAccountSchema.safeExtend({
   mode: z.enum(["socket", "http"]).optional().default("socket"),
-  signingSecret: z.string().optional().register(sensitive),
+  signingSecret: SecretInputSchema.optional().register(sensitive),
   webhookPath: z.string().optional().default("/slack/events"),
   groupPolicy: GroupPolicySchema.optional().default("allowlist"),
   accounts: z.record(z.string(), SlackAccountSchema.optional()).optional(),
@@ -882,14 +863,8 @@ export const SlackConfigSchema = SlackAccountSchema.safeExtend({
   });
 
   const baseMode = value.mode ?? "socket";
-  if (baseMode === "http" && !value.signingSecret) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: 'channels.slack.mode="http" requires channels.slack.signingSecret',
-      path: ["signingSecret"],
-    });
-  }
   if (!value.accounts) {
+    validateSlackSigningSecretRequirements(value, ctx);
     return;
   }
   for (const [accountId, account] of Object.entries(value.accounts)) {
@@ -923,16 +898,8 @@ export const SlackConfigSchema = SlackAccountSchema.safeExtend({
     if (accountMode !== "http") {
       continue;
     }
-    const accountSecret = account.signingSecret ?? value.signingSecret;
-    if (!accountSecret) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message:
-          'channels.slack.accounts.*.mode="http" requires channels.slack.signingSecret or channels.slack.accounts.*.signingSecret',
-        path: ["accounts", accountId, "signingSecret"],
-      });
-    }
   }
+  validateSlackSigningSecretRequirements(value, ctx);
 });
 
 export const SignalAccountSchemaBase = z
@@ -1049,7 +1016,7 @@ export const IrcNickServSchema = z
   .object({
     enabled: z.boolean().optional(),
     service: z.string().optional(),
-    password: z.string().optional().register(sensitive),
+    password: SecretInputSchema.optional().register(sensitive),
     passwordFile: z.string().optional(),
     register: z.boolean().optional(),
     registerEmail: z.string().optional(),
@@ -1069,7 +1036,7 @@ export const IrcAccountSchemaBase = z
     nick: z.string().optional(),
     username: z.string().optional(),
     realname: z.string().optional(),
-    password: z.string().optional().register(sensitive),
+    password: SecretInputSchema.optional().register(sensitive),
     passwordFile: z.string().optional(),
     nickserv: IrcNickServSchema.optional(),
     channels: z.array(z.string()).optional(),
@@ -1313,7 +1280,7 @@ export const BlueBubblesAccountSchemaBase = z
     configWrites: z.boolean().optional(),
     enabled: z.boolean().optional(),
     serverUrl: z.string().optional(),
-    password: z.string().optional().register(sensitive),
+    password: SecretInputSchema.optional().register(sensitive),
     webhookPath: z.string().optional(),
     dmPolicy: DmPolicySchema.optional().default("pairing"),
     allowFrom: z.array(BlueBubblesAllowFromEntry).optional(),
@@ -1417,7 +1384,7 @@ export const MSTeamsConfigSchema = z
     markdown: MarkdownConfigSchema,
     configWrites: z.boolean().optional(),
     appId: z.string().optional(),
-    appPassword: z.string().optional().register(sensitive),
+    appPassword: SecretInputSchema.optional().register(sensitive),
     tenantId: z.string().optional(),
     webhook: z
       .object({

@@ -3,7 +3,14 @@ import { sendMessageWhatsApp } from "../../channel-web.js";
 import type { OpenClawConfig } from "../../config/config.js";
 import { loadSessionStore, resolveStorePath, type SessionEntry } from "../../config/sessions.js";
 import { logVerbose } from "../../globals.js";
+import { fireAndForgetHook } from "../../hooks/fire-and-forget.js";
 import { createInternalHookEvent, triggerInternalHook } from "../../hooks/internal-hooks.js";
+import {
+  deriveInboundMessageHookContext,
+  toInternalMessageReceivedContext,
+  toPluginMessageContext,
+  toPluginMessageReceivedEvent,
+} from "../../hooks/message-hook-mappers.js";
 import { isDiagnosticsEnabled } from "../../infra/diagnostic-events.js";
 import {
   logMessageProcessed,
@@ -168,79 +175,31 @@ export async function dispatchReplyFromConfig(params: {
     typeof ctx.Timestamp === "number" && Number.isFinite(ctx.Timestamp) ? ctx.Timestamp : undefined;
   const messageIdForHook =
     ctx.MessageSidFull ?? ctx.MessageSid ?? ctx.MessageSidFirst ?? ctx.MessageSidLast;
-  const content =
-    typeof ctx.BodyForCommands === "string"
-      ? ctx.BodyForCommands
-      : typeof ctx.RawBody === "string"
-        ? ctx.RawBody
-        : typeof ctx.Body === "string"
-          ? ctx.Body
-          : "";
-  const channelId = (ctx.OriginatingChannel ?? ctx.Surface ?? ctx.Provider ?? "").toLowerCase();
-  const conversationId = ctx.OriginatingTo ?? ctx.To ?? ctx.From ?? undefined;
+  const hookContext = deriveInboundMessageHookContext(ctx, { messageId: messageIdForHook });
+  const { isGroup, groupId } = hookContext;
 
   // Trigger plugin hooks (fire-and-forget)
   if (hookRunner?.hasHooks("message_received")) {
-    void hookRunner
-      .runMessageReceived(
-        {
-          from: ctx.From ?? "",
-          content,
-          timestamp,
-          metadata: {
-            to: ctx.To,
-            provider: ctx.Provider,
-            surface: ctx.Surface,
-            threadId: ctx.MessageThreadId,
-            originatingChannel: ctx.OriginatingChannel,
-            originatingTo: ctx.OriginatingTo,
-            messageId: messageIdForHook,
-            senderId: ctx.SenderId,
-            senderName: ctx.SenderName,
-            senderUsername: ctx.SenderUsername,
-            senderE164: ctx.SenderE164,
-            guildId: ctx.GroupSpace,
-            channelName: ctx.GroupChannel,
-          },
-        },
-        {
-          channelId,
-          accountId: ctx.AccountId,
-          conversationId,
-        },
-      )
-      .catch((err) => {
-        logVerbose(`dispatch-from-config: message_received plugin hook failed: ${String(err)}`);
-      });
+    fireAndForgetHook(
+      hookRunner.runMessageReceived(
+        toPluginMessageReceivedEvent(hookContext),
+        toPluginMessageContext(hookContext),
+      ),
+      "dispatch-from-config: message_received plugin hook failed",
+    );
   }
 
   // Bridge to internal hooks (HOOK.md discovery system) - refs #8807
   if (sessionKey) {
-    void triggerInternalHook(
-      createInternalHookEvent("message", "received", sessionKey, {
-        from: ctx.From ?? "",
-        content,
-        timestamp,
-        channelId,
-        accountId: ctx.AccountId,
-        conversationId,
-        messageId: messageIdForHook,
-        metadata: {
-          to: ctx.To,
-          provider: ctx.Provider,
-          surface: ctx.Surface,
-          threadId: ctx.MessageThreadId,
-          senderId: ctx.SenderId,
-          senderName: ctx.SenderName,
-          senderUsername: ctx.SenderUsername,
-          senderE164: ctx.SenderE164,
-          guildId: ctx.GroupSpace,
-          channelName: ctx.GroupChannel,
-        },
-      }),
-    ).catch((err) => {
-      logVerbose(`dispatch-from-config: message_received internal hook failed: ${String(err)}`);
-    });
+    fireAndForgetHook(
+      triggerInternalHook(
+        createInternalHookEvent("message", "received", sessionKey, {
+          ...toInternalMessageReceivedContext(hookContext),
+          timestamp,
+        }),
+      ),
+      "dispatch-from-config: message_received internal hook failed",
+    );
   }
 
   // Check if we should route replies to originating channel instead of dispatcher.
@@ -292,6 +251,8 @@ export async function dispatchReplyFromConfig(params: {
       cfg,
       abortSignal,
       mirror,
+      isGroup,
+      groupId,
     });
     if (!result.ok) {
       logVerbose(`dispatch-from-config: route-reply failed: ${result.error ?? "unknown error"}`);
@@ -317,6 +278,8 @@ export async function dispatchReplyFromConfig(params: {
           accountId: ctx.AccountId,
           threadId: ctx.MessageThreadId,
           cfg,
+          isGroup,
+          groupId,
         });
         queuedFinal = result.ok;
         if (result.ok) {
@@ -509,6 +472,8 @@ export async function dispatchReplyFromConfig(params: {
           accountId: ctx.AccountId,
           threadId: ctx.MessageThreadId,
           cfg,
+          isGroup,
+          groupId,
         });
         if (!result.ok) {
           logVerbose(
@@ -559,6 +524,8 @@ export async function dispatchReplyFromConfig(params: {
               accountId: ctx.AccountId,
               threadId: ctx.MessageThreadId,
               cfg,
+              isGroup,
+              groupId,
             });
             queuedFinal = result.ok || queuedFinal;
             if (result.ok) {

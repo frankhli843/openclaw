@@ -411,56 +411,47 @@ async function spawnSubagentDirectCore(
     }
     thinkingOverride = normalized;
   }
-  try {
-    await callGateway({
-      method: "sessions.patch",
-      params: { key: childSessionKey, spawnDepth: childDepth },
-      timeoutMs: 10_000,
-    });
-  } catch (err) {
-    const messageText =
-      err instanceof Error ? err.message : typeof err === "string" ? err : "error";
+  const patchChildSession = async (patch: Record<string, unknown>): Promise<string | undefined> => {
+    try {
+      await callGateway({
+        method: "sessions.patch",
+        params: { key: childSessionKey, ...patch },
+        timeoutMs: 10_000,
+      });
+      return undefined;
+    } catch (err) {
+      return err instanceof Error ? err.message : typeof err === "string" ? err : "error";
+    }
+  };
+
+  const spawnDepthPatchError = await patchChildSession({ spawnDepth: childDepth });
+  if (spawnDepthPatchError) {
     return {
       status: "error",
-      error: messageText,
+      error: spawnDepthPatchError,
       childSessionKey,
     };
   }
 
   if (resolvedModel) {
-    try {
-      await callGateway({
-        method: "sessions.patch",
-        params: { key: childSessionKey, model: resolvedModel },
-        timeoutMs: 10_000,
-      });
-      modelApplied = true;
-    } catch (err) {
-      const messageText =
-        err instanceof Error ? err.message : typeof err === "string" ? err : "error";
+    const modelPatchError = await patchChildSession({ model: resolvedModel });
+    if (modelPatchError) {
       return {
         status: "error",
-        error: messageText,
+        error: modelPatchError,
         childSessionKey,
       };
     }
+    modelApplied = true;
   }
   if (thinkingOverride !== undefined) {
-    try {
-      await callGateway({
-        method: "sessions.patch",
-        params: {
-          key: childSessionKey,
-          thinkingLevel: thinkingOverride === "off" ? null : thinkingOverride,
-        },
-        timeoutMs: 10_000,
-      });
-    } catch (err) {
-      const messageText =
-        err instanceof Error ? err.message : typeof err === "string" ? err : "error";
+    const thinkingPatchError = await patchChildSession({
+      thinkingLevel: thinkingOverride === "off" ? null : thinkingOverride,
+    });
+    if (thinkingPatchError) {
       return {
         status: "error",
-        error: messageText,
+        error: thinkingPatchError,
         childSessionKey,
       };
     }
@@ -506,7 +497,7 @@ async function spawnSubagentDirectCore(
     childSessionKey,
     label: label || undefined,
     task,
-    acpEnabled: cfg.acp?.enabled !== false,
+    acpEnabled: cfg.acp?.enabled !== false && !childRuntime.sandboxed,
     childDepth,
     maxSpawnDepth,
   });
