@@ -143,6 +143,26 @@ export function createDiscordMessageHandler(
 
   return async (data, client) => {
     try {
+      const messageId = data.message?.id;
+      const channelId = data.channel_id ?? data.message?.channel_id;
+      const authorId = data.author?.id;
+      const contentPreview = (data.message?.content ?? "").slice(0, 60);
+
+      console.info(
+        `[discord-inbound] MESSAGE_CREATE: msgId=${messageId ?? "null"} channelId=${channelId ?? "null"} author=${authorId ?? "null"} content="${contentPreview}"`,
+      );
+
+      // Filter out the bot's own messages before enqueueing.  Discord fires
+      // MESSAGE_CREATE for outgoing messages too.  If they enter the
+      // debouncer they create unnecessary processing and could interfere
+      // with concurrent batch handling.
+      if (params.botUserId && authorId === params.botUserId) {
+        console.info(
+          `[discord-inbound] SKIP own message: msgId=${messageId ?? "null"} channelId=${channelId ?? "null"}`,
+        );
+        return;
+      }
+
       await debouncer.enqueue({ data, client });
     } catch (err) {
       params.runtime.error?.(danger(`handler failed: ${String(err)}`));
