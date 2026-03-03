@@ -755,6 +755,7 @@ export async function processDiscordMessage(ctx: DiscordMessagePreflightContext)
       } else {
         void statusReactions.restoreInitial();
         // [frankclaw] Roaming 👀: move the seen reaction to this message, remove from previous
+        logVerbose(`[frankclaw-roaming-seen] channelId=${messageChannelId} messageId=${message.id}`);
         void markSilentSeen({
           conversationId: messageChannelId,
           messageId: message.id,
