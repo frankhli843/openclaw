@@ -35,6 +35,7 @@ import { truncateUtf16Safe } from "../../utils.js";
 import { chunkDiscordTextWithMode } from "../chunk.js";
 import { resolveDiscordDraftStreamingChunking } from "../draft-chunking.js";
 import { createDiscordDraftStream } from "../draft-stream.js";
+import { markSilentSeen } from "../../channels/silent-seen-reaction.js";
 import { reactMessageDiscord, removeReactionDiscord } from "../send.js";
 import { editMessageDiscord } from "../send.messages.js";
 import { normalizeDiscordSlug, resolveDiscordOwnerAllowFrom } from "./allow-list.js";
@@ -753,6 +754,21 @@ export async function processDiscordMessage(ctx: DiscordMessagePreflightContext)
         })();
       } else {
         void statusReactions.restoreInitial();
+        // [frankclaw] Roaming 👀: move the seen reaction to this message, remove from previous
+        void markSilentSeen({
+          conversationId: messageChannelId,
+          messageId: message.id,
+          adapter: {
+            addReaction: async (_msgId, _emoji) => {
+              // Already added by restoreInitial above — no-op
+            },
+            removeReaction: async (msgId, emoji) => {
+              await removeReactionDiscord(messageChannelId, msgId, emoji, {
+                rest: client.rest as never,
+              });
+            },
+          },
+        });
       }
     }
   }
