@@ -48,7 +48,7 @@ function dryRunSelfHealScript(reasonFilePath: string, json: boolean): boolean {
 
   try {
     const output = execSync(`bash "${script}" --dry-run --reason-file "${reasonFilePath}"`, {
-      timeout: 15_000,
+      timeout: 150_000,
       stdio: "pipe",
       env: { ...process.env },
     }).toString();
