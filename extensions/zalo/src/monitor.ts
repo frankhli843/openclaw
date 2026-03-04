@@ -1,6 +1,10 @@
 import { timingSafeEqual } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import type { MarkdownTableMode, OpenClawConfig, OutboundReplyPayload } from "openclaw/plugin-sdk";
+import type {
+  MarkdownTableMode,
+  OpenClawConfig,
+  OutboundReplyPayload,
+} from "openclaw/plugin-sdk/zalo";
 import {
   createScopedPairingAccess,
   createReplyPrefixOptions,
@@ -12,7 +16,7 @@ import {
   sendMediaWithLeadingCaption,
   resolveWebhookPath,
   warnMissingProviderGroupPolicyFallbackOnce,
-} from "openclaw/plugin-sdk";
+} from "openclaw/plugin-sdk/zalo";
 import type { ResolvedZaloAccount } from "./accounts.js";
 import {
   ZaloApiError,
