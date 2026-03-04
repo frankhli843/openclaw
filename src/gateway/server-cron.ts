@@ -363,7 +363,7 @@ export function buildGatewayCronService(params: {
           method: "send",
           params: {
             channel: "discord",
-            to: "1474343755153932394",
+            to: "1474420675933638847",
             message,
             idempotencyKey: `cron-dlq:${randomUUID()}`,
           },

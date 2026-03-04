@@ -1,10 +1,12 @@
 import type { Client } from "@buape/carbon";
+import { resolveAckReaction } from "../../agents/identity.js";
 import {
   createChannelInboundDebouncer,
   shouldDebounceTextInbound,
 } from "../../channels/inbound-debounce-policy.js";
 import { resolveOpenProviderRuntimeGroupPolicy } from "../../config/runtime-group-policy.js";
-import { danger } from "../../globals.js";
+import { danger, logVerbose } from "../../globals.js";
+import { reactMessageDiscord } from "../send.reactions.js";
 import type { DiscordMessageEvent, DiscordMessageHandler } from "./listeners.js";
 import { preflightDiscordMessage } from "./message-handler.preflight.js";
 import type { DiscordMessagePreflightParams } from "./message-handler.preflight.types.js";
@@ -32,6 +34,13 @@ export function createDiscordMessageHandler(
     params.discordConfig?.ackReactionScope ??
     params.cfg.messages?.ackReactionScope ??
     "group-mentions";
+  // Resolve ack emoji once at handler creation time for early reactions.
+  // Use empty agentId — config-level overrides take priority; agent identity
+  // emoji is only a last-resort fallback and is not worth a routing lookup here.
+  const earlyAckEmoji = resolveAckReaction(params.cfg, "", {
+    channel: "discord",
+    accountId: params.accountId,
+  });
   const { debouncer } = createChannelInboundDebouncer<{
     data: DiscordMessageEvent;
     client: Client;
@@ -161,6 +170,26 @@ export function createDiscordMessageHandler(
           `[discord-inbound] SKIP own message: msgId=${messageId ?? "null"} channelId=${channelId ?? "null"}`,
         );
         return;
+      }
+
+      // Fire ack reaction (👀) immediately — before debouncing/preflight — so
+      // the user gets instant visual feedback that their message was received.
+      // Discord's PUT reaction endpoint is idempotent, so the later
+      // statusReactions.setQueued() in processDiscordMessage is a harmless
+      // no-op on Discord's side.  If preflight later drops the message the
+      // reaction stays, which is an acceptable trade-off for speed.
+      if (
+        earlyAckEmoji &&
+        channelId &&
+        messageId &&
+        ackReactionScope !== "off" &&
+        ackReactionScope !== "none"
+      ) {
+        void reactMessageDiscord(channelId, messageId, earlyAckEmoji, {
+          rest: client.rest as never,
+        }).catch((err) => {
+          logVerbose(`discord early ack reaction failed: ${String(err)}`);
+        });
       }
 
       await debouncer.enqueue({ data, client });
