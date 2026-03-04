@@ -15,6 +15,7 @@ import { shouldAckReaction as shouldAckReactionGate } from "../../channels/ack-r
 import { logTypingFailure, logAckFailure } from "../../channels/logging.js";
 import { createReplyPrefixOptions } from "../../channels/reply-prefix.js";
 import { recordInboundSession } from "../../channels/session.js";
+import { markSilentSeen } from "../../channels/silent-seen-reaction.js";
 import {
   createStatusReactionController,
   DEFAULT_TIMING,
@@ -36,7 +37,6 @@ import { truncateUtf16Safe } from "../../utils.js";
 import { chunkDiscordTextWithMode } from "../chunk.js";
 import { resolveDiscordDraftStreamingChunking } from "../draft-chunking.js";
 import { createDiscordDraftStream } from "../draft-stream.js";
-import { markSilentSeen } from "../../channels/silent-seen-reaction.js";
 import { reactMessageDiscord, removeReactionDiscord } from "../send.js";
 import { editMessageDiscord } from "../send.messages.js";
 import { normalizeDiscordSlug, resolveDiscordOwnerAllowFrom } from "./allow-list.js";
@@ -50,6 +50,7 @@ import {
 } from "./message-utils.js";
 import { buildDirectLabel, buildGuildLabel, resolveReplyContext } from "./reply-context.js";
 import { deliverDiscordReply } from "./reply-delivery.js";
+import { resolveDiscordThreadHistory } from "./thread-history.js";
 import { resolveDiscordAutoThreadReplyPlan, resolveDiscordThreadStarter } from "./threading.js";
 import { sendTyping } from "./typing.js";
 
@@ -280,6 +281,7 @@ export async function processDiscordMessage(ctx: DiscordMessagePreflightContext)
   }
 
   let threadStarterBody: string | undefined;
+  let threadHistoryBody: string | undefined;
   let threadLabel: string | undefined;
   let parentSessionKey: string | undefined;
   if (threadChannel) {
@@ -297,6 +299,14 @@ export async function processDiscordMessage(ctx: DiscordMessagePreflightContext)
         threadStarterBody = starter.text;
       }
     }
+    // Fetch full thread history for context (cached with short TTL).
+    threadHistoryBody = await resolveDiscordThreadHistory({
+      client,
+      threadChannelId: messageChannelId,
+      currentMessageId: message.id,
+      botUserId: ctx.botUserId,
+      envelopeOptions,
+    });
     const parentName = threadParentName ?? "parent";
     threadLabel = threadName
       ? `Discord thread #${normalizeDiscordSlug(parentName)} › ${threadName}`
@@ -387,6 +397,7 @@ export async function processDiscordMessage(ctx: DiscordMessagePreflightContext)
     ParentSessionKey: autoThreadContext?.ParentSessionKey ?? threadKeys.parentSessionKey,
     MessageThreadId: threadChannel?.id ?? autoThreadContext?.createdThreadId ?? undefined,
     ThreadStarterBody: threadStarterBody,
+    ThreadHistoryBody: threadHistoryBody,
     ThreadLabel: threadLabel,
     Timestamp: resolveTimestampMs(message.timestamp),
     ...mediaPayload,
@@ -819,7 +830,9 @@ export async function processDiscordMessage(ctx: DiscordMessagePreflightContext)
         } else {
           void statusReactions.restoreInitial();
           // [frankclaw] Roaming 👀: move the seen reaction to this message, remove from previous
-          logVerbose(`[frankclaw-roaming-seen] channelId=${messageChannelId} messageId=${message.id}`);
+          logVerbose(
+            `[frankclaw-roaming-seen] channelId=${messageChannelId} messageId=${message.id}`,
+          );
           void markSilentSeen({
             conversationId: messageChannelId,
             messageId: message.id,
