@@ -1,13 +1,13 @@
 import { spawn } from "node:child_process";
 import os from "node:os";
-import type { OpenClawPluginApi } from "openclaw/plugin-sdk/device-pair";
+import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 import {
   approveDevicePairing,
   listDevicePairing,
   resolveGatewayBindUrl,
   runPluginCommandWithTimeout,
   resolveTailnetHostWithRunner,
-} from "openclaw/plugin-sdk/device-pair";
+} from "openclaw/plugin-sdk";
 import qrcode from "qrcode-terminal";
 import {
   armPairNotifyOnce,
