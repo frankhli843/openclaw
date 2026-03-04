@@ -13,7 +13,17 @@ export function maybeMarkWhatsAppRoamingSeen(params: {
     return;
   }
 
-  const configuredEmoji = (params.cfg.channels?.whatsapp?.ackReaction?.emoji ?? "").trim();
+  // Respect ackReaction disable settings (direct / group)
+  const ackCfg = params.cfg.channels?.whatsapp?.ackReaction;
+  const isGroup = params.msg.chatId.endsWith("@g.us");
+  if (isGroup && ackCfg?.group === "never") {
+    return;
+  }
+  if (!isGroup && ackCfg?.direct === false) {
+    return;
+  }
+
+  const configuredEmoji = (ackCfg?.emoji ?? "").trim();
   const emoji = configuredEmoji || "👀";
 
   const waConversationId = `wa:${params.msg.chatId}`;
