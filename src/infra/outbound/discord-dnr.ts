@@ -1,3 +1,7 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
 type DiscordDnrContext = {
   channel: string;
   to: string;
@@ -10,15 +14,65 @@ export type DiscordDnrWindow = {
   end: string;
 };
 
-const DEFAULT_WINDOW: DiscordDnrWindow = {
-  timeZone: "America/Toronto",
-  start: "19:00",
-  end: "09:00",
+type DiscordDnrRecurringPolicy = {
+  id: string;
+  threadId: string;
+  enabled?: boolean;
+  window: DiscordDnrWindow;
 };
 
-const TARGET_THREAD_IDS = new Set(["1479083833830801520"]);
+type DiscordDnrOneOffPolicy = {
+  id: string;
+  threadId: string;
+  startAtMs: number;
+  endAtMs: number;
+  /** Optional explicit expiry (auto-pruned when expired). */
+  expiresAtMs?: number;
+};
+
+type DiscordDnrPolicyStore = {
+  version: 1;
+  recurring?: DiscordDnrRecurringPolicy[];
+  oneOff?: DiscordDnrOneOffPolicy[];
+};
+
+const DEFAULT_RECURRING: DiscordDnrRecurringPolicy[] = [
+  {
+    id: "discord-thread-1479083833830801520-default",
+    threadId: "1479083833830801520",
+    enabled: true,
+    window: {
+      timeZone: "America/Toronto",
+      start: "19:00",
+      end: "09:00",
+    },
+  },
+];
 
 const TIME_PATTERN = /^([01]\d|2[0-3]):([0-5]\d)$/;
+const POLICY_CACHE_TTL_MS = 60_000;
+
+let cache: {
+  loadedAtMs: number;
+  recurring: DiscordDnrRecurringPolicy[];
+  oneOff: DiscordDnrOneOffPolicy[];
+} | null = null;
+
+export function __resetDiscordDnrPolicyCacheForTests(): void {
+  cache = null;
+}
+
+function resolveOpenClawHome(): string {
+  const envHome = process.env.OPENCLAW_HOME?.trim();
+  if (envHome) {
+    return envHome;
+  }
+  return path.join(os.homedir(), ".openclaw");
+}
+
+function resolvePolicyPath(): string {
+  return path.join(resolveOpenClawHome(), "state", "discord-dnr-policies.json");
+}
 
 function parseMinutes(raw: string): number | null {
   const trimmed = raw.trim();
@@ -76,21 +130,7 @@ function resolveCandidateThreadId(ctx: DiscordDnrContext): string | null {
   return null;
 }
 
-export function isDiscordDnrTarget(ctx: DiscordDnrContext): boolean {
-  if (ctx.channel !== "discord") {
-    return false;
-  }
-  const threadId = resolveCandidateThreadId(ctx);
-  if (!threadId) {
-    return false;
-  }
-  return TARGET_THREAD_IDS.has(threadId);
-}
-
-export function isWithinDiscordDnrWindow(
-  nowMs: number,
-  window: DiscordDnrWindow = DEFAULT_WINDOW,
-): boolean {
+function isWithinWindow(nowMs: number, window: DiscordDnrWindow): boolean {
   const startMin = parseMinutes(window.start);
   const endMin = parseMinutes(window.end);
   if (startMin === null || endMin === null || startMin === endMin) {
@@ -106,11 +146,8 @@ export function isWithinDiscordDnrWindow(
   return currentMin >= startMin || currentMin < endMin;
 }
 
-export function resolveNextDiscordDnrReleaseMs(
-  nowMs: number,
-  window: DiscordDnrWindow = DEFAULT_WINDOW,
-): number {
-  if (!isWithinDiscordDnrWindow(nowMs, window)) {
+function resolveNextReleaseMs(nowMs: number, window: DiscordDnrWindow): number {
+  if (!isWithinWindow(nowMs, window)) {
     return nowMs;
   }
   const minuteMs = 60_000;
@@ -118,11 +155,186 @@ export function resolveNextDiscordDnrReleaseMs(
   const start = Math.floor(nowMs / minuteMs) * minuteMs + minuteMs;
   for (let step = 0; step < searchLimit; step += 1) {
     const ts = start + step * minuteMs;
-    if (!isWithinDiscordDnrWindow(ts, window)) {
+    if (!isWithinWindow(ts, window)) {
       return ts;
     }
   }
   return nowMs + 12 * 60 * 60 * 1000;
+}
+
+function readPolicyStore(nowMs: number): {
+  recurring: DiscordDnrRecurringPolicy[];
+  oneOff: DiscordDnrOneOffPolicy[];
+} {
+  if (cache && nowMs - cache.loadedAtMs < POLICY_CACHE_TTL_MS) {
+    return { recurring: cache.recurring, oneOff: cache.oneOff };
+  }
+
+  const recurring = [...DEFAULT_RECURRING];
+  let oneOff: DiscordDnrOneOffPolicy[] = [];
+
+  const policyPath = resolvePolicyPath();
+  try {
+    const raw = fs.readFileSync(policyPath, "utf-8");
+    const parsed = JSON.parse(raw) as DiscordDnrPolicyStore;
+    if (Array.isArray(parsed.recurring)) {
+      for (const p of parsed.recurring) {
+        if (!p || typeof p !== "object") {
+          continue;
+        }
+        const threadId = String(p.threadId ?? "").trim();
+        if (!threadId) {
+          continue;
+        }
+        if (!p.window || typeof p.window !== "object") {
+          continue;
+        }
+        recurring.push({
+          id: String(p.id ?? `recurring-${threadId}`),
+          threadId,
+          enabled: p.enabled !== false,
+          window: {
+            timeZone: String(p.window.timeZone ?? "America/Toronto"),
+            start: String(p.window.start ?? "19:00"),
+            end: String(p.window.end ?? "09:00"),
+          },
+        });
+      }
+    }
+
+    let hadPruned = false;
+    if (Array.isArray(parsed.oneOff)) {
+      for (const p of parsed.oneOff) {
+        if (!p || typeof p !== "object") {
+          continue;
+        }
+        const threadId = String(p.threadId ?? "").trim();
+        const startAtMs = Number(p.startAtMs);
+        const endAtMs = Number(p.endAtMs);
+        const expiresAtMs = p.expiresAtMs === undefined ? undefined : Number(p.expiresAtMs);
+        const invalid =
+          !threadId ||
+          !Number.isFinite(startAtMs) ||
+          !Number.isFinite(endAtMs) ||
+          endAtMs <= startAtMs;
+        if (invalid) {
+          hadPruned = true;
+          continue;
+        }
+        const isExpiredByEnd = endAtMs <= nowMs;
+        const isExpiredByExplicit =
+          typeof expiresAtMs === "number" && Number.isFinite(expiresAtMs) && expiresAtMs <= nowMs;
+        if (isExpiredByEnd || isExpiredByExplicit) {
+          hadPruned = true;
+          continue;
+        }
+        oneOff.push({
+          id: String(p.id ?? `oneoff-${threadId}-${startAtMs}`),
+          threadId,
+          startAtMs,
+          endAtMs,
+          ...(typeof expiresAtMs === "number" && Number.isFinite(expiresAtMs)
+            ? { expiresAtMs }
+            : {}),
+        });
+      }
+    }
+
+    // Self-clean old one-off policies on load.
+    if (hadPruned) {
+      try {
+        fs.mkdirSync(path.dirname(policyPath), { recursive: true });
+        const nextStore: DiscordDnrPolicyStore = {
+          version: 1,
+          recurring: parsed.recurring,
+          oneOff,
+        };
+        fs.writeFileSync(policyPath, JSON.stringify(nextStore, null, 2));
+      } catch {
+        // best effort cleanup only
+      }
+    }
+  } catch {
+    // no file -> defaults only
+  }
+
+  cache = {
+    loadedAtMs: nowMs,
+    recurring,
+    oneOff,
+  };
+  return { recurring, oneOff };
+}
+
+function resolveEffectiveRule(
+  ctx: DiscordDnrContext,
+  nowMs: number,
+): {
+  active: boolean;
+  nextEligibleAtMs: number;
+  window?: DiscordDnrWindow;
+} {
+  const threadId = resolveCandidateThreadId(ctx);
+  if (!threadId || ctx.channel !== "discord") {
+    return { active: false, nextEligibleAtMs: nowMs };
+  }
+
+  const { recurring, oneOff } = readPolicyStore(nowMs);
+
+  // One-off policies take precedence.
+  for (const p of oneOff) {
+    if (p.threadId !== threadId) {
+      continue;
+    }
+    if (nowMs >= p.startAtMs && nowMs < p.endAtMs) {
+      return {
+        active: true,
+        nextEligibleAtMs: p.endAtMs,
+      };
+    }
+  }
+
+  for (const p of recurring) {
+    if (!p.enabled || p.threadId !== threadId) {
+      continue;
+    }
+    if (isWithinWindow(nowMs, p.window)) {
+      return {
+        active: true,
+        nextEligibleAtMs: resolveNextReleaseMs(nowMs, p.window),
+        window: p.window,
+      };
+    }
+  }
+
+  return { active: false, nextEligibleAtMs: nowMs };
+}
+
+export function isDiscordDnrTarget(ctx: DiscordDnrContext): boolean {
+  const threadId = resolveCandidateThreadId(ctx);
+  if (!threadId || ctx.channel !== "discord") {
+    return false;
+  }
+  const nowMs = Date.now();
+  const { recurring, oneOff } = readPolicyStore(nowMs);
+  return (
+    recurring.some((p) => p.threadId === threadId && p.enabled !== false) ||
+    oneOff.some((p) => p.threadId === threadId)
+  );
+}
+
+export function isWithinDiscordDnrWindow(
+  nowMs: number,
+  window: DiscordDnrWindow = DEFAULT_RECURRING[0].window,
+): boolean {
+  return isWithinWindow(nowMs, window);
+}
+
+export function resolveNextDiscordDnrReleaseMs(
+  nowMs: number,
+  window: DiscordDnrWindow = DEFAULT_RECURRING[0].window,
+): number {
+  return resolveNextReleaseMs(nowMs, window);
 }
 
 export class DiscordDnrSuppressedError extends Error {
@@ -136,13 +348,11 @@ export class DiscordDnrSuppressedError extends Error {
 }
 
 export function enforceDiscordDnrWindow(ctx: DiscordDnrContext, nowMs = Date.now()): void {
-  if (!isDiscordDnrTarget(ctx)) {
+  const effective = resolveEffectiveRule(ctx, nowMs);
+  if (!effective.active) {
     return;
   }
-  if (!isWithinDiscordDnrWindow(nowMs)) {
-    return;
-  }
-  throw new DiscordDnrSuppressedError(resolveNextDiscordDnrReleaseMs(nowMs));
+  throw new DiscordDnrSuppressedError(effective.nextEligibleAtMs);
 }
 
 export function inspectDiscordDnrWindow(nowMs = Date.now()): {
@@ -150,9 +360,15 @@ export function inspectDiscordDnrWindow(nowMs = Date.now()): {
   nextEligibleAtMs: number;
   window: DiscordDnrWindow;
 } {
+  // Keep script behavior stable for the primary target
+  const ctx: DiscordDnrContext = {
+    channel: "discord",
+    to: "channel:1479083833830801520",
+  };
+  const effective = resolveEffectiveRule(ctx, nowMs);
   return {
-    active: isWithinDiscordDnrWindow(nowMs),
-    nextEligibleAtMs: resolveNextDiscordDnrReleaseMs(nowMs),
-    window: DEFAULT_WINDOW,
+    active: effective.active,
+    nextEligibleAtMs: effective.nextEligibleAtMs,
+    window: effective.window ?? DEFAULT_RECURRING[0].window,
   };
 }

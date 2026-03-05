@@ -1,11 +1,20 @@
-import { describe, expect, it } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  __resetDiscordDnrPolicyCacheForTests,
+  enforceDiscordDnrWindow,
   isDiscordDnrTarget,
   isWithinDiscordDnrWindow,
   resolveNextDiscordDnrReleaseMs,
 } from "./discord-dnr.js";
 
 describe("discord DNR policy", () => {
+  afterEach(() => {
+    __resetDiscordDnrPolicyCacheForTests();
+    vi.unstubAllEnvs();
+  });
   it("matches only the configured discord thread", () => {
     expect(
       isDiscordDnrTarget({
@@ -46,5 +55,50 @@ describe("discord DNR policy", () => {
     const next = resolveNextDiscordDnrReleaseMs(insideTs);
     // Should resolve to 09:00 Toronto next morning => 2026-03-06 14:00Z.
     expect(next).toBe(Date.parse("2026-03-06T14:00:00.000Z"));
+  });
+
+  it("auto-prunes expired one-off policies from state file", () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "discord-dnr-"));
+    vi.stubEnv("OPENCLAW_HOME", tmp);
+    const stateDir = path.join(tmp, "state");
+    fs.mkdirSync(stateDir, { recursive: true });
+    const policyPath = path.join(stateDir, "discord-dnr-policies.json");
+
+    const now = Date.now();
+    fs.writeFileSync(
+      policyPath,
+      JSON.stringify(
+        {
+          version: 1,
+          oneOff: [
+            {
+              id: "expired",
+              threadId: "1479083833830801520",
+              startAtMs: now - 20_000,
+              endAtMs: now - 10_000,
+            },
+            {
+              id: "active",
+              threadId: "1479083833830801520",
+              startAtMs: now - 10_000,
+              endAtMs: now + 60_000,
+            },
+          ],
+        },
+        null,
+        2,
+      ),
+    );
+
+    expect(() =>
+      enforceDiscordDnrWindow({
+        channel: "discord",
+        to: "channel:1479083833830801520",
+      }),
+    ).toThrow();
+
+    const saved = JSON.parse(fs.readFileSync(policyPath, "utf-8"));
+    expect(saved.oneOff).toHaveLength(1);
+    expect(saved.oneOff[0]?.id).toBe("active");
   });
 });
