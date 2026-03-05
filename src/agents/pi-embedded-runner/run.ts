@@ -699,6 +699,29 @@ export async function runEmbeddedPiAgent(
       let lastRunPromptUsage: ReturnType<typeof normalizeUsage> | undefined;
       let autoCompactionCount = 0;
       let runLoopIterations = 0;
+
+      // ── Anthropic 429 header capture ──────────────────────────────────
+      // pi-ai strips HTTP response headers from streaming errors, so by the
+      // time we see the error message the retry-after info is lost.
+      // We wrap globalThis.fetch to capture the last 429 response headers
+      // from Anthropic API calls. This is scoped to this run and restored
+      // in the finally block.
+      let lastAnthropicRateLimitHeaders: Record<string, string> | undefined;
+      const originalFetch = globalThis.fetch;
+      if (normalizeProviderId(provider) === "anthropic") {
+        globalThis.fetch = async (...args: Parameters<typeof fetch>) => {
+          const response = await originalFetch(...args);
+          if (response.status === 429) {
+            const headers: Record<string, string> = {};
+            response.headers.forEach((value, key) => {
+              headers[key] = value;
+            });
+            lastAnthropicRateLimitHeaders = headers;
+          }
+          return response;
+        };
+      }
+
       const maybeMarkAuthProfileFailure = async (failure: {
         profileId?: string;
         reason?: Parameters<typeof markAuthProfileFailure>[0]["reason"] | null;
@@ -714,12 +737,22 @@ export async function runEmbeddedPiAgent(
         const activeProvider = normalizeProviderId(
           authStore.profiles[profileId]?.provider ?? provider,
         );
+
+        // Build a synthetic error-like object with captured 429 headers
+        // so parseAnthropicRateLimitHint can extract retry-after even from
+        // streaming errors where pi-ai stripped the original headers.
+        const errorWithHeaders =
+          failure.error ??
+          (lastAnthropicRateLimitHeaders
+            ? { status: 429, headers: lastAnthropicRateLimitHeaders }
+            : undefined);
+
         const rateLimit =
           reason === "rate_limit" && activeProvider === "anthropic"
             ? (parseAnthropicRateLimitHint({
                 message,
                 status: resolveFailoverStatus(reason),
-                error: failure.error,
+                error: errorWithHeaders,
               }) ?? undefined)
             : undefined;
 
@@ -1410,6 +1443,8 @@ export async function runEmbeddedPiAgent(
           };
         }
       } finally {
+        // Restore original fetch after the run to avoid leaking the wrapper
+        globalThis.fetch = originalFetch;
         stopCopilotRefreshTimer();
         process.chdir(prevCwd);
       }
