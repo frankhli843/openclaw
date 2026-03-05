@@ -4,6 +4,7 @@ import { createNoopThreadBindingManager } from "./thread-bindings.js";
 
 const preflightDiscordMessageMock = vi.hoisted(() => vi.fn());
 const processDiscordMessageMock = vi.hoisted(() => vi.fn());
+const sendMessageDiscordMock = vi.hoisted(() => vi.fn());
 
 vi.mock("./message-handler.preflight.js", () => ({
   preflightDiscordMessage: preflightDiscordMessageMock,
@@ -11,6 +12,10 @@ vi.mock("./message-handler.preflight.js", () => ({
 
 vi.mock("./message-handler.process.js", () => ({
   processDiscordMessage: processDiscordMessageMock,
+}));
+
+vi.mock("../send.js", () => ({
+  sendMessageDiscord: sendMessageDiscordMock,
 }));
 
 const { createDiscordMessageHandler } = await import("./message-handler.js");
@@ -201,9 +206,9 @@ describe("createDiscordMessageHandler queue behavior", () => {
         handler(createMessageData("m-2") as never, {} as never),
       ).resolves.toBeUndefined();
 
-      await vi.advanceTimersByTimeAsync(60);
+      await vi.advanceTimersByTimeAsync(120);
       await vi.waitFor(() => {
-        expect(processDiscordMessageMock).toHaveBeenCalledTimes(2);
+        expect(processDiscordMessageMock).toHaveBeenCalledTimes(3);
       });
 
       const firstCtx = processDiscordMessageMock.mock.calls[0]?.[0] as
@@ -212,6 +217,72 @@ describe("createDiscordMessageHandler queue behavior", () => {
       expect(firstCtx?.abortSignal?.aborted).toBe(true);
       expect(params.runtime.error).toHaveBeenCalledWith(
         expect.stringContaining("discord queued run timed out after"),
+      );
+      expect(params.runtime.error).toHaveBeenCalledWith(
+        expect.stringContaining("discord queued run timeout; retrying once"),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("sends a fallback user reply when timeout also fails after one retry", async () => {
+    vi.useFakeTimers();
+    try {
+      preflightDiscordMessageMock.mockReset();
+      processDiscordMessageMock.mockReset();
+      sendMessageDiscordMock.mockReset();
+
+      processDiscordMessageMock.mockImplementation(async (ctx: { abortSignal?: AbortSignal }) => {
+        await new Promise<void>((resolve) => {
+          if (ctx.abortSignal?.aborted) {
+            resolve();
+            return;
+          }
+          ctx.abortSignal?.addEventListener("abort", () => resolve(), { once: true });
+        });
+      });
+
+      preflightDiscordMessageMock.mockImplementation(
+        async (params: { data: { channel_id: string; message: { id: string } } }) => ({
+          ...createPreflightContext(params.data.channel_id),
+          accountId: "default",
+          cfg: { channels: { discord: { enabled: true, token: "test-token" } } },
+          message: { id: params.data.message.id },
+        }),
+      );
+
+      const params = createHandlerParams({ listenerTimeoutMs: 50 });
+      const handler = createDiscordMessageHandler(params);
+
+      await expect(
+        handler(createMessageData("m-timeout") as never, {} as never),
+      ).resolves.toBeUndefined();
+
+      await vi.advanceTimersByTimeAsync(120);
+      await vi.waitFor(() => {
+        expect(sendMessageDiscordMock).toHaveBeenCalledTimes(2);
+      });
+
+      // Alert to dropping-messages thread
+      expect(sendMessageDiscordMock).toHaveBeenNthCalledWith(
+        1,
+        "channel:1477623921577820350",
+        expect.stringContaining("Dropped/timeout-prone Discord run detected"),
+        expect.objectContaining({
+          accountId: "default",
+        }),
+      );
+
+      // User-facing fallback in the original channel
+      expect(sendMessageDiscordMock).toHaveBeenNthCalledWith(
+        2,
+        "channel:ch-1",
+        expect.stringContaining("timed out before I could reply"),
+        expect.objectContaining({
+          accountId: "default",
+          replyTo: "m-timeout",
+        }),
       );
     } finally {
       vi.useRealTimers();

@@ -9,6 +9,7 @@ import { resolveOpenProviderRuntimeGroupPolicy } from "../../config/runtime-grou
 import { danger, logVerbose } from "../../globals.js";
 import { formatDurationSeconds } from "../../infra/format-time/format-duration.ts";
 import { KeyedAsyncQueue } from "../../plugin-sdk/keyed-async-queue.js";
+import { sendMessageDiscord } from "../send.js";
 import { reactMessageDiscord } from "../send.reactions.js";
 import type { DiscordMessageEvent, DiscordMessageHandler } from "./listeners.js";
 import { preflightDiscordMessage } from "./message-handler.preflight.js";
@@ -110,6 +111,54 @@ function mergeAbortSignals(signals: Array<AbortSignal | undefined>): AbortSignal
     signal.addEventListener("abort", abortFallback, { once: true });
   }
   return fallbackController.signal;
+}
+
+const DROPPING_MESSAGES_THREAD_ID = "1477623921577820350";
+
+async function sendDroppingMessagesThreadAlert(params: {
+  ctx: DiscordMessagePreflightContext;
+  runtime: DiscordMessagePreflightParams["runtime"];
+  detail: string;
+}) {
+  const text = `⚠️ Dropped/timeout-prone Discord run detected\n${params.detail}`;
+  try {
+    await sendMessageDiscord(`channel:${DROPPING_MESSAGES_THREAD_ID}`, text, {
+      cfg: params.ctx.cfg,
+      accountId: params.ctx.accountId,
+    });
+  } catch (err) {
+    params.runtime.error?.(
+      danger(
+        `discord dropping-messages alert send failed: ${String(err)}${formatDiscordRunContextSuffix(params.ctx)}`,
+      ),
+    );
+  }
+}
+
+async function sendQueuedRunTimeoutFallback(params: {
+  ctx: DiscordMessagePreflightContext;
+  runtime: DiscordMessagePreflightParams["runtime"];
+}) {
+  const channelId = params.ctx.messageChannelId?.trim();
+  const replyTo = params.ctx.message?.id?.trim();
+  if (!channelId) {
+    return;
+  }
+  const text =
+    "⚠️ Sorry, this run timed out before I could reply. Please send your message again (or say 'continue') and I’ll retry.";
+  try {
+    await sendMessageDiscord(`channel:${channelId}`, text, {
+      cfg: params.ctx.cfg,
+      accountId: params.ctx.accountId,
+      replyTo,
+    });
+  } catch (err) {
+    params.runtime.error?.(
+      danger(
+        `discord timeout fallback send failed: ${String(err)}${formatDiscordRunContextSuffix(params.ctx)}`,
+      ),
+    );
+  }
 }
 
 async function processDiscordRunWithTimeout(params: {
@@ -225,12 +274,42 @@ export function createDiscordMessageHandler(
           if (!runState.isActive()) {
             return;
           }
-          await processDiscordRunWithTimeout({
-            ctx,
-            runtime: params.runtime,
-            lifecycleSignal: params.abortSignal,
-            timeoutMs: params.listenerTimeoutMs,
-          });
+
+          let attempts = 0;
+          while (true) {
+            try {
+              await processDiscordRunWithTimeout({
+                ctx,
+                runtime: params.runtime,
+                lifecycleSignal: params.abortSignal,
+                timeoutMs: params.listenerTimeoutMs,
+              });
+              break;
+            } catch (err) {
+              if (
+                err instanceof DiscordQueuedRunTimeoutError &&
+                attempts < 1 &&
+                runState.isActive()
+              ) {
+                attempts += 1;
+                params.runtime.error?.(
+                  danger(
+                    `discord queued run timeout; retrying once${formatDiscordRunContextSuffix(ctx)}`,
+                  ),
+                );
+                continue;
+              }
+              if (err instanceof DiscordQueuedRunTimeoutError) {
+                await sendDroppingMessagesThreadAlert({
+                  ctx,
+                  runtime: params.runtime,
+                  detail: `queue timeout after retry exhausted${formatDiscordRunContextSuffix(ctx)}`,
+                });
+                await sendQueuedRunTimeoutFallback({ ctx, runtime: params.runtime });
+              }
+              throw err;
+            }
+          }
         } finally {
           runState.onRunEnd();
         }
