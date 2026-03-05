@@ -3,8 +3,10 @@ import type { AuthProfileStore, ProfileUsageStats } from "./types.js";
 import {
   clearAuthProfileCooldown,
   clearExpiredCooldowns,
+  getSoonestCooldownExpiry,
   isProfileInCooldown,
   markAuthProfileFailure,
+  markAuthProfileUsed,
   resolveProfilesUnavailableReason,
   resolveProfileUnusableUntil,
   resolveProfileUnusableUntilForDisplay,
@@ -24,6 +26,7 @@ function makeStore(usageStats: AuthProfileStore["usageStats"]): AuthProfileStore
     version: 1,
     profiles: {
       "anthropic:default": { type: "api_key", provider: "anthropic", key: "sk-test" },
+      "anthropic:work": { type: "api_key", provider: "anthropic", key: "sk-work" },
       "openai:default": { type: "api_key", provider: "openai", key: "sk-test-2" },
       "openrouter:default": { type: "api_key", provider: "openrouter", key: "sk-or-test" },
     },
@@ -74,6 +77,17 @@ describe("resolveProfileUnusableUntilForDisplay", () => {
 
     expect(resolveProfileUnusableUntilForDisplay(store, "anthropic:default")).toBe(until);
   });
+
+  it("shows provider-level lockout markers for provider siblings", () => {
+    const until = Date.now() + 90_000;
+    const store = makeStore({
+      "__provider__:anthropic": {
+        cooldownUntil: until,
+      },
+    });
+
+    expect(resolveProfileUnusableUntilForDisplay(store, "anthropic:work")).toBe(until);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -108,6 +122,17 @@ describe("isProfileInCooldown", () => {
       },
     });
     expect(isProfileInCooldown(store, "anthropic:default")).toBe(true);
+  });
+
+  it("treats provider-level lockouts as cooldown for all profiles under that provider", () => {
+    const store = makeStore({
+      "__provider__:anthropic": {
+        cooldownUntil: Date.now() + 60_000,
+      },
+    });
+
+    expect(isProfileInCooldown(store, "anthropic:default")).toBe(true);
+    expect(isProfileInCooldown(store, "anthropic:work")).toBe(true);
   });
 
   it("returns false for OpenRouter even when cooldown fields exist", () => {
@@ -232,6 +257,66 @@ describe("resolveProfilesUnavailableReason", () => {
         now,
       }),
     ).toBe("auth");
+  });
+
+  it("uses provider-level lockout reason when profile stats are absent", () => {
+    const now = Date.now();
+    const store = makeStore({
+      "__provider__:anthropic": {
+        disabledUntil: now + 60_000,
+        disabledReason: "billing",
+      },
+    });
+
+    expect(
+      resolveProfilesUnavailableReason({
+        store,
+        profileIds: ["anthropic:default", "anthropic:work"],
+        now,
+      }),
+    ).toBe("billing");
+  });
+});
+
+describe("getSoonestCooldownExpiry", () => {
+  it("includes provider-level lockout windows", () => {
+    const now = Date.now();
+    const store = makeStore({
+      "__provider__:anthropic": {
+        cooldownUntil: now + 120_000,
+      },
+    });
+
+    expect(getSoonestCooldownExpiry(store, ["anthropic:default", "anthropic:work"]))
+      .toBe(store.usageStats?.["__provider__:anthropic"]?.cooldownUntil ?? null);
+  });
+});
+
+describe("provider-level lock lifecycle", () => {
+  it("locks all provider profiles on rate_limit and clears lock on successful provider use", async () => {
+    const now = Date.now();
+    const store = makeStore(undefined);
+
+    await markAuthProfileFailure({
+      store,
+      profileId: "anthropic:default",
+      reason: "rate_limit",
+    });
+
+    const providerLockUntil = store.usageStats?.["__provider__:anthropic"]?.cooldownUntil;
+    expect(typeof providerLockUntil).toBe("number");
+    expect(providerLockUntil).toBeGreaterThan(now);
+    expect(isProfileInCooldown(store, "anthropic:work")).toBe(true);
+
+    await markAuthProfileUsed({
+      store,
+      profileId: "anthropic:work",
+    });
+
+    expect(store.usageStats?.["__provider__:anthropic"]?.cooldownUntil).toBeUndefined();
+    expect(store.usageStats?.["__provider__:anthropic"]?.disabledUntil).toBeUndefined();
+    expect(isProfileInCooldown(store, "anthropic:work")).toBe(false);
+    expect(isProfileInCooldown(store, "anthropic:default")).toBe(true);
   });
 });
 
@@ -499,10 +584,8 @@ describe("clearAuthProfileCooldown", () => {
   });
 });
 
-describe("markAuthProfileFailure — active windows do not extend on retry", () => {
-  // Regression for https://github.com/openclaw/openclaw/issues/23516
-  // When all providers are at saturation backoff (60 min) and retries fire every 30 min,
-  // each retry was resetting cooldownUntil to now+60m, preventing recovery.
+describe("markAuthProfileFailure — active windows may escalate on retry", () => {
+  // Retries should never shorten active windows. They can stay the same or escalate.
   type WindowStats = ProfileUsageStats;
 
   async function markFailureAt(params: {
@@ -532,6 +615,7 @@ describe("markAuthProfileFailure — active windows do not extend on retry", () 
         errorCount: 3,
         lastFailureAt: now - 10 * 60 * 1000,
       }),
+      expectedUntil: (now: number) => now + 12 * 60 * 60 * 1000,
       readUntil: (stats: WindowStats | undefined) => stats?.cooldownUntil,
     },
     {
@@ -544,6 +628,7 @@ describe("markAuthProfileFailure — active windows do not extend on retry", () 
         failureCounts: { billing: 5 },
         lastFailureAt: now - 60_000,
       }),
+      expectedUntil: (now: number) => now + 24 * 60 * 60 * 1000,
       readUntil: (stats: WindowStats | undefined) => stats?.disabledUntil,
     },
     {
@@ -556,12 +641,13 @@ describe("markAuthProfileFailure — active windows do not extend on retry", () 
         failureCounts: { auth_permanent: 5 },
         lastFailureAt: now - 60_000,
       }),
+      expectedUntil: (now: number) => now + 24 * 60 * 60 * 1000,
       readUntil: (stats: WindowStats | undefined) => stats?.disabledUntil,
     },
   ];
 
   for (const testCase of activeWindowCases) {
-    it(`keeps active ${testCase.label} unchanged on retry`, async () => {
+    it(`keeps or escalates active ${testCase.label} on retry`, async () => {
       const now = 1_000_000;
       const existingStats = testCase.buildUsageStats(now);
       const existingUntil = testCase.readUntil(existingStats);
@@ -574,7 +660,9 @@ describe("markAuthProfileFailure — active windows do not extend on retry", () 
       });
 
       const stats = store.usageStats?.["anthropic:default"];
-      expect(testCase.readUntil(stats)).toBe(existingUntil);
+      const nextUntil = testCase.readUntil(stats);
+      expect((nextUntil ?? 0) >= (existingUntil ?? 0)).toBe(true);
+      expect(nextUntil).toBe(testCase.expectedUntil(now));
     });
   }
 
@@ -587,7 +675,7 @@ describe("markAuthProfileFailure — active windows do not extend on retry", () 
         errorCount: 3,
         lastFailureAt: now - 60_000,
       }),
-      expectedUntil: (now: number) => now + 60 * 60 * 1000,
+      expectedUntil: (now: number) => now + 12 * 60 * 60 * 1000,
       readUntil: (stats: WindowStats | undefined) => stats?.cooldownUntil,
     },
     {

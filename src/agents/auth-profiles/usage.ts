@@ -17,9 +17,33 @@ const FAILURE_REASON_SET = new Set<AuthProfileFailureReason>(FAILURE_REASON_PRIO
 const FAILURE_REASON_ORDER = new Map<AuthProfileFailureReason, number>(
   FAILURE_REASON_PRIORITY.map((reason, index) => [reason, index]),
 );
+const PROVIDER_STATS_PREFIX = "__provider__:";
 
 function isAuthCooldownBypassedForProvider(provider: string | undefined): boolean {
   return normalizeProviderId(provider ?? "") === "openrouter";
+}
+
+function resolveProviderStatsKey(provider: string | undefined): string | null {
+  const providerId = normalizeProviderId(provider ?? "");
+  if (!providerId) {
+    return null;
+  }
+  return `${PROVIDER_STATS_PREFIX}${providerId}`;
+}
+
+function resolveProviderUsageStatsForProfile(
+  store: AuthProfileStore,
+  profileId: string,
+): ProfileUsageStats | undefined {
+  const providerKey = resolveProviderStatsKey(store.profiles[profileId]?.provider);
+  if (!providerKey) {
+    return undefined;
+  }
+  return store.usageStats?.[providerKey];
+}
+
+function isProviderLockoutReason(reason: AuthProfileFailureReason): boolean {
+  return reason === "rate_limit" || reason === "billing" || reason === "auth_permanent";
 }
 
 export function resolveProfileUnusableUntil(
@@ -42,16 +66,60 @@ export function isProfileInCooldown(
   profileId: string,
   now?: number,
 ): boolean {
-  if (isAuthCooldownBypassedForProvider(store.profiles[profileId]?.provider)) {
+  const provider = store.profiles[profileId]?.provider;
+  if (isAuthCooldownBypassedForProvider(provider)) {
     return false;
   }
+  const ts = now ?? Date.now();
+  const providerStats = resolveProviderUsageStatsForProfile(store, profileId);
+  const providerUnusableUntil = providerStats ? resolveProfileUnusableUntil(providerStats) : null;
+  if (providerUnusableUntil && ts < providerUnusableUntil) {
+    return true;
+  }
+
   const stats = store.usageStats?.[profileId];
   if (!stats) {
     return false;
   }
   const unusableUntil = resolveProfileUnusableUntil(stats);
-  const ts = now ?? Date.now();
   return unusableUntil ? ts < unusableUntil : false;
+}
+
+function scoreUnavailableStats(params: {
+  stats: ProfileUsageStats | undefined;
+  now: number;
+  addScore: (reason: AuthProfileFailureReason, value: number) => void;
+}): void {
+  const { stats, now, addScore } = params;
+  if (!stats) {
+    return;
+  }
+
+  const disabledActive = isActiveUnusableWindow(stats.disabledUntil, now);
+  if (disabledActive && stats.disabledReason && FAILURE_REASON_SET.has(stats.disabledReason)) {
+    // Disabled reasons are explicit and high-signal; weight heavily.
+    addScore(stats.disabledReason, 1_000);
+    return;
+  }
+
+  const cooldownActive = isActiveUnusableWindow(stats.cooldownUntil, now);
+  if (!cooldownActive) {
+    return;
+  }
+
+  let recordedReason = false;
+  for (const [rawReason, rawCount] of Object.entries(stats.failureCounts ?? {})) {
+    const reason = rawReason as AuthProfileFailureReason;
+    const count = typeof rawCount === "number" ? rawCount : 0;
+    if (!FAILURE_REASON_SET.has(reason) || count <= 0) {
+      continue;
+    }
+    addScore(reason, count);
+    recordedReason = true;
+  }
+  if (!recordedReason) {
+    addScore("rate_limit", 1);
+  }
 }
 
 function isActiveUnusableWindow(until: number | undefined, now: number): boolean {
@@ -78,37 +146,25 @@ export function resolveProfilesUnavailableReason(params: {
     scores.set(reason, (scores.get(reason) ?? 0) + value);
   };
 
+  const seenProviderStatsKeys = new Set<string>();
+
   for (const profileId of params.profileIds) {
-    const stats = params.store.usageStats?.[profileId];
-    if (!stats) {
+    scoreUnavailableStats({
+      stats: params.store.usageStats?.[profileId],
+      now,
+      addScore,
+    });
+
+    const providerStatsKey = resolveProviderStatsKey(params.store.profiles[profileId]?.provider);
+    if (!providerStatsKey || seenProviderStatsKeys.has(providerStatsKey)) {
       continue;
     }
-
-    const disabledActive = isActiveUnusableWindow(stats.disabledUntil, now);
-    if (disabledActive && stats.disabledReason && FAILURE_REASON_SET.has(stats.disabledReason)) {
-      // Disabled reasons are explicit and high-signal; weight heavily.
-      addScore(stats.disabledReason, 1_000);
-      continue;
-    }
-
-    const cooldownActive = isActiveUnusableWindow(stats.cooldownUntil, now);
-    if (!cooldownActive) {
-      continue;
-    }
-
-    let recordedReason = false;
-    for (const [rawReason, rawCount] of Object.entries(stats.failureCounts ?? {})) {
-      const reason = rawReason as AuthProfileFailureReason;
-      const count = typeof rawCount === "number" ? rawCount : 0;
-      if (!FAILURE_REASON_SET.has(reason) || count <= 0) {
-        continue;
-      }
-      addScore(reason, count);
-      recordedReason = true;
-    }
-    if (!recordedReason) {
-      addScore("rate_limit", 1);
-    }
+    seenProviderStatsKeys.add(providerStatsKey);
+    scoreUnavailableStats({
+      stats: params.store.usageStats?.[providerStatsKey],
+      now,
+      addScore,
+    });
   }
 
   if (scores.size === 0) {
@@ -143,18 +199,29 @@ export function getSoonestCooldownExpiry(
   profileIds: string[],
 ): number | null {
   let soonest: number | null = null;
-  for (const id of profileIds) {
-    const stats = store.usageStats?.[id];
+  const seenProviderStatsKeys = new Set<string>();
+
+  const consider = (stats: ProfileUsageStats | undefined) => {
     if (!stats) {
-      continue;
+      return;
     }
     const until = resolveProfileUnusableUntil(stats);
     if (typeof until !== "number" || !Number.isFinite(until) || until <= 0) {
-      continue;
+      return;
     }
     if (soonest === null || until < soonest) {
       soonest = until;
     }
+  };
+
+  for (const id of profileIds) {
+    consider(store.usageStats?.[id]);
+    const providerStatsKey = resolveProviderStatsKey(store.profiles[id]?.provider);
+    if (!providerStatsKey || seenProviderStatsKeys.has(providerStatsKey)) {
+      continue;
+    }
+    seenProviderStatsKeys.add(providerStatsKey);
+    consider(store.usageStats?.[providerStatsKey]);
   }
   return soonest;
 }
@@ -243,12 +310,17 @@ export async function markAuthProfileUsed(params: {
   const updated = await updateAuthProfileStoreWithLock({
     agentDir,
     updater: (freshStore) => {
-      if (!freshStore.profiles[profileId]) {
+      const profile = freshStore.profiles[profileId];
+      if (!profile) {
         return false;
       }
       updateUsageStatsEntry(freshStore, profileId, (existing) =>
         resetUsageStats(existing, { lastUsed: Date.now() }),
       );
+      const providerStatsKey = resolveProviderStatsKey(profile.provider);
+      if (providerStatsKey && freshStore.usageStats?.[providerStatsKey]) {
+        updateUsageStatsEntry(freshStore, providerStatsKey, (existing) => resetUsageStats(existing));
+      }
       return true;
     },
   });
@@ -260,18 +332,24 @@ export async function markAuthProfileUsed(params: {
     return;
   }
 
+  const providerStatsKey = resolveProviderStatsKey(store.profiles[profileId]?.provider);
+
   updateUsageStatsEntry(store, profileId, (existing) =>
     resetUsageStats(existing, { lastUsed: Date.now() }),
   );
+  if (providerStatsKey && store.usageStats?.[providerStatsKey]) {
+    updateUsageStatsEntry(store, providerStatsKey, (existing) => resetUsageStats(existing));
+  }
   saveAuthProfileStore(store, agentDir);
 }
 
 export function calculateAuthProfileCooldownMs(errorCount: number): number {
   const normalized = Math.max(1, errorCount);
-  return Math.min(
-    60 * 60 * 1000, // 1 hour max
-    60 * 1000 * 5 ** Math.min(normalized - 1, 3),
-  );
+  // Escalating transient cooldown ladder (minutes):
+  // 1, 5, 25, 60, 240, 480, 1440 (24h cap)
+  const stepsMinutes = [1, 5, 25, 60, 240, 480, 1440] as const;
+  const idx = Math.min(normalized - 1, stepsMinutes.length - 1);
+  return stepsMinutes[idx] * 60 * 1000;
 }
 
 type ResolvedAuthCooldownConfig = {
@@ -341,14 +419,21 @@ export function resolveProfileUnusableUntilForDisplay(
   store: AuthProfileStore,
   profileId: string,
 ): number | null {
-  if (isAuthCooldownBypassedForProvider(store.profiles[profileId]?.provider)) {
+  const provider = store.profiles[profileId]?.provider;
+  if (isAuthCooldownBypassedForProvider(provider)) {
     return null;
   }
-  const stats = store.usageStats?.[profileId];
-  if (!stats) {
-    return null;
+  const profileUntil = resolveProfileUnusableUntil(store.usageStats?.[profileId] ?? {});
+  const providerUntil = resolveProfileUnusableUntil(
+    resolveProviderUsageStatsForProfile(store, profileId) ?? {},
+  );
+  if (profileUntil === null) {
+    return providerUntil;
   }
-  return resolveProfileUnusableUntil(stats);
+  if (providerUntil === null) {
+    return profileUntil;
+  }
+  return Math.max(profileUntil, providerUntil);
 }
 
 function resetUsageStats(
@@ -383,7 +468,32 @@ function keepActiveWindowOrRecompute(params: {
   const { existingUntil, now, recomputedUntil } = params;
   const hasActiveWindow =
     typeof existingUntil === "number" && Number.isFinite(existingUntil) && existingUntil > now;
-  return hasActiveWindow ? existingUntil : recomputedUntil;
+  if (!hasActiveWindow) {
+    return recomputedUntil;
+  }
+  // Prefer the longer window so repeated failures can escalate quickly
+  // (for example 1m → 5m → 25m or rule-based jumps).
+  return Math.max(existingUntil, recomputedUntil);
+}
+
+function resolveAggressiveCooldownMs(params: {
+  errorCount: number;
+  failureWindowMs: number;
+}): number | null {
+  // Frank directive:
+  // - >3 failures in the active window => 12h cooldown
+  // - >5 failures in the active window => 24h cooldown
+  // Keep this logic local to avoid config/schema churn and merge conflicts.
+  if (params.failureWindowMs <= 0) {
+    return null;
+  }
+  if (params.errorCount > 5) {
+    return 24 * 60 * 60 * 1000;
+  }
+  if (params.errorCount > 3) {
+    return 12 * 60 * 60 * 1000;
+  }
+  return null;
 }
 
 function computeNextProfileUsageStats(params: {
@@ -426,9 +536,12 @@ function computeNextProfileUsageStats(params: {
     });
     updatedStats.disabledReason = params.reason;
   } else {
-    const backoffMs = calculateAuthProfileCooldownMs(nextErrorCount);
-    // Keep active cooldown windows immutable so retries within the window
-    // cannot push recovery further out.
+    const steppedBackoffMs = calculateAuthProfileCooldownMs(nextErrorCount);
+    const aggressiveBackoffMs = resolveAggressiveCooldownMs({
+      errorCount: nextErrorCount,
+      failureWindowMs: params.cfgResolved.failureWindowMs,
+    });
+    const backoffMs = Math.max(steppedBackoffMs, aggressiveBackoffMs ?? 0);
     updatedStats.cooldownUntil = keepActiveWindowOrRecompute({
       existingUntil: params.existing.cooldownUntil,
       now: params.now,
@@ -436,6 +549,61 @@ function computeNextProfileUsageStats(params: {
     });
   }
 
+  return updatedStats;
+}
+
+
+function computeNextProviderUsageStats(params: {
+  existing: ProfileUsageStats;
+  now: number;
+  reason: AuthProfileFailureReason;
+  cfgResolved: ResolvedAuthCooldownConfig;
+}): ProfileUsageStats {
+  const windowMs = params.cfgResolved.failureWindowMs;
+  const windowExpired =
+    typeof params.existing.lastFailureAt === "number" &&
+    params.existing.lastFailureAt > 0 &&
+    params.now - params.existing.lastFailureAt > windowMs;
+
+  const baseErrorCount = windowExpired ? 0 : (params.existing.errorCount ?? 0);
+  const nextErrorCount = baseErrorCount + 1;
+  const failureCounts = windowExpired ? {} : { ...params.existing.failureCounts };
+  failureCounts[params.reason] = (failureCounts[params.reason] ?? 0) + 1;
+
+  const updatedStats: ProfileUsageStats = {
+    ...params.existing,
+    errorCount: nextErrorCount,
+    failureCounts,
+    lastFailureAt: params.now,
+  };
+
+  if (params.reason === "billing" || params.reason === "auth_permanent") {
+    const reasonCount = failureCounts[params.reason] ?? 1;
+    const backoffMs = calculateAuthProfileBillingDisableMsWithConfig({
+      errorCount: reasonCount,
+      baseMs: params.cfgResolved.billingBackoffMs,
+      maxMs: params.cfgResolved.billingMaxMs,
+    });
+    updatedStats.disabledUntil = keepActiveWindowOrRecompute({
+      existingUntil: params.existing.disabledUntil,
+      now: params.now,
+      recomputedUntil: params.now + backoffMs,
+    });
+    updatedStats.disabledReason = params.reason;
+    return updatedStats;
+  }
+
+  const steppedBackoffMs = calculateAuthProfileCooldownMs(nextErrorCount);
+  const aggressiveBackoffMs = resolveAggressiveCooldownMs({
+    errorCount: nextErrorCount,
+    failureWindowMs: params.cfgResolved.failureWindowMs,
+  });
+  const backoffMs = Math.max(steppedBackoffMs, aggressiveBackoffMs ?? 0);
+  updatedStats.cooldownUntil = keepActiveWindowOrRecompute({
+    existingUntil: params.existing.cooldownUntil,
+    now: params.now,
+    recomputedUntil: params.now + backoffMs,
+  });
   return updatedStats;
 }
 
@@ -478,6 +646,19 @@ export async function markAuthProfileFailure(params: {
           cfgResolved,
         }),
       );
+      if (isProviderLockoutReason(reason)) {
+        const providerStatsKey = resolveProviderStatsKey(profile.provider);
+        if (providerStatsKey) {
+          updateUsageStatsEntry(freshStore, providerStatsKey, (existing) =>
+            computeNextProviderUsageStats({
+              existing: existing ?? {},
+              now,
+              reason,
+              cfgResolved,
+            }),
+          );
+        }
+      }
       return true;
     },
   });
@@ -504,12 +685,25 @@ export async function markAuthProfileFailure(params: {
       cfgResolved,
     }),
   );
+  if (isProviderLockoutReason(reason)) {
+    const providerStatsKey = resolveProviderStatsKey(store.profiles[profileId]?.provider);
+    if (providerStatsKey) {
+      updateUsageStatsEntry(store, providerStatsKey, (existing) =>
+        computeNextProviderUsageStats({
+          existing: existing ?? {},
+          now,
+          reason,
+          cfgResolved,
+        }),
+      );
+    }
+  }
   saveAuthProfileStore(store, agentDir);
 }
 
 /**
- * Mark a profile as failed/rate-limited. Applies exponential backoff cooldown.
- * Cooldown times: 1min, 5min, 25min, max 1 hour.
+ * Mark a profile as failed/rate-limited. Applies escalating cooldown windows.
+ * Cooldown times: 1min, 5min, 25min, 1h, 4h, 8h, max 24h.
  * Uses store lock to avoid overwriting concurrent usage updates.
  */
 export async function markAuthProfileCooldown(params: {
