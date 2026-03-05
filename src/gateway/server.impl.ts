@@ -900,6 +900,16 @@ export async function startGatewayServer(
     }
   }
 
+  // Register auth long-cooldown notifications → Discord #logs (programmatic, no cron).
+  if (!minimalTestGateway) {
+    const { registerAuthCooldownNotifyDiscord } =
+      await import("../agents/auth-profiles/cooldown-notify.js");
+    registerAuthCooldownNotifyDiscord({
+      discordChannelId: "1474420675933638847",
+    });
+    log.info("gateway: auth long-cooldown notifications → Discord #logs");
+  }
+
   const configReloader = minimalTestGateway
     ? { stop: async () => {} }
     : (() => {

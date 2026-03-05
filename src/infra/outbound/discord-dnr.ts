@@ -38,13 +38,13 @@ type DiscordDnrPolicyStore = {
 
 const DEFAULT_RECURRING: DiscordDnrRecurringPolicy[] = [
   {
-    id: "discord-thread-1479083833830801520-default",
-    threadId: "1479083833830801520",
+    id: "discord-all-default",
+    threadId: "*",
     enabled: true,
     window: {
       timeZone: "America/Toronto",
-      start: "19:00",
-      end: "09:00",
+      start: "18:00",
+      end: "08:00",
     },
   },
 ];
@@ -195,8 +195,8 @@ function readPolicyStore(nowMs: number): {
           enabled: p.enabled !== false,
           window: {
             timeZone: String(p.window.timeZone ?? "America/Toronto"),
-            start: String(p.window.start ?? "19:00"),
-            end: String(p.window.end ?? "09:00"),
+            start: String(p.window.start ?? "18:00"),
+            end: String(p.window.end ?? "08:00"),
           },
         });
       }
@@ -283,7 +283,8 @@ function resolveEffectiveRule(
 
   // One-off policies take precedence.
   for (const p of oneOff) {
-    if (p.threadId !== threadId) {
+    const appliesToAllDiscord = p.threadId === "*";
+    if (!appliesToAllDiscord && p.threadId !== threadId) {
       continue;
     }
     if (nowMs >= p.startAtMs && nowMs < p.endAtMs) {
@@ -295,7 +296,8 @@ function resolveEffectiveRule(
   }
 
   for (const p of recurring) {
-    if (!p.enabled || p.threadId !== threadId) {
+    const appliesToAllDiscord = p.threadId === "*";
+    if (!p.enabled || (!appliesToAllDiscord && p.threadId !== threadId)) {
       continue;
     }
     if (isWithinWindow(nowMs, p.window)) {
@@ -318,8 +320,8 @@ export function isDiscordDnrTarget(ctx: DiscordDnrContext): boolean {
   const nowMs = Date.now();
   const { recurring, oneOff } = readPolicyStore(nowMs);
   return (
-    recurring.some((p) => p.threadId === threadId && p.enabled !== false) ||
-    oneOff.some((p) => p.threadId === threadId)
+    recurring.some((p) => (p.threadId === threadId || p.threadId === "*") && p.enabled !== false) ||
+    oneOff.some((p) => p.threadId === threadId || p.threadId === "*")
   );
 }
 

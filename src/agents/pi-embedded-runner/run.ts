@@ -811,6 +811,10 @@ export async function runEmbeddedPiAgent(
           const prompt =
             provider === "anthropic" ? scrubAnthropicRefusalMagic(params.prompt) : params.prompt;
 
+          // Reset captured 429 headers per-attempt so one profile's headers
+          // cannot leak into another profile's cooldown classification.
+          lastAnthropicRateLimitHeaders = undefined;
+
           const attempt = await runEmbeddedAttempt({
             sessionId: params.sessionId,
             sessionKey: params.sessionKey,

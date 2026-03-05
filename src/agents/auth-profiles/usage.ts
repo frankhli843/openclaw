@@ -1,5 +1,6 @@
 import type { OpenClawConfig } from "../../config/config.js";
 import { normalizeProviderId } from "../model-selection.js";
+import { emitLongCooldownEvent } from "./cooldown-notify.js";
 import { saveAuthProfileStore, updateAuthProfileStoreWithLock } from "./store.js";
 import type { AuthProfileFailureReason, AuthProfileStore, ProfileUsageStats } from "./types.js";
 
@@ -560,6 +561,41 @@ function computeNextProfileUsageStats(params: {
   return updatedStats;
 }
 
+function maybeEmitLongCooldownNotification(params: {
+  profileId: string;
+  providerId: string;
+  reason: AuthProfileFailureReason;
+  previous?: ProfileUsageStats;
+  next?: ProfileUsageStats;
+  nowMs: number;
+}): void {
+  const { profileId, providerId, reason, previous, next, nowMs } = params;
+  const prevUntil = resolveProfileUnusableUntil(previous ?? {});
+  const nextUntil = resolveProfileUnusableUntil(next ?? {});
+  if (!nextUntil || nextUntil <= nowMs) {
+    return;
+  }
+
+  const LONG_COOLDOWN_MS = 60 * 60 * 1000;
+  const isLong = nextUntil - nowMs > LONG_COOLDOWN_MS;
+  if (!isLong) {
+    return;
+  }
+
+  // Emit only on transition/new value to avoid repeated alerts.
+  if (prevUntil && Math.abs(prevUntil - nextUntil) < 1_000) {
+    return;
+  }
+
+  emitLongCooldownEvent({
+    profileId,
+    providerId,
+    reason,
+    untilMs: nextUntil,
+    nowMs,
+  });
+}
+
 /**
  * Mark a profile as failed for a specific reason. Billing and permanent-auth
  * failures are treated as "disabled" (longer backoff) vs the regular cooldown
@@ -575,6 +611,7 @@ export async function markAuthProfileFailure(params: {
 }): Promise<void> {
   const { store, profileId, reason, rateLimit, agentDir, cfg } = params;
   const profile = store.profiles[profileId];
+  const previousStats = store.usageStats?.[profileId];
   if (!profile || isAuthCooldownBypassedForProvider(profile.provider)) {
     return;
   }
@@ -606,6 +643,14 @@ export async function markAuthProfileFailure(params: {
   });
   if (updated) {
     store.usageStats = updated.usageStats;
+    maybeEmitLongCooldownNotification({
+      profileId,
+      providerId: normalizeProviderId(profile.provider),
+      reason,
+      previous: previousStats,
+      next: updated.usageStats?.[profileId],
+      nowMs: Date.now(),
+    });
     return;
   }
   if (!store.profiles[profileId]) {
@@ -628,6 +673,14 @@ export async function markAuthProfileFailure(params: {
       cfgResolved,
     }),
   );
+  maybeEmitLongCooldownNotification({
+    profileId,
+    providerId: providerKey,
+    reason,
+    previous: previousStats,
+    next: store.usageStats?.[profileId],
+    nowMs: now,
+  });
   saveAuthProfileStore(store, agentDir);
 }
 

@@ -15,7 +15,7 @@ describe("discord DNR policy", () => {
     __resetDiscordDnrPolicyCacheForTests();
     vi.unstubAllEnvs();
   });
-  it("matches only the configured discord thread", () => {
+  it("matches all discord channels (global recurring policy)", () => {
     expect(
       isDiscordDnrTarget({
         channel: "discord",
@@ -27,7 +27,7 @@ describe("discord DNR policy", () => {
         channel: "discord",
         to: "channel:123",
       }),
-    ).toBe(false);
+    ).toBe(true);
     expect(
       isDiscordDnrTarget({
         channel: "telegram",
@@ -36,13 +36,13 @@ describe("discord DNR policy", () => {
     ).toBe(false);
   });
 
-  it("handles cross-midnight window semantics (19:00-09:00 Toronto)", () => {
+  it("handles cross-midnight window semantics (18:00-08:00 Toronto)", () => {
     // 2026-03-05 20:30 America/Toronto => 2026-03-06 01:30Z
     const eveningTs = Date.parse("2026-03-06T01:30:00.000Z");
-    // 2026-03-06 08:59 America/Toronto => 2026-03-06 13:59Z
-    const morningTs = Date.parse("2026-03-06T13:59:00.000Z");
-    // 2026-03-06 09:01 America/Toronto => 2026-03-06 14:01Z
-    const afterWindowTs = Date.parse("2026-03-06T14:01:00.000Z");
+    // 2026-03-06 07:59 America/Toronto => 2026-03-06 12:59Z
+    const morningTs = Date.parse("2026-03-06T12:59:00.000Z");
+    // 2026-03-06 08:01 America/Toronto => 2026-03-06 13:01Z
+    const afterWindowTs = Date.parse("2026-03-06T13:01:00.000Z");
 
     expect(isWithinDiscordDnrWindow(eveningTs)).toBe(true);
     expect(isWithinDiscordDnrWindow(morningTs)).toBe(true);
@@ -53,8 +53,8 @@ describe("discord DNR policy", () => {
     // 2026-03-05 23:10 Toronto => inside DNR.
     const insideTs = Date.parse("2026-03-06T04:10:00.000Z");
     const next = resolveNextDiscordDnrReleaseMs(insideTs);
-    // Should resolve to 09:00 Toronto next morning => 2026-03-06 14:00Z.
-    expect(next).toBe(Date.parse("2026-03-06T14:00:00.000Z"));
+    // Should resolve to 08:00 Toronto next morning => 2026-03-06 13:00Z.
+    expect(next).toBe(Date.parse("2026-03-06T13:00:00.000Z"));
   });
 
   it("auto-prunes expired one-off policies from state file", () => {

@@ -54,6 +54,13 @@ function isAbortError(error: unknown): boolean {
   return "name" in error && String((error as { name?: unknown }).name) === "AbortError";
 }
 
+class DiscordQueuedRunTimeoutError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "DiscordQueuedRunTimeoutError";
+  }
+}
+
 function formatDiscordRunContextSuffix(ctx: DiscordMessagePreflightContext): string {
   const eventData = ctx as {
     data?: {
@@ -150,14 +157,17 @@ async function processDiscordRunWithTimeout(params: {
     if (result === "timeout") {
       timedOut = true;
       timeoutAbortController.abort();
-      params.runtime.error?.(
-        danger(
-          `discord queued run timed out after ${formatDurationSeconds(timeoutMs, {
-            decimals: 1,
-            unit: "seconds",
-          })}${contextSuffix}`,
-        ),
-      );
+      const timeoutMessage = `discord queued run timed out after ${formatDurationSeconds(
+        timeoutMs,
+        {
+          decimals: 1,
+          unit: "seconds",
+        },
+      )}${contextSuffix}`;
+      params.runtime.error?.(danger(timeoutMessage));
+      // IMPORTANT: throw so durable inbound queue treats this as a failed
+      // attempt and retries instead of dropping the message as "processed".
+      throw new DiscordQueuedRunTimeoutError(timeoutMessage);
     }
   } finally {
     if (timeoutHandle) {

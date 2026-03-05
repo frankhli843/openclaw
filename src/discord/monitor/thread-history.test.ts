@@ -5,7 +5,7 @@ import {
   fetchDiscordThreadMessages,
   formatDiscordThreadHistory,
   resolveDiscordThreadHistory,
-  truncateThreadMessages,
+  selectThreadStartingMessages,
   type DiscordThreadMessage,
 } from "./thread-history.js";
 
@@ -278,87 +278,23 @@ describe("fetchDiscordThreadMessages", () => {
 });
 
 // ---------------------------------------------------------------------------
-// truncateThreadMessages
+// selectThreadStartingMessages
 // ---------------------------------------------------------------------------
 
-describe("truncateThreadMessages", () => {
-  it("returns all messages when under limit (100)", () => {
-    const msgs = Array.from({ length: 50 }, (_, i) => makeThreadMsg({ id: `msg-${i}` }));
-    const result = truncateThreadMessages(msgs);
-
-    expect(result.truncated).toBe(false);
-    expect(result.omittedCount).toBe(0);
-    expect(result.messages).toHaveLength(50);
-  });
-
-  it("returns all messages when exactly at limit (100)", () => {
-    const msgs = Array.from({ length: 100 }, (_, i) => makeThreadMsg({ id: `msg-${i}` }));
-    const result = truncateThreadMessages(msgs);
-
-    expect(result.truncated).toBe(false);
-    expect(result.omittedCount).toBe(0);
-    expect(result.messages).toHaveLength(100);
-  });
-
-  it("truncates messages above 100: keeps first 10 and last 90", () => {
-    const msgs = Array.from({ length: 150 }, (_, i) =>
+describe("selectThreadStartingMessages", () => {
+  it("returns only the first two chronological messages", () => {
+    const msgs = Array.from({ length: 5 }, (_, i) =>
       makeThreadMsg({ id: `msg-${i}`, content: `message ${i}` }),
     );
-    const result = truncateThreadMessages(msgs);
-
-    expect(result.truncated).toBe(true);
-    expect(result.omittedCount).toBe(50); // 150 - 10 - 90
-    expect(result.messages).toHaveLength(100); // 10 + 90
-
-    // First 10 should be the head
-    for (let i = 0; i < 10; i++) {
-      expect(result.messages[i].id).toBe(`msg-${i}`);
-    }
-    // Last 90 should be the tail
-    for (let i = 0; i < 90; i++) {
-      expect(result.messages[10 + i].id).toBe(`msg-${60 + i}`);
-    }
+    const result = selectThreadStartingMessages(msgs);
+    expect(result).toHaveLength(2);
+    expect(result[0]?.id).toBe("msg-0");
+    expect(result[1]?.id).toBe("msg-1");
   });
 
-  it("handles exactly 101 messages (1 omitted)", () => {
-    const msgs = Array.from({ length: 101 }, (_, i) => makeThreadMsg({ id: `msg-${i}` }));
-    const result = truncateThreadMessages(msgs);
-
-    expect(result.truncated).toBe(true);
-    expect(result.omittedCount).toBe(1);
-    expect(result.messages).toHaveLength(100);
-
-    // Head: msg-0..msg-9, Tail: msg-11..msg-100
-    expect(result.messages[0].id).toBe("msg-0");
-    expect(result.messages[9].id).toBe("msg-9");
-    expect(result.messages[10].id).toBe("msg-11"); // msg-10 omitted
-    expect(result.messages[99].id).toBe("msg-100");
-  });
-
-  it("handles 500 messages", () => {
-    const msgs = Array.from({ length: 500 }, (_, i) => makeThreadMsg({ id: `msg-${i}` }));
-    const result = truncateThreadMessages(msgs);
-
-    expect(result.truncated).toBe(true);
-    expect(result.omittedCount).toBe(400); // 500 - 10 - 90
-    expect(result.messages).toHaveLength(100);
-    expect(result.messages[0].id).toBe("msg-0");
-    expect(result.messages[9].id).toBe("msg-9");
-    expect(result.messages[10].id).toBe("msg-410");
-    expect(result.messages[99].id).toBe("msg-499");
-  });
-
-  it("handles empty array", () => {
-    const result = truncateThreadMessages([]);
-    expect(result.truncated).toBe(false);
-    expect(result.omittedCount).toBe(0);
-    expect(result.messages).toHaveLength(0);
-  });
-
-  it("handles single message", () => {
-    const result = truncateThreadMessages([makeThreadMsg()]);
-    expect(result.truncated).toBe(false);
-    expect(result.messages).toHaveLength(1);
+  it("handles empty and short arrays", () => {
+    expect(selectThreadStartingMessages([])).toHaveLength(0);
+    expect(selectThreadStartingMessages([makeThreadMsg({ id: "only" })])).toHaveLength(1);
   });
 });
 
@@ -406,26 +342,7 @@ describe("formatDiscordThreadHistory", () => {
     expect(result).toContain("[discord message id: msg-42]");
   });
 
-  it("inserts truncation note when messages are truncated", () => {
-    const msgs = Array.from({ length: 120 }, (_, i) =>
-      makeThreadMsg({ id: `msg-${i}`, content: `message ${i}` }),
-    );
-
-    const result = formatDiscordThreadHistory({ messages: msgs });
-
-    expect(result).toBeDefined();
-    expect(result).toContain("messages omitted for brevity");
-    expect(result).toContain("message tool");
-    // Head messages present
-    expect(result).toContain("message 0");
-    expect(result).toContain("message 9");
-    // Tail messages present
-    expect(result).toContain("message 119");
-    // Omitted messages absent
-    expect(result).not.toContain("[discord message id: msg-15]");
-  });
-
-  it("does not insert truncation note when under limit", () => {
+  it("keeps only starter + first reply and wraps in thread_starting_messages tags", () => {
     const msgs = Array.from({ length: 5 }, (_, i) =>
       makeThreadMsg({ id: `msg-${i}`, content: `message ${i}` }),
     );
@@ -433,7 +350,11 @@ describe("formatDiscordThreadHistory", () => {
     const result = formatDiscordThreadHistory({ messages: msgs });
 
     expect(result).toBeDefined();
-    expect(result).not.toContain("omitted");
+    expect(result).toContain("<thread_starting_messages>");
+    expect(result).toContain("</thread_starting_messages>");
+    expect(result).toContain("message 0");
+    expect(result).toContain("message 1");
+    expect(result).not.toContain("message 2");
   });
 });
 

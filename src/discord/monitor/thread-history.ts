@@ -2,12 +2,12 @@ import type { Client } from "@buape/carbon";
 /**
  * Discord thread history fetcher.
  *
- * Fetches full message history from a Discord thread channel and formats it
- * for injection into the agent prompt. Analogous to Slack's
+ * Fetches thread messages from a Discord thread channel and formats a compact
+ * "thread start" context block for prompt injection. Analogous to Slack's
  * `resolveSlackThreadHistory` but uses Discord's channel messages endpoint.
  *
- * Truncation: when thread has >50 messages, returns the first 10 and last 40
- * with a note explaining the gap.
+ * Output policy: include only the original thread message and the first reply
+ * (oldest two messages), wrapped in <thread_starting_messages> tags.
  */
 import { Routes } from "discord-api-types/v10";
 import { formatInboundEnvelope, type EnvelopeFormatOptions } from "../../auto-reply/envelope.js";
@@ -97,14 +97,8 @@ function setCache(threadId: string, messages: DiscordThreadMessage[], now: numbe
 // Constants
 // ---------------------------------------------------------------------------
 
-/** Maximum messages to include in thread history. */
-const THREAD_HISTORY_MAX = 100;
-
-/** When truncating, keep this many messages from the beginning. */
-const TRUNCATION_HEAD = 10;
-
-/** When truncating, keep this many messages from the end. */
-const TRUNCATION_TAIL = 90;
+/** Include only the thread starter + first reply for prompt context. */
+const THREAD_STARTING_MESSAGES_MAX = 2;
 
 /** Discord API max per page. */
 const DISCORD_FETCH_LIMIT = 100;
@@ -237,28 +231,10 @@ function resolveAuthorName(msg: RawDiscordMessage): string {
 // Truncation
 // ---------------------------------------------------------------------------
 
-/**
- * Apply truncation logic: if messages > THREAD_HISTORY_MAX, keep first
- * TRUNCATION_HEAD and last TRUNCATION_TAIL with a note in between.
- */
-export function truncateThreadMessages(messages: DiscordThreadMessage[]): {
-  messages: DiscordThreadMessage[];
-  truncated: boolean;
-  omittedCount: number;
-} {
-  if (messages.length <= THREAD_HISTORY_MAX) {
-    return { messages, truncated: false, omittedCount: 0 };
-  }
-
-  const head = messages.slice(0, TRUNCATION_HEAD);
-  const tail = messages.slice(-TRUNCATION_TAIL);
-  const omittedCount = messages.length - TRUNCATION_HEAD - TRUNCATION_TAIL;
-
-  return {
-    messages: [...head, ...tail],
-    truncated: true,
-    omittedCount,
-  };
+export function selectThreadStartingMessages(
+  messages: DiscordThreadMessage[],
+): DiscordThreadMessage[] {
+  return messages.slice(0, THREAD_STARTING_MESSAGES_MAX);
 }
 
 // ---------------------------------------------------------------------------
@@ -278,24 +254,13 @@ export function formatDiscordThreadHistory(params: {
     return undefined;
   }
 
-  const { messages: kept, truncated, omittedCount } = truncateThreadMessages(messages);
+  const kept = selectThreadStartingMessages(messages);
 
   const parts: string[] = [];
-  let truncationNoteInserted = false;
-
-  for (let i = 0; i < kept.length; i++) {
-    const msg = kept[i];
+  for (const msg of kept) {
     const isBot = msg.isBot || (botUserId != null && msg.authorId === botUserId);
     const role = isBot ? "assistant" : "user";
     const senderLabel = `${msg.authorName} (${role})`;
-
-    // Insert truncation note between head and tail
-    if (truncated && !truncationNoteInserted && i === TRUNCATION_HEAD) {
-      parts.push(
-        `[... ${omittedCount} messages omitted for brevity. Use the message tool with action=read to fetch the full thread history if needed ...]`,
-      );
-      truncationNoteInserted = true;
-    }
 
     parts.push(
       formatInboundEnvelope({
@@ -310,7 +275,8 @@ export function formatDiscordThreadHistory(params: {
     );
   }
 
-  return parts.join("\n\n");
+  const body = parts.join("\n\n");
+  return `<thread_starting_messages>\n${body}\n</thread_starting_messages>`;
 }
 
 // ---------------------------------------------------------------------------
