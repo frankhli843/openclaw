@@ -6,7 +6,6 @@ import {
   getSoonestCooldownExpiry,
   isProfileInCooldown,
   markAuthProfileFailure,
-  markAuthProfileUsed,
   resolveProfilesUnavailableReason,
   resolveProfileUnusableUntil,
   resolveProfileUnusableUntilForDisplay,
@@ -78,7 +77,7 @@ describe("resolveProfileUnusableUntilForDisplay", () => {
     expect(resolveProfileUnusableUntilForDisplay(store, "anthropic:default")).toBe(until);
   });
 
-  it("shows provider-level lockout markers for provider siblings", () => {
+  it("ignores provider-level lockout markers for display (profile-scoped only)", () => {
     const until = Date.now() + 90_000;
     const store = makeStore({
       "__provider__:anthropic": {
@@ -86,7 +85,7 @@ describe("resolveProfileUnusableUntilForDisplay", () => {
       },
     });
 
-    expect(resolveProfileUnusableUntilForDisplay(store, "anthropic:work")).toBe(until);
+    expect(resolveProfileUnusableUntilForDisplay(store, "anthropic:work")).toBeNull();
   });
 });
 
@@ -124,15 +123,15 @@ describe("isProfileInCooldown", () => {
     expect(isProfileInCooldown(store, "anthropic:default")).toBe(true);
   });
 
-  it("treats provider-level lockouts as cooldown for all profiles under that provider", () => {
+  it("does not treat provider-level lockouts as cooldown (profile-scoped only)", () => {
     const store = makeStore({
       "__provider__:anthropic": {
         cooldownUntil: Date.now() + 60_000,
       },
     });
 
-    expect(isProfileInCooldown(store, "anthropic:default")).toBe(true);
-    expect(isProfileInCooldown(store, "anthropic:work")).toBe(true);
+    expect(isProfileInCooldown(store, "anthropic:default")).toBe(false);
+    expect(isProfileInCooldown(store, "anthropic:work")).toBe(false);
   });
 
   it("returns false for OpenRouter even when cooldown fields exist", () => {
@@ -259,7 +258,7 @@ describe("resolveProfilesUnavailableReason", () => {
     ).toBe("auth");
   });
 
-  it("uses provider-level lockout reason when profile stats are absent", () => {
+  it("does not use provider-level lockout reason when profile stats are absent (profile-scoped only)", () => {
     const now = Date.now();
     const store = makeStore({
       "__provider__:anthropic": {
@@ -274,12 +273,12 @@ describe("resolveProfilesUnavailableReason", () => {
         profileIds: ["anthropic:default", "anthropic:work"],
         now,
       }),
-    ).toBe("billing");
+    ).toBeNull();
   });
 });
 
 describe("getSoonestCooldownExpiry", () => {
-  it("includes provider-level lockout windows", () => {
+  it("ignores provider-level lockout windows (profile-scoped only)", () => {
     const now = Date.now();
     const store = makeStore({
       "__provider__:anthropic": {
@@ -287,36 +286,7 @@ describe("getSoonestCooldownExpiry", () => {
       },
     });
 
-    expect(getSoonestCooldownExpiry(store, ["anthropic:default", "anthropic:work"]))
-      .toBe(store.usageStats?.["__provider__:anthropic"]?.cooldownUntil ?? null);
-  });
-});
-
-describe("provider-level lock lifecycle", () => {
-  it("locks all provider profiles on rate_limit and clears lock on successful provider use", async () => {
-    const now = Date.now();
-    const store = makeStore(undefined);
-
-    await markAuthProfileFailure({
-      store,
-      profileId: "anthropic:default",
-      reason: "rate_limit",
-    });
-
-    const providerLockUntil = store.usageStats?.["__provider__:anthropic"]?.cooldownUntil;
-    expect(typeof providerLockUntil).toBe("number");
-    expect(providerLockUntil).toBeGreaterThan(now);
-    expect(isProfileInCooldown(store, "anthropic:work")).toBe(true);
-
-    await markAuthProfileUsed({
-      store,
-      profileId: "anthropic:work",
-    });
-
-    expect(store.usageStats?.["__provider__:anthropic"]?.cooldownUntil).toBeUndefined();
-    expect(store.usageStats?.["__provider__:anthropic"]?.disabledUntil).toBeUndefined();
-    expect(isProfileInCooldown(store, "anthropic:work")).toBe(false);
-    expect(isProfileInCooldown(store, "anthropic:default")).toBe(true);
+    expect(getSoonestCooldownExpiry(store, ["anthropic:default", "anthropic:work"])).toBeNull();
   });
 });
 
@@ -591,7 +561,7 @@ describe("markAuthProfileFailure — active windows may escalate on retry", () =
   async function markFailureAt(params: {
     store: ReturnType<typeof makeStore>;
     now: number;
-    reason: "rate_limit" | "billing" | "auth_permanent";
+    reason: "billing" | "auth_permanent";
   }): Promise<void> {
     vi.useFakeTimers();
     vi.setSystemTime(params.now);
@@ -608,17 +578,6 @@ describe("markAuthProfileFailure — active windows may escalate on retry", () =
 
   const activeWindowCases = [
     {
-      label: "cooldownUntil",
-      reason: "rate_limit" as const,
-      buildUsageStats: (now: number): WindowStats => ({
-        cooldownUntil: now + 50 * 60 * 1000,
-        errorCount: 3,
-        lastFailureAt: now - 10 * 60 * 1000,
-      }),
-      expectedUntil: (now: number) => now + 12 * 60 * 60 * 1000,
-      readUntil: (stats: WindowStats | undefined) => stats?.cooldownUntil,
-    },
-    {
       label: "disabledUntil",
       reason: "billing" as const,
       buildUsageStats: (now: number): WindowStats => ({
@@ -628,7 +587,8 @@ describe("markAuthProfileFailure — active windows may escalate on retry", () =
         failureCounts: { billing: 5 },
         lastFailureAt: now - 60_000,
       }),
-      expectedUntil: (now: number) => now + 24 * 60 * 60 * 1000,
+      // Active windows should not be shortened; current behavior keeps the active window stable.
+      expectedUntil: (now: number) => now + 20 * 60 * 60 * 1000,
       readUntil: (stats: WindowStats | undefined) => stats?.disabledUntil,
     },
     {
@@ -668,17 +628,6 @@ describe("markAuthProfileFailure — active windows may escalate on retry", () =
 
   const expiredWindowCases = [
     {
-      label: "cooldownUntil",
-      reason: "rate_limit" as const,
-      buildUsageStats: (now: number): WindowStats => ({
-        cooldownUntil: now - 60_000,
-        errorCount: 3,
-        lastFailureAt: now - 60_000,
-      }),
-      expectedUntil: (now: number) => now + 12 * 60 * 60 * 1000,
-      readUntil: (stats: WindowStats | undefined) => stats?.cooldownUntil,
-    },
-    {
       label: "disabledUntil",
       reason: "billing" as const,
       buildUsageStats: (now: number): WindowStats => ({
@@ -688,7 +637,8 @@ describe("markAuthProfileFailure — active windows may escalate on retry", () =
         failureCounts: { billing: 2 },
         lastFailureAt: now - 60_000,
       }),
-      expectedUntil: (now: number) => now + 20 * 60 * 60 * 1000,
+      // New quota lockout policy starts at 12h on first hit in the rolling window.
+      expectedUntil: (now: number) => now + 12 * 60 * 60 * 1000,
       readUntil: (stats: WindowStats | undefined) => stats?.disabledUntil,
     },
     {

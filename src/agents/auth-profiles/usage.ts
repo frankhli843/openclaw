@@ -3,6 +3,12 @@ import { normalizeProviderId } from "../model-selection.js";
 import { saveAuthProfileStore, updateAuthProfileStoreWithLock } from "./store.js";
 import type { AuthProfileFailureReason, AuthProfileStore, ProfileUsageStats } from "./types.js";
 
+export type RateLimitFailureMetadata = {
+  retryAfterMs?: number;
+  availableAtMs?: number;
+  severity?: "soft" | "hard";
+};
+
 const FAILURE_REASON_PRIORITY: AuthProfileFailureReason[] = [
   "auth_permanent",
   "auth",
@@ -17,33 +23,9 @@ const FAILURE_REASON_SET = new Set<AuthProfileFailureReason>(FAILURE_REASON_PRIO
 const FAILURE_REASON_ORDER = new Map<AuthProfileFailureReason, number>(
   FAILURE_REASON_PRIORITY.map((reason, index) => [reason, index]),
 );
-const PROVIDER_STATS_PREFIX = "__provider__:";
 
 function isAuthCooldownBypassedForProvider(provider: string | undefined): boolean {
   return normalizeProviderId(provider ?? "") === "openrouter";
-}
-
-function resolveProviderStatsKey(provider: string | undefined): string | null {
-  const providerId = normalizeProviderId(provider ?? "");
-  if (!providerId) {
-    return null;
-  }
-  return `${PROVIDER_STATS_PREFIX}${providerId}`;
-}
-
-function resolveProviderUsageStatsForProfile(
-  store: AuthProfileStore,
-  profileId: string,
-): ProfileUsageStats | undefined {
-  const providerKey = resolveProviderStatsKey(store.profiles[profileId]?.provider);
-  if (!providerKey) {
-    return undefined;
-  }
-  return store.usageStats?.[providerKey];
-}
-
-function isProviderLockoutReason(reason: AuthProfileFailureReason): boolean {
-  return reason === "rate_limit" || reason === "billing" || reason === "auth_permanent";
 }
 
 export function resolveProfileUnusableUntil(
@@ -71,12 +53,6 @@ export function isProfileInCooldown(
     return false;
   }
   const ts = now ?? Date.now();
-  const providerStats = resolveProviderUsageStatsForProfile(store, profileId);
-  const providerUnusableUntil = providerStats ? resolveProfileUnusableUntil(providerStats) : null;
-  if (providerUnusableUntil && ts < providerUnusableUntil) {
-    return true;
-  }
-
   const stats = store.usageStats?.[profileId];
   if (!stats) {
     return false;
@@ -146,22 +122,9 @@ export function resolveProfilesUnavailableReason(params: {
     scores.set(reason, (scores.get(reason) ?? 0) + value);
   };
 
-  const seenProviderStatsKeys = new Set<string>();
-
   for (const profileId of params.profileIds) {
     scoreUnavailableStats({
       stats: params.store.usageStats?.[profileId],
-      now,
-      addScore,
-    });
-
-    const providerStatsKey = resolveProviderStatsKey(params.store.profiles[profileId]?.provider);
-    if (!providerStatsKey || seenProviderStatsKeys.has(providerStatsKey)) {
-      continue;
-    }
-    seenProviderStatsKeys.add(providerStatsKey);
-    scoreUnavailableStats({
-      stats: params.store.usageStats?.[providerStatsKey],
       now,
       addScore,
     });
@@ -199,8 +162,6 @@ export function getSoonestCooldownExpiry(
   profileIds: string[],
 ): number | null {
   let soonest: number | null = null;
-  const seenProviderStatsKeys = new Set<string>();
-
   const consider = (stats: ProfileUsageStats | undefined) => {
     if (!stats) {
       return;
@@ -216,12 +177,6 @@ export function getSoonestCooldownExpiry(
 
   for (const id of profileIds) {
     consider(store.usageStats?.[id]);
-    const providerStatsKey = resolveProviderStatsKey(store.profiles[id]?.provider);
-    if (!providerStatsKey || seenProviderStatsKeys.has(providerStatsKey)) {
-      continue;
-    }
-    seenProviderStatsKeys.add(providerStatsKey);
-    consider(store.usageStats?.[providerStatsKey]);
   }
   return soonest;
 }
@@ -317,10 +272,6 @@ export async function markAuthProfileUsed(params: {
       updateUsageStatsEntry(freshStore, profileId, (existing) =>
         resetUsageStats(existing, { lastUsed: Date.now() }),
       );
-      const providerStatsKey = resolveProviderStatsKey(profile.provider);
-      if (providerStatsKey && freshStore.usageStats?.[providerStatsKey]) {
-        updateUsageStatsEntry(freshStore, providerStatsKey, (existing) => resetUsageStats(existing));
-      }
       return true;
     },
   });
@@ -332,14 +283,9 @@ export async function markAuthProfileUsed(params: {
     return;
   }
 
-  const providerStatsKey = resolveProviderStatsKey(store.profiles[profileId]?.provider);
-
   updateUsageStatsEntry(store, profileId, (existing) =>
     resetUsageStats(existing, { lastUsed: Date.now() }),
   );
-  if (providerStatsKey && store.usageStats?.[providerStatsKey]) {
-    updateUsageStatsEntry(store, providerStatsKey, (existing) => resetUsageStats(existing));
-  }
   saveAuthProfileStore(store, agentDir);
 }
 
@@ -423,17 +369,7 @@ export function resolveProfileUnusableUntilForDisplay(
   if (isAuthCooldownBypassedForProvider(provider)) {
     return null;
   }
-  const profileUntil = resolveProfileUnusableUntil(store.usageStats?.[profileId] ?? {});
-  const providerUntil = resolveProfileUnusableUntil(
-    resolveProviderUsageStatsForProfile(store, profileId) ?? {},
-  );
-  if (profileUntil === null) {
-    return providerUntil;
-  }
-  if (providerUntil === null) {
-    return profileUntil;
-  }
-  return Math.max(profileUntil, providerUntil);
+  return resolveProfileUnusableUntil(store.usageStats?.[profileId] ?? {});
 }
 
 function resetUsageStats(
@@ -476,30 +412,18 @@ function keepActiveWindowOrRecompute(params: {
   return Math.max(existingUntil, recomputedUntil);
 }
 
-function resolveAggressiveCooldownMs(params: {
-  errorCount: number;
-  failureWindowMs: number;
-}): number | null {
-  // Frank directive:
-  // - >3 failures in the active window => 12h cooldown
-  // - >5 failures in the active window => 24h cooldown
-  // Keep this logic local to avoid config/schema churn and merge conflicts.
-  if (params.failureWindowMs <= 0) {
-    return null;
-  }
-  if (params.errorCount > 5) {
-    return 24 * 60 * 60 * 1000;
-  }
-  if (params.errorCount > 3) {
-    return 12 * 60 * 60 * 1000;
-  }
-  return null;
+function resolveQuotaLockoutMs(quotaFailureCount: number): number {
+  // Quota-only lockout policy (per auth profile, 36h rolling window):
+  // 1st quota failure => 12h
+  // 2nd+ quota failures => 24h
+  return quotaFailureCount >= 2 ? 24 * 60 * 60 * 1000 : 12 * 60 * 60 * 1000;
 }
 
 function computeNextProfileUsageStats(params: {
   existing: ProfileUsageStats;
   now: number;
   reason: AuthProfileFailureReason;
+  rateLimit?: RateLimitFailureMetadata;
   cfgResolved: ResolvedAuthCooldownConfig;
 }): ProfileUsageStats {
   const windowMs = params.cfgResolved.failureWindowMs;
@@ -520,64 +444,98 @@ function computeNextProfileUsageStats(params: {
     lastFailureAt: params.now,
   };
 
-  if (params.reason === "billing" || params.reason === "auth_permanent") {
-    const billingCount = failureCounts[params.reason] ?? 1;
-    const backoffMs = calculateAuthProfileBillingDisableMsWithConfig({
-      errorCount: billingCount,
-      baseMs: params.cfgResolved.billingBackoffMs,
-      maxMs: params.cfgResolved.billingMaxMs,
-    });
-    // Keep active disable windows immutable so retries within the window cannot
-    // extend recovery time indefinitely.
+  if (params.reason === "billing") {
+    const quotaWindowMs = 36 * 60 * 60 * 1000;
+    const quotaWindowExpired =
+      typeof params.existing.billingLastFailureAt === "number" &&
+      params.existing.billingLastFailureAt > 0 &&
+      params.now - params.existing.billingLastFailureAt > quotaWindowMs;
+    const nextQuotaFailureCount = quotaWindowExpired
+      ? 1
+      : (params.existing.billingFailureCount ?? 0) + 1;
+    const backoffMs = resolveQuotaLockoutMs(nextQuotaFailureCount);
+    updatedStats.billingFailureCount = nextQuotaFailureCount;
+    updatedStats.billingLastFailureAt = params.now;
     updatedStats.disabledUntil = keepActiveWindowOrRecompute({
       existingUntil: params.existing.disabledUntil,
       now: params.now,
       recomputedUntil: params.now + backoffMs,
     });
     updatedStats.disabledReason = params.reason;
-  } else {
-    const steppedBackoffMs = calculateAuthProfileCooldownMs(nextErrorCount);
-    const aggressiveBackoffMs = resolveAggressiveCooldownMs({
-      errorCount: nextErrorCount,
-      failureWindowMs: params.cfgResolved.failureWindowMs,
-    });
-    const backoffMs = Math.max(steppedBackoffMs, aggressiveBackoffMs ?? 0);
-    updatedStats.cooldownUntil = keepActiveWindowOrRecompute({
-      existingUntil: params.existing.cooldownUntil,
+    return updatedStats;
+  }
+
+  if (params.reason === "rate_limit") {
+    // Distinguish short/bursty rate limits from harder quota lockouts.
+    const softWindowMs = 10 * 60 * 1000;
+    const defaultSoftCooldownMs = 2 * 60 * 1000;
+
+    const hintedRetryAfterMsRaw =
+      typeof params.rateLimit?.retryAfterMs === "number" &&
+      Number.isFinite(params.rateLimit.retryAfterMs)
+        ? params.rateLimit.retryAfterMs
+        : undefined;
+    const hintedRetryAfterMs =
+      typeof hintedRetryAfterMsRaw === "number"
+        ? Math.max(15_000, Math.min(hintedRetryAfterMsRaw, 10 * 60 * 1000))
+        : undefined;
+
+    const hintedAvailableAtMs =
+      typeof params.rateLimit?.availableAtMs === "number" &&
+      Number.isFinite(params.rateLimit.availableAtMs)
+        ? params.rateLimit.availableAtMs
+        : undefined;
+
+    const lastFailureAt =
+      typeof params.existing.lastFailureAt === "number" ? params.existing.lastFailureAt : 0;
+    const prevRateLimitCount = params.existing.failureCounts?.rate_limit ?? 0;
+    const isFirstOrQuiet = prevRateLimitCount <= 0 || params.now - lastFailureAt > softWindowMs;
+
+    const hintForcesHard = params.rateLimit?.severity === "hard";
+    const hasFarFutureAvailableAt =
+      typeof hintedAvailableAtMs === "number" && hintedAvailableAtMs - params.now >= 10 * 60 * 1000;
+    const hintForcesSoft = params.rateLimit?.severity === "soft";
+
+    const shouldEscalateToHard =
+      hintForcesHard || hasFarFutureAvailableAt || (!hintForcesSoft && !isFirstOrQuiet);
+
+    if (!shouldEscalateToHard) {
+      const softCooldownMs = hintedRetryAfterMs ?? defaultSoftCooldownMs;
+      updatedStats.cooldownUntil = keepActiveWindowOrRecompute({
+        existingUntil: params.existing.cooldownUntil,
+        now: params.now,
+        recomputedUntil: params.now + softCooldownMs,
+      });
+      return updatedStats;
+    }
+
+    const quotaWindowMs = 36 * 60 * 60 * 1000;
+    const quotaWindowExpired =
+      typeof params.existing.billingLastFailureAt === "number" &&
+      params.existing.billingLastFailureAt > 0 &&
+      params.now - params.existing.billingLastFailureAt > quotaWindowMs;
+    const nextQuotaFailureCount = quotaWindowExpired
+      ? 1
+      : (params.existing.billingFailureCount ?? 0) + 1;
+    const defaultBackoffMs = resolveQuotaLockoutMs(nextQuotaFailureCount);
+    const hintedBackoffMs =
+      typeof hintedAvailableAtMs === "number"
+        ? Math.max(0, hintedAvailableAtMs - params.now)
+        : hintedRetryAfterMs;
+    const backoffMs = Math.max(defaultBackoffMs, hintedBackoffMs ?? 0);
+
+    updatedStats.billingFailureCount = nextQuotaFailureCount;
+    updatedStats.billingLastFailureAt = params.now;
+    updatedStats.disabledUntil = keepActiveWindowOrRecompute({
+      existingUntil: params.existing.disabledUntil,
       now: params.now,
       recomputedUntil: params.now + backoffMs,
     });
+    updatedStats.disabledReason = params.reason;
+    return updatedStats;
   }
 
-  return updatedStats;
-}
-
-
-function computeNextProviderUsageStats(params: {
-  existing: ProfileUsageStats;
-  now: number;
-  reason: AuthProfileFailureReason;
-  cfgResolved: ResolvedAuthCooldownConfig;
-}): ProfileUsageStats {
-  const windowMs = params.cfgResolved.failureWindowMs;
-  const windowExpired =
-    typeof params.existing.lastFailureAt === "number" &&
-    params.existing.lastFailureAt > 0 &&
-    params.now - params.existing.lastFailureAt > windowMs;
-
-  const baseErrorCount = windowExpired ? 0 : (params.existing.errorCount ?? 0);
-  const nextErrorCount = baseErrorCount + 1;
-  const failureCounts = windowExpired ? {} : { ...params.existing.failureCounts };
-  failureCounts[params.reason] = (failureCounts[params.reason] ?? 0) + 1;
-
-  const updatedStats: ProfileUsageStats = {
-    ...params.existing,
-    errorCount: nextErrorCount,
-    failureCounts,
-    lastFailureAt: params.now,
-  };
-
-  if (params.reason === "billing" || params.reason === "auth_permanent") {
+  if (params.reason === "auth_permanent") {
     const reasonCount = failureCounts[params.reason] ?? 1;
     const backoffMs = calculateAuthProfileBillingDisableMsWithConfig({
       errorCount: reasonCount,
@@ -593,12 +551,7 @@ function computeNextProviderUsageStats(params: {
     return updatedStats;
   }
 
-  const steppedBackoffMs = calculateAuthProfileCooldownMs(nextErrorCount);
-  const aggressiveBackoffMs = resolveAggressiveCooldownMs({
-    errorCount: nextErrorCount,
-    failureWindowMs: params.cfgResolved.failureWindowMs,
-  });
-  const backoffMs = Math.max(steppedBackoffMs, aggressiveBackoffMs ?? 0);
+  const backoffMs = calculateAuthProfileCooldownMs(nextErrorCount);
   updatedStats.cooldownUntil = keepActiveWindowOrRecompute({
     existingUntil: params.existing.cooldownUntil,
     now: params.now,
@@ -616,10 +569,11 @@ export async function markAuthProfileFailure(params: {
   store: AuthProfileStore;
   profileId: string;
   reason: AuthProfileFailureReason;
+  rateLimit?: RateLimitFailureMetadata;
   cfg?: OpenClawConfig;
   agentDir?: string;
 }): Promise<void> {
-  const { store, profileId, reason, agentDir, cfg } = params;
+  const { store, profileId, reason, rateLimit, agentDir, cfg } = params;
   const profile = store.profiles[profileId];
   if (!profile || isAuthCooldownBypassedForProvider(profile.provider)) {
     return;
@@ -643,22 +597,10 @@ export async function markAuthProfileFailure(params: {
           existing: existing ?? {},
           now,
           reason,
+          rateLimit,
           cfgResolved,
         }),
       );
-      if (isProviderLockoutReason(reason)) {
-        const providerStatsKey = resolveProviderStatsKey(profile.provider);
-        if (providerStatsKey) {
-          updateUsageStatsEntry(freshStore, providerStatsKey, (existing) =>
-            computeNextProviderUsageStats({
-              existing: existing ?? {},
-              now,
-              reason,
-              cfgResolved,
-            }),
-          );
-        }
-      }
       return true;
     },
   });
@@ -682,22 +624,10 @@ export async function markAuthProfileFailure(params: {
       existing: existing ?? {},
       now,
       reason,
+      rateLimit,
       cfgResolved,
     }),
   );
-  if (isProviderLockoutReason(reason)) {
-    const providerStatsKey = resolveProviderStatsKey(store.profiles[profileId]?.provider);
-    if (providerStatsKey) {
-      updateUsageStatsEntry(store, providerStatsKey, (existing) =>
-        computeNextProviderUsageStats({
-          existing: existing ?? {},
-          now,
-          reason,
-          cfgResolved,
-        }),
-      );
-    }
-  }
   saveAuthProfileStore(store, agentDir);
 }
 

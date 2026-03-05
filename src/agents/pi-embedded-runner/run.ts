@@ -22,7 +22,11 @@ import {
   resolveContextWindowInfo,
 } from "../context-window-guard.js";
 import { DEFAULT_CONTEXT_TOKENS, DEFAULT_MODEL, DEFAULT_PROVIDER } from "../defaults.js";
-import { FailoverError, resolveFailoverStatus } from "../failover-error.js";
+import {
+  FailoverError,
+  parseAnthropicRateLimitHint,
+  resolveFailoverStatus,
+} from "../failover-error.js";
 import {
   ensureAuthProfileStore,
   getApiKeyForModel,
@@ -698,17 +702,32 @@ export async function runEmbeddedPiAgent(
       const maybeMarkAuthProfileFailure = async (failure: {
         profileId?: string;
         reason?: Parameters<typeof markAuthProfileFailure>[0]["reason"] | null;
-        config?: RunEmbeddedPiAgentParams["config"];
-        agentDir?: RunEmbeddedPiAgentParams["agentDir"];
+        message?: string;
+        /** Raw error object — used to extract HTTP response headers (e.g. retry-after) */
+        error?: unknown;
       }) => {
-        const { profileId, reason } = failure;
+        const { profileId, reason, message } = failure;
         if (!profileId || !reason || reason === "timeout") {
           return;
         }
+
+        const activeProvider = normalizeProviderId(
+          authStore.profiles[profileId]?.provider ?? provider,
+        );
+        const rateLimit =
+          reason === "rate_limit" && activeProvider === "anthropic"
+            ? (parseAnthropicRateLimitHint({
+                message,
+                status: resolveFailoverStatus(reason),
+                error: failure.error,
+              }) ?? undefined)
+            : undefined;
+
         await markAuthProfileFailure({
           store: authStore,
           profileId,
           reason,
+          rateLimit,
           cfg: params.config,
           agentDir,
         });
@@ -1124,6 +1143,8 @@ export async function runEmbeddedPiAgent(
             await maybeMarkAuthProfileFailure({
               profileId: lastProfileId,
               reason: promptFailoverReason,
+              message: errorText,
+              error: promptError,
             });
             if (
               isFailoverErrorMessage(errorText) &&
@@ -1223,6 +1244,7 @@ export async function runEmbeddedPiAgent(
               await maybeMarkAuthProfileFailure({
                 profileId: lastProfileId,
                 reason,
+                message: lastAssistant?.errorMessage,
               });
               if (timedOut && !isProbeSession) {
                 log.warn(`Profile ${lastProfileId} timed out. Trying next account...`);

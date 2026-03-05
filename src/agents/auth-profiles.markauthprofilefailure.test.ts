@@ -53,7 +53,7 @@ function expectCooldownInRange(remainingMs: number, minMs: number, maxMs: number
 }
 
 describe("markAuthProfileFailure", () => {
-  it("disables billing failures for ~5 hours by default", async () => {
+  it("applies quota lockout for billing: 1st=12h, 2nd=24h", async () => {
     await withAuthProfileStore(async ({ agentDir, store }) => {
       const startedAt = Date.now();
       await markAuthProfileFailure({
@@ -63,38 +63,28 @@ describe("markAuthProfileFailure", () => {
         agentDir,
       });
 
-      const disabledUntil = store.usageStats?.["anthropic:default"]?.disabledUntil;
-      expect(typeof disabledUntil).toBe("number");
-      const remainingMs = (disabledUntil as number) - startedAt;
-      expectCooldownInRange(remainingMs, 4.5 * 60 * 60 * 1000, 5.5 * 60 * 60 * 1000);
-    });
-  });
-  it("honors per-provider billing backoff overrides", async () => {
-    await withAuthProfileStore(async ({ agentDir, store }) => {
-      const startedAt = Date.now();
+      const firstDisabledUntil = store.usageStats?.["anthropic:default"]?.disabledUntil;
+      expect(typeof firstDisabledUntil).toBe("number");
+      const firstRemainingMs = (firstDisabledUntil as number) - startedAt;
+      expectCooldownInRange(firstRemainingMs, 11.5 * 60 * 60 * 1000, 12.5 * 60 * 60 * 1000);
+
       await markAuthProfileFailure({
         store,
         profileId: "anthropic:default",
         reason: "billing",
         agentDir,
-        cfg: {
-          auth: {
-            cooldowns: {
-              billingBackoffHoursByProvider: { Anthropic: 1 },
-              billingMaxHours: 2,
-            },
-          },
-        } as never,
       });
 
-      const disabledUntil = store.usageStats?.["anthropic:default"]?.disabledUntil;
-      expect(typeof disabledUntil).toBe("number");
-      const remainingMs = (disabledUntil as number) - startedAt;
-      expectCooldownInRange(remainingMs, 0.8 * 60 * 60 * 1000, 1.2 * 60 * 60 * 1000);
+      const secondDisabledUntil = store.usageStats?.["anthropic:default"]?.disabledUntil;
+      expect(typeof secondDisabledUntil).toBe("number");
+      const secondRemainingMs = (secondDisabledUntil as number) - startedAt;
+      expectCooldownInRange(secondRemainingMs, 23.5 * 60 * 60 * 1000, 24.5 * 60 * 60 * 1000);
     });
   });
-  it("escalates persisted cooldownUntil across mid-window retries", async () => {
+
+  it("treats first rate_limit as a short cooldown, then escalates on repeats", async () => {
     await withAuthProfileStore(async ({ agentDir, store }) => {
+      const startedAt = Date.now();
       await markAuthProfileFailure({
         store,
         profileId: "anthropic:default",
@@ -102,9 +92,14 @@ describe("markAuthProfileFailure", () => {
         agentDir,
       });
 
+      // First hit => short cooldown (minutes), not long lockout.
       const firstCooldownUntil = store.usageStats?.["anthropic:default"]?.cooldownUntil;
       expect(typeof firstCooldownUntil).toBe("number");
+      const firstRemainingMs = (firstCooldownUntil as number) - startedAt;
+      expectCooldownInRange(firstRemainingMs, 60 * 1000, 3 * 60 * 1000);
+      expect(store.usageStats?.["anthropic:default"]?.disabledUntil).toBeUndefined();
 
+      // Second hit within the soft window => long lockout.
       await markAuthProfileFailure({
         store,
         profileId: "anthropic:default",
@@ -112,48 +107,67 @@ describe("markAuthProfileFailure", () => {
         agentDir,
       });
 
-      const secondCooldownUntil = store.usageStats?.["anthropic:default"]?.cooldownUntil;
-      expect((secondCooldownUntil ?? 0) > (firstCooldownUntil ?? 0)).toBe(true);
-
-      const reloaded = ensureAuthProfileStore(agentDir);
-      expect(reloaded.usageStats?.["anthropic:default"]?.cooldownUntil).toBe(secondCooldownUntil);
+      const disabledUntil = store.usageStats?.["anthropic:default"]?.disabledUntil;
+      expect(typeof disabledUntil).toBe("number");
+      const remainingMs = (disabledUntil as number) - startedAt;
+      expectCooldownInRange(remainingMs, 11.5 * 60 * 60 * 1000, 12.5 * 60 * 60 * 1000);
+      expect(store.usageStats?.["anthropic:default"]?.disabledReason).toBe("rate_limit");
     });
   });
-  it("persists provider-level cooldown markers for quota-like failures", async () => {
+
+  it("uses soft Anthropic retry-after hints for short per-profile cooldown", async () => {
     await withAuthProfileStore(async ({ agentDir, store }) => {
+      const startedAt = Date.now();
       await markAuthProfileFailure({
         store,
         profileId: "anthropic:default",
         reason: "rate_limit",
+        rateLimit: { severity: "soft", retryAfterMs: 30_000 },
         agentDir,
       });
 
-      const providerStats = store.usageStats?.["__provider__:anthropic"];
-      expect(typeof providerStats?.cooldownUntil).toBe("number");
-      expect(providerStats?.disabledUntil).toBeUndefined();
+      const cooldownUntil = store.usageStats?.["anthropic:default"]?.cooldownUntil;
+      expect(typeof cooldownUntil).toBe("number");
+      const remainingMs = (cooldownUntil as number) - startedAt;
+      expectCooldownInRange(remainingMs, 20_000, 60_000);
+      expect(store.usageStats?.["anthropic:default"]?.disabledUntil).toBeUndefined();
     });
   });
 
-  it("disables auth_permanent failures via disabledUntil (like billing)", async () => {
+  it("uses hard Anthropic available-at hints for strict per-profile disable windows", async () => {
+    await withAuthProfileStore(async ({ agentDir, store }) => {
+      const availableAtMs = Date.now() + 13 * 60 * 60 * 1000;
+      await markAuthProfileFailure({
+        store,
+        profileId: "anthropic:default",
+        reason: "rate_limit",
+        rateLimit: { severity: "hard", availableAtMs },
+        agentDir,
+      });
+
+      const disabledUntil = store.usageStats?.["anthropic:default"]?.disabledUntil;
+      expect(typeof disabledUntil).toBe("number");
+      expect((disabledUntil as number) - availableAtMs).toBeGreaterThan(-5_000);
+      expect(store.usageStats?.["anthropic:default"]?.disabledReason).toBe("rate_limit");
+    });
+  });
+
+  it("keeps lockout profile-scoped (does not write provider-wide lock entries)", async () => {
     await withAuthProfileStore(async ({ agentDir, store }) => {
       await markAuthProfileFailure({
         store,
         profileId: "anthropic:default",
-        reason: "auth_permanent",
+        reason: "billing",
         agentDir,
       });
 
-      const stats = store.usageStats?.["anthropic:default"];
-      const providerStats = store.usageStats?.["__provider__:anthropic"];
-      expect(typeof stats?.disabledUntil).toBe("number");
-      expect(stats?.disabledReason).toBe("auth_permanent");
-      expect(typeof providerStats?.disabledUntil).toBe("number");
-      expect(providerStats?.disabledReason).toBe("auth_permanent");
-      // Should NOT set cooldownUntil (that's for transient errors)
-      expect(stats?.cooldownUntil).toBeUndefined();
+      expect(store.usageStats?.["__provider__:anthropic"]).toBeUndefined();
+      expect(store.usageStats?.["anthropic:default"]?.disabledUntil).toBeTypeOf("number");
+      expect(store.usageStats?.["anthropic:work"]?.disabledUntil).toBeUndefined();
     });
   });
-  it("resets backoff counters outside the failure window", async () => {
+
+  it("resets quota lockout counter after 36h rolling window", async () => {
     const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-auth-"));
     try {
       const authPath = path.join(agentDir, "auth-profiles.json");
@@ -171,30 +185,46 @@ describe("markAuthProfileFailure", () => {
           },
           usageStats: {
             "anthropic:default": {
-              errorCount: 9,
-              failureCounts: { billing: 3 },
-              lastFailureAt: now - 48 * 60 * 60 * 1000,
+              billingFailureCount: 7,
+              billingLastFailureAt: now - 37 * 60 * 60 * 1000,
             },
           },
         }),
       );
 
       const store = ensureAuthProfileStore(agentDir);
+      const startedAt = Date.now();
       await markAuthProfileFailure({
         store,
         profileId: "anthropic:default",
         reason: "billing",
         agentDir,
-        cfg: {
-          auth: { cooldowns: { failureWindowHours: 24 } },
-        } as never,
       });
 
-      expect(store.usageStats?.["anthropic:default"]?.errorCount).toBe(1);
-      expect(store.usageStats?.["anthropic:default"]?.failureCounts?.billing).toBe(1);
+      expect(store.usageStats?.["anthropic:default"]?.billingFailureCount).toBe(1);
+      const disabledUntil = store.usageStats?.["anthropic:default"]?.disabledUntil;
+      expect(typeof disabledUntil).toBe("number");
+      const remainingMs = (disabledUntil as number) - startedAt;
+      expectCooldownInRange(remainingMs, 11.5 * 60 * 60 * 1000, 12.5 * 60 * 60 * 1000);
     } finally {
       fs.rmSync(agentDir, { recursive: true, force: true });
     }
+  });
+
+  it("disables auth_permanent failures via disabledUntil", async () => {
+    await withAuthProfileStore(async ({ agentDir, store }) => {
+      await markAuthProfileFailure({
+        store,
+        profileId: "anthropic:default",
+        reason: "auth_permanent",
+        agentDir,
+      });
+
+      const stats = store.usageStats?.["anthropic:default"];
+      expect(typeof stats?.disabledUntil).toBe("number");
+      expect(stats?.disabledReason).toBe("auth_permanent");
+      expect(stats?.cooldownUntil).toBeUndefined();
+    });
   });
 
   it("does not persist cooldown windows for OpenRouter profiles", async () => {
@@ -217,52 +247,6 @@ describe("markAuthProfileFailure", () => {
 
       const reloaded = ensureAuthProfileStore(agentDir);
       expect(reloaded.usageStats?.["openrouter:default"]).toBeUndefined();
-    });
-  });
-
-  it("applies aggressive cooldown thresholds after repeated failures", async () => {
-    await withAuthProfileStore(async ({ agentDir, store }) => {
-      const startedAt = Date.now();
-      for (let i = 0; i < 4; i += 1) {
-        await markAuthProfileFailure({
-          store,
-          profileId: "anthropic:default",
-          reason: "rate_limit",
-          agentDir,
-          cfg: {
-            auth: { cooldowns: { failureWindowHours: 12 } },
-          } as never,
-        });
-      }
-
-      const cooldownAfter4 = store.usageStats?.["anthropic:default"]?.cooldownUntil;
-      expect(typeof cooldownAfter4).toBe("number");
-      const remainingAfter4 = (cooldownAfter4 as number) - startedAt;
-      expectCooldownInRange(remainingAfter4, 11.5 * 60 * 60 * 1000, 12.5 * 60 * 60 * 1000);
-
-      await markAuthProfileFailure({
-        store,
-        profileId: "anthropic:default",
-        reason: "rate_limit",
-        agentDir,
-        cfg: {
-          auth: { cooldowns: { failureWindowHours: 12 } },
-        } as never,
-      });
-      await markAuthProfileFailure({
-        store,
-        profileId: "anthropic:default",
-        reason: "rate_limit",
-        agentDir,
-        cfg: {
-          auth: { cooldowns: { failureWindowHours: 12 } },
-        } as never,
-      });
-
-      const cooldownAfter6 = store.usageStats?.["anthropic:default"]?.cooldownUntil;
-      expect(typeof cooldownAfter6).toBe("number");
-      const remainingAfter6 = (cooldownAfter6 as number) - startedAt;
-      expectCooldownInRange(remainingAfter6, 23.5 * 60 * 60 * 1000, 24.5 * 60 * 60 * 1000);
     });
   });
 });
