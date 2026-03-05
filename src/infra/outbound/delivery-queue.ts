@@ -49,6 +49,8 @@ export interface QueuedDelivery extends QueuedDeliveryPayload {
   retryCount: number;
   lastAttemptAt?: number;
   lastError?: string;
+  deferUntilMs?: number;
+  holdReason?: string;
 }
 
 export type RecoverySummary = {
@@ -132,6 +134,30 @@ export async function failDelivery(id: string, error: string, stateDir?: string)
   entry.retryCount += 1;
   entry.lastAttemptAt = Date.now();
   entry.lastError = error;
+  delete entry.deferUntilMs;
+  delete entry.holdReason;
+  const tmp = `${filePath}.${process.pid}.tmp`;
+  await fs.promises.writeFile(tmp, JSON.stringify(entry, null, 2), {
+    encoding: "utf-8",
+    mode: 0o600,
+  });
+  await fs.promises.rename(tmp, filePath);
+}
+
+/** Defer a queue entry without incrementing retry counters (suppression/hold behavior). */
+export async function deferDelivery(
+  id: string,
+  deferUntilMs: number,
+  reason: string,
+  stateDir?: string,
+): Promise<void> {
+  const filePath = path.join(resolveQueueDir(stateDir), `${id}.json`);
+  const raw = await fs.promises.readFile(filePath, "utf-8");
+  const entry: QueuedDelivery = JSON.parse(raw);
+  entry.lastAttemptAt = Date.now();
+  entry.deferUntilMs = Math.max(Date.now(), Math.floor(deferUntilMs));
+  entry.holdReason = reason;
+  entry.lastError = reason;
   const tmp = `${filePath}.${process.pid}.tmp`;
   await fs.promises.writeFile(tmp, JSON.stringify(entry, null, 2), {
     encoding: "utf-8",
@@ -208,6 +234,11 @@ export function isEntryEligibleForRecoveryRetry(
   entry: QueuedDelivery,
   now: number,
 ): { eligible: true } | { eligible: false; remainingBackoffMs: number } {
+  if (typeof entry.deferUntilMs === "number" && Number.isFinite(entry.deferUntilMs)) {
+    if (now < entry.deferUntilMs) {
+      return { eligible: false, remainingBackoffMs: entry.deferUntilMs - now };
+    }
+  }
   const backoff = computeBackoffMs(entry.retryCount + 1);
   if (backoff <= 0) {
     return { eligible: true };

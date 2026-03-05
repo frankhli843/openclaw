@@ -703,9 +703,11 @@ export async function startGatewayServer(
     void cron.start().catch((err) => logCron.error(`failed to start: ${String(err)}`));
   }
 
-  // Recover pending outbound deliveries from previous crash/restart.
+  let deliveryRecoveryInterval: ReturnType<typeof setInterval> | null = null;
+
+  // Recover pending outbound deliveries from previous crash/restart and keep retrying queued holds.
   if (!minimalTestGateway) {
-    void (async () => {
+    const runDeliveryRecovery = async () => {
       const { recoverPendingDeliveries } = await import("../infra/outbound/delivery-queue.js");
       const { deliverOutboundPayloads } = await import("../infra/outbound/deliver.js");
       const logRecovery = log.child("delivery-recovery");
@@ -714,7 +716,17 @@ export async function startGatewayServer(
         log: logRecovery,
         cfg: cfgAtStart,
       });
-    })().catch((err) => log.error(`Delivery recovery failed: ${String(err)}`));
+    };
+
+    void runDeliveryRecovery().catch((err) =>
+      log.error(`Delivery recovery failed: ${String(err)}`),
+    );
+    const intervalMs = 15 * 60_000;
+    deliveryRecoveryInterval = setInterval(() => {
+      void runDeliveryRecovery().catch((err) =>
+        log.error(`Delivery periodic recovery failed: ${String(err)}`),
+      );
+    }, intervalMs);
   }
 
   const execApprovalManager = new ExecApprovalManager();
@@ -999,6 +1011,10 @@ export async function startGatewayServer(
       authRateLimiter?.dispose();
       browserAuthRateLimiter.dispose();
       channelHealthMonitor?.stop();
+      if (deliveryRecoveryInterval) {
+        clearInterval(deliveryRecoveryInterval);
+        deliveryRecoveryInterval = null;
+      }
       clearSecretsRuntimeSnapshot();
       await close(opts);
     },

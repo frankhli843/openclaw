@@ -8,6 +8,7 @@ import { typedCases } from "../../test-utils/typed-cases.js";
 import {
   ackDelivery,
   computeBackoffMs,
+  deferDelivery,
   type DeliverFn,
   enqueueDelivery,
   failDelivery,
@@ -134,6 +135,28 @@ describe("delivery-queue", () => {
       expect(typeof entry.lastAttemptAt).toBe("number");
       expect(entry.lastAttemptAt).toBeGreaterThan(0);
       expect(entry.lastError).toBe("connection refused");
+    });
+  });
+
+  describe("deferDelivery", () => {
+    it("persists hold state without incrementing retry count", async () => {
+      const id = await enqueueDelivery(
+        {
+          channel: "discord",
+          to: "channel:1479083833830801520",
+          payloads: [{ text: "suppressed" }],
+        },
+        tmpDir,
+      );
+
+      const deferUntilMs = Date.now() + 60_000;
+      await deferDelivery(id, deferUntilMs, "discord-dnr-window", tmpDir);
+
+      const queueDir = path.join(tmpDir, "delivery-queue");
+      const entry = JSON.parse(fs.readFileSync(path.join(queueDir, `${id}.json`), "utf-8"));
+      expect(entry.retryCount).toBe(0);
+      expect(entry.holdReason).toBe("discord-dnr-window");
+      expect(entry.deferUntilMs).toBeGreaterThan(Date.now());
     });
   });
 
@@ -273,6 +296,28 @@ describe("delivery-queue", () => {
       }
       expect(result.remainingBackoffMs).toBeGreaterThan(0);
     });
+
+    it("defers delivery when hold window is active", () => {
+      const now = Date.now();
+      const result = isEntryEligibleForRecoveryRetry(
+        {
+          id: "entry-hold",
+          channel: "discord",
+          to: "channel:1479083833830801520",
+          payloads: [{ text: "held" }],
+          enqueuedAt: now - 30_000,
+          retryCount: 0,
+          deferUntilMs: now + 15 * 60_000,
+          holdReason: "discord-dnr-window",
+        },
+        now,
+      );
+      expect(result.eligible).toBe(false);
+      if (result.eligible) {
+        throw new Error("Expected held entry to remain deferred");
+      }
+      expect(result.remainingBackoffMs).toBeGreaterThan(14 * 60_000);
+    });
   });
 
   describe("recoverPendingDeliveries", () => {
@@ -398,6 +443,35 @@ describe("delivery-queue", () => {
       await runRecovery({ deliver });
 
       expect(deliver).toHaveBeenCalledWith(expect.objectContaining({ skipQueue: true }));
+    });
+
+    it("skips held entries until defer window elapses, then retries", async () => {
+      const id = await enqueueDelivery(
+        {
+          channel: "discord",
+          to: "channel:1479083833830801520",
+          payloads: [{ text: "held" }],
+        },
+        tmpDir,
+      );
+      const future = Date.now() + 120_000;
+      await deferDelivery(id, future, "discord-dnr-window", tmpDir);
+
+      const firstDeliver = vi.fn().mockResolvedValue([]);
+      const first = await runRecovery({ deliver: firstDeliver });
+      expect(firstDeliver).not.toHaveBeenCalled();
+      expect(first.result.deferredBackoff).toBe(1);
+
+      const filePath = path.join(tmpDir, "delivery-queue", `${id}.json`);
+      const entry = JSON.parse(fs.readFileSync(filePath, "utf-8"));
+      entry.deferUntilMs = Date.now() - 1;
+      entry.lastAttemptAt = Date.now() - 10_000;
+      fs.writeFileSync(filePath, JSON.stringify(entry), "utf-8");
+
+      const secondDeliver = vi.fn().mockResolvedValue([]);
+      const second = await runRecovery({ deliver: secondDeliver });
+      expect(secondDeliver).toHaveBeenCalledTimes(1);
+      expect(second.result.recovered).toBe(1);
     });
 
     it("replays stored delivery options during recovery", async () => {
