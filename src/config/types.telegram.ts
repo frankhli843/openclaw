@@ -7,6 +7,7 @@ import type {
   MarkdownConfig,
   OutboundRetryConfig,
   ReplyToMode,
+  SessionThreadBindingsConfig,
 } from "./types.base.js";
 import type { ChannelHeartbeatVisibilityConfig } from "./types.channels.js";
 import type { DmConfig, ProviderCommandsConfig } from "./types.messages.js";
@@ -15,6 +16,8 @@ import type { GroupToolPolicyBySenderConfig, GroupToolPolicyConfig } from "./typ
 export type TelegramActionConfig = {
   reactions?: boolean;
   sendMessage?: boolean;
+  /** Enable poll creation. Requires sendMessage to also be enabled. */
+  poll?: boolean;
   deleteMessage?: boolean;
   editMessage?: boolean;
   /** Enable sticker actions (send and search). */
@@ -140,6 +143,8 @@ export type TelegramAccountConfig = {
   webhookPort?: number;
   /** Per-action tool gating (default: true for all). */
   actions?: TelegramActionConfig;
+  /** Telegram thread/conversation binding overrides. */
+  threadBindings?: SessionThreadBindingsConfig;
   /**
    * Controls which user reactions trigger notifications:
    * - "off" (default): ignore all reactions

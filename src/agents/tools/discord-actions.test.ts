@@ -63,6 +63,7 @@ const {
   removeReactionDiscord,
   searchMessagesDiscord,
   sendMessageDiscord,
+  sendPollDiscord,
   sendVoiceMessageDiscord,
   setChannelPermissionDiscord,
   timeoutMemberDiscord,
@@ -166,6 +167,31 @@ describe("handleDiscordMessagingAction", () => {
         disabledActions,
       ),
     ).rejects.toThrow(/Discord reactions are disabled/);
+  });
+
+  it("parses string booleans for poll options", async () => {
+    await handleDiscordMessagingAction(
+      "poll",
+      {
+        to: "channel:123",
+        question: "Lunch?",
+        answers: ["Pizza", "Sushi"],
+        allowMultiselect: "true",
+        durationHours: "24",
+      },
+      enableAllActions,
+    );
+
+    expect(sendPollDiscord).toHaveBeenCalledWith(
+      "channel:123",
+      {
+        question: "Lunch?",
+        options: ["Pizza", "Sushi"],
+        maxSelections: 2,
+        durationHours: 24,
+      },
+      expect.any(Object),
+    );
   });
 
   it("adds normalized timestamps to readMessages payloads", async () => {

@@ -4,20 +4,14 @@ import {
   createChannelInboundDebouncer,
   shouldDebounceTextInbound,
 } from "../../channels/inbound-debounce-policy.js";
-import { createRunStateMachine } from "../../channels/run-state-machine.js";
 import { resolveOpenProviderRuntimeGroupPolicy } from "../../config/runtime-group-policy.js";
 import { danger, logVerbose } from "../../globals.js";
-import { formatDurationSeconds } from "../../infra/format-time/format-duration.ts";
-import { KeyedAsyncQueue } from "../../plugin-sdk/keyed-async-queue.js";
-import { sendMessageDiscord } from "../send.js";
 import { reactMessageDiscord } from "../send.reactions.js";
+import { buildDiscordInboundJob } from "./inbound-job.js";
+import { createDiscordInboundWorker } from "./inbound-worker.js";
 import type { DiscordMessageEvent, DiscordMessageHandler } from "./listeners.js";
 import { preflightDiscordMessage } from "./message-handler.preflight.js";
-import type {
-  DiscordMessagePreflightContext,
-  DiscordMessagePreflightParams,
-} from "./message-handler.preflight.types.js";
-import { processDiscordMessage } from "./message-handler.process.js";
+import type { DiscordMessagePreflightParams } from "./message-handler.preflight.types.js";
 import {
   hasDiscordMessageStickers,
   resolveDiscordMessageChannelId,
@@ -31,211 +25,13 @@ type DiscordMessageHandlerParams = Omit<
 > & {
   setStatus?: DiscordMonitorStatusSink;
   abortSignal?: AbortSignal;
-  listenerTimeoutMs?: number;
+  workerRunTimeoutMs?: number;
 };
 
 export type DiscordMessageHandlerWithLifecycle = DiscordMessageHandler & {
   deactivate: () => void;
 };
 
-const DEFAULT_DISCORD_RUN_TIMEOUT_MS = 120_000;
-const MAX_DISCORD_TIMEOUT_MS = 2_147_483_647;
-
-function normalizeDiscordRunTimeoutMs(timeoutMs?: number): number {
-  if (typeof timeoutMs !== "number" || !Number.isFinite(timeoutMs) || timeoutMs <= 0) {
-    return DEFAULT_DISCORD_RUN_TIMEOUT_MS;
-  }
-  return Math.max(1, Math.min(Math.floor(timeoutMs), MAX_DISCORD_TIMEOUT_MS));
-}
-
-function isAbortError(error: unknown): boolean {
-  if (typeof error !== "object" || error === null) {
-    return false;
-  }
-  return "name" in error && String((error as { name?: unknown }).name) === "AbortError";
-}
-
-class DiscordQueuedRunTimeoutError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "DiscordQueuedRunTimeoutError";
-  }
-}
-
-function formatDiscordRunContextSuffix(ctx: DiscordMessagePreflightContext): string {
-  const eventData = ctx as {
-    data?: {
-      channel_id?: string;
-      message?: {
-        id?: string;
-      };
-    };
-  };
-  const channelId = ctx.messageChannelId?.trim() || eventData.data?.channel_id?.trim();
-  const messageId = eventData.data?.message?.id?.trim();
-  const details = [
-    channelId ? `channelId=${channelId}` : null,
-    messageId ? `messageId=${messageId}` : null,
-  ].filter((entry): entry is string => Boolean(entry));
-  if (details.length === 0) {
-    return "";
-  }
-  return ` (${details.join(", ")})`;
-}
-
-function mergeAbortSignals(signals: Array<AbortSignal | undefined>): AbortSignal | undefined {
-  const activeSignals = signals.filter((signal): signal is AbortSignal => Boolean(signal));
-  if (activeSignals.length === 0) {
-    return undefined;
-  }
-  if (activeSignals.length === 1) {
-    return activeSignals[0];
-  }
-  if (typeof AbortSignal.any === "function") {
-    return AbortSignal.any(activeSignals);
-  }
-  const fallbackController = new AbortController();
-  for (const signal of activeSignals) {
-    if (signal.aborted) {
-      fallbackController.abort();
-      return fallbackController.signal;
-    }
-  }
-  const abortFallback = () => {
-    fallbackController.abort();
-    for (const signal of activeSignals) {
-      signal.removeEventListener("abort", abortFallback);
-    }
-  };
-  for (const signal of activeSignals) {
-    signal.addEventListener("abort", abortFallback, { once: true });
-  }
-  return fallbackController.signal;
-}
-
-const DROPPING_MESSAGES_THREAD_ID = "1477623921577820350";
-
-async function sendDroppingMessagesThreadAlert(params: {
-  ctx: DiscordMessagePreflightContext;
-  runtime: DiscordMessagePreflightParams["runtime"];
-  detail: string;
-}) {
-  const text = `⚠️ Dropped/timeout-prone Discord run detected\n${params.detail}`;
-  try {
-    await sendMessageDiscord(`channel:${DROPPING_MESSAGES_THREAD_ID}`, text, {
-      cfg: params.ctx.cfg,
-      accountId: params.ctx.accountId,
-    });
-  } catch (err) {
-    params.runtime.error?.(
-      danger(
-        `discord dropping-messages alert send failed: ${String(err)}${formatDiscordRunContextSuffix(params.ctx)}`,
-      ),
-    );
-  }
-}
-
-async function sendQueuedRunTimeoutFallback(params: {
-  ctx: DiscordMessagePreflightContext;
-  runtime: DiscordMessagePreflightParams["runtime"];
-}) {
-  const channelId = params.ctx.messageChannelId?.trim();
-  const replyTo = params.ctx.message?.id?.trim();
-  if (!channelId) {
-    return;
-  }
-  const text =
-    "⚠️ Sorry, this run timed out before I could reply. Please send your message again (or say 'continue') and I’ll retry.";
-  try {
-    await sendMessageDiscord(`channel:${channelId}`, text, {
-      cfg: params.ctx.cfg,
-      accountId: params.ctx.accountId,
-      replyTo,
-    });
-  } catch (err) {
-    params.runtime.error?.(
-      danger(
-        `discord timeout fallback send failed: ${String(err)}${formatDiscordRunContextSuffix(params.ctx)}`,
-      ),
-    );
-  }
-}
-
-async function processDiscordRunWithTimeout(params: {
-  ctx: DiscordMessagePreflightContext;
-  runtime: DiscordMessagePreflightParams["runtime"];
-  lifecycleSignal?: AbortSignal;
-  timeoutMs?: number;
-}) {
-  const timeoutMs = normalizeDiscordRunTimeoutMs(params.timeoutMs);
-  const timeoutAbortController = new AbortController();
-  const combinedSignal = mergeAbortSignals([
-    params.ctx.abortSignal,
-    params.lifecycleSignal,
-    timeoutAbortController.signal,
-  ]);
-  const processCtx =
-    combinedSignal && combinedSignal !== params.ctx.abortSignal
-      ? { ...params.ctx, abortSignal: combinedSignal }
-      : params.ctx;
-  const contextSuffix = formatDiscordRunContextSuffix(params.ctx);
-  let timedOut = false;
-  let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
-  const processPromise = processDiscordMessage(processCtx).catch((error) => {
-    if (timedOut) {
-      if (timeoutAbortController.signal.aborted && isAbortError(error)) {
-        return;
-      }
-      params.runtime.error?.(
-        danger(`discord queued run failed after timeout: ${String(error)}${contextSuffix}`),
-      );
-      return;
-    }
-    throw error;
-  });
-
-  try {
-    const timeoutPromise = new Promise<"timeout">((resolve) => {
-      timeoutHandle = setTimeout(() => resolve("timeout"), timeoutMs);
-      timeoutHandle.unref?.();
-    });
-    const result = await Promise.race([
-      processPromise.then(() => "completed" as const),
-      timeoutPromise,
-    ]);
-    if (result === "timeout") {
-      timedOut = true;
-      timeoutAbortController.abort();
-      const timeoutMessage = `discord queued run timed out after ${formatDurationSeconds(
-        timeoutMs,
-        {
-          decimals: 1,
-          unit: "seconds",
-        },
-      )}${contextSuffix}`;
-      params.runtime.error?.(danger(timeoutMessage));
-      // IMPORTANT: throw so durable inbound queue treats this as a failed
-      // attempt and retries instead of dropping the message as "processed".
-      throw new DiscordQueuedRunTimeoutError(timeoutMessage);
-    }
-  } finally {
-    if (timeoutHandle) {
-      clearTimeout(timeoutHandle);
-    }
-  }
-}
-
-function resolveDiscordRunQueueKey(ctx: DiscordMessagePreflightContext): string {
-  const sessionKey = ctx.route.sessionKey?.trim();
-  if (sessionKey) {
-    return sessionKey;
-  }
-  const baseSessionKey = ctx.baseSessionKey?.trim();
-  if (baseSessionKey) {
-    return baseSessionKey;
-  }
-  return ctx.messageChannelId;
-}
 
 export function createDiscordMessageHandler(
   params: DiscordMessageHandlerParams,
@@ -249,75 +45,20 @@ export function createDiscordMessageHandler(
     params.discordConfig?.ackReactionScope ??
     params.cfg.messages?.ackReactionScope ??
     "group-mentions";
-  // Resolve ack emoji once at handler creation time for early reactions.
+  // [frankclaw] Resolve ack emoji once at handler creation time for early reactions.
   // Use empty agentId — config-level overrides take priority; agent identity
   // emoji is only a last-resort fallback and is not worth a routing lookup here.
   const earlyAckEmoji = resolveAckReaction(params.cfg, "", {
     channel: "discord",
     accountId: params.accountId,
   });
-  const runQueue = new KeyedAsyncQueue();
-  const runState = createRunStateMachine({
+  const inboundWorker = createDiscordInboundWorker({
+    runtime: params.runtime,
     setStatus: params.setStatus,
     abortSignal: params.abortSignal,
+    runTimeoutMs: params.workerRunTimeoutMs,
   });
 
-  const enqueueDiscordRun = (ctx: DiscordMessagePreflightContext) => {
-    const queueKey = resolveDiscordRunQueueKey(ctx);
-    void runQueue
-      .enqueue(queueKey, async () => {
-        if (!runState.isActive()) {
-          return;
-        }
-        runState.onRunStart();
-        try {
-          if (!runState.isActive()) {
-            return;
-          }
-
-          let attempts = 0;
-          while (true) {
-            try {
-              await processDiscordRunWithTimeout({
-                ctx,
-                runtime: params.runtime,
-                lifecycleSignal: params.abortSignal,
-                timeoutMs: params.listenerTimeoutMs,
-              });
-              break;
-            } catch (err) {
-              if (
-                err instanceof DiscordQueuedRunTimeoutError &&
-                attempts < 1 &&
-                runState.isActive()
-              ) {
-                attempts += 1;
-                params.runtime.error?.(
-                  danger(
-                    `discord queued run timeout; retrying once${formatDiscordRunContextSuffix(ctx)}`,
-                  ),
-                );
-                continue;
-              }
-              if (err instanceof DiscordQueuedRunTimeoutError) {
-                await sendDroppingMessagesThreadAlert({
-                  ctx,
-                  runtime: params.runtime,
-                  detail: `queue timeout after retry exhausted${formatDiscordRunContextSuffix(ctx)}`,
-                });
-                await sendQueuedRunTimeoutFallback({ ctx, runtime: params.runtime });
-              }
-              throw err;
-            }
-          }
-        } finally {
-          runState.onRunEnd();
-        }
-      })
-      .catch((err) => {
-        params.runtime.error?.(danger(`discord process failed: ${String(err)}`));
-      });
-  };
 
   const { debouncer } = createChannelInboundDebouncer<{
     data: DiscordMessageEvent;
@@ -383,7 +124,7 @@ export function createDiscordMessageHandler(
         if (!ctx) {
           return;
         }
-        enqueueDiscordRun(ctx);
+        inboundWorker.enqueue(buildDiscordInboundJob(ctx));
         return;
       }
       const combinedBaseText = entries
@@ -428,7 +169,7 @@ export function createDiscordMessageHandler(
           ctxBatch.MessageSidLast = ids[ids.length - 1];
         }
       }
-      enqueueDiscordRun(ctx);
+      inboundWorker.enqueue(buildDiscordInboundJob(ctx));
     },
     onError: (err) => {
       params.runtime.error?.(danger(`discord debounce flush failed: ${String(err)}`));
@@ -450,7 +191,7 @@ export function createDiscordMessageHandler(
         return;
       }
 
-      // [frankclaw] Fire ack reaction immediately — before debouncing/preflight — so
+      // [frankclaw] Fire ack reaction immediately - before debouncing/preflight - so
       // the user gets instant visual feedback that their message was received.
       const messageId = data.message?.id;
       const channelId = data.channel_id ?? data.message?.channel_id;
@@ -474,7 +215,7 @@ export function createDiscordMessageHandler(
     }
   };
 
-  handler.deactivate = runState.deactivate;
+  handler.deactivate = inboundWorker.deactivate;
 
   return handler;
 }
