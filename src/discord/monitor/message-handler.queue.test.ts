@@ -309,7 +309,7 @@ describe("createDiscordMessageHandler queue behavior", () => {
         }),
       );
 
-      const params = createHandlerParams({ listenerTimeoutMs: 50 });
+      const params = createHandlerParams({ workerRunTimeoutMs: 50 });
       const handler = createDiscordMessageHandler(params);
 
       await expect(
