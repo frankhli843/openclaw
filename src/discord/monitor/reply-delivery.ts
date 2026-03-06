@@ -3,7 +3,14 @@ import { resolveAgentAvatar } from "../../agents/identity-avatar.js";
 import type { ChunkMode } from "../../auto-reply/chunk.js";
 import type { ReplyPayload } from "../../auto-reply/types.js";
 import { loadConfig } from "../../config/config.js";
+import { resolveStateDir } from "../../config/paths.js";
 import type { MarkdownTableMode, ReplyToMode } from "../../config/types.base.js";
+import { deferDelivery, enqueueDelivery } from "../../infra/outbound/delivery-queue.js";
+import {
+  DiscordDnrSuppressedError,
+  enforceDiscordDnrWindow,
+  isDiscordDnrTarget,
+} from "../../infra/outbound/discord-dnr.js";
 import { createDiscordRetryRunner, type RetryRunner } from "../../infra/retry-policy.js";
 import { resolveRetryConfig, retryAsync, type RetryConfig } from "../../infra/retry.js";
 import { convertMarkdownTables } from "../../markdown/tables.js";
@@ -230,6 +237,31 @@ export async function deliverDiscordReply(params: {
   threadBindings?: DiscordThreadBindingLookup;
   mediaLocalRoots?: readonly string[];
 }) {
+  const stateDir = resolveStateDir();
+  const dnrCtx = { channel: "discord", to: params.target } as const;
+  if (isDiscordDnrTarget(dnrCtx)) {
+    try {
+      enforceDiscordDnrWindow(dnrCtx);
+    } catch (err) {
+      if (err instanceof DiscordDnrSuppressedError) {
+        const queueId = await enqueueDelivery(
+          {
+            channel: "discord",
+            to: params.target,
+            accountId: params.accountId,
+            payloads: params.replies,
+            replyToId: params.replyToId ?? null,
+            threadId: null,
+          },
+          stateDir,
+        );
+        await deferDelivery(queueId, err.nextEligibleAtMs, "discord-dnr-window", stateDir);
+        return;
+      }
+      throw err;
+    }
+  }
+
   const chunkLimit = Math.min(params.textLimit, 2000);
   const replyTo = params.replyToId?.trim() || undefined;
   const replyToMode = params.replyToMode ?? "all";

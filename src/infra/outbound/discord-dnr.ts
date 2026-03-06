@@ -274,17 +274,18 @@ function resolveEffectiveRule(
   nextEligibleAtMs: number;
   window?: DiscordDnrWindow;
 } {
-  const threadId = resolveCandidateThreadId(ctx);
-  if (!threadId || ctx.channel !== "discord") {
+  if (ctx.channel !== "discord") {
     return { active: false, nextEligibleAtMs: nowMs };
   }
 
+  const threadId = resolveCandidateThreadId(ctx);
   const { recurring, oneOff } = readPolicyStore(nowMs);
 
   // One-off policies take precedence.
   for (const p of oneOff) {
     const appliesToAllDiscord = p.threadId === "*";
-    if (!appliesToAllDiscord && p.threadId !== threadId) {
+    const appliesToTarget = !!threadId && p.threadId === threadId;
+    if (!appliesToAllDiscord && !appliesToTarget) {
       continue;
     }
     if (nowMs >= p.startAtMs && nowMs < p.endAtMs) {
@@ -297,7 +298,8 @@ function resolveEffectiveRule(
 
   for (const p of recurring) {
     const appliesToAllDiscord = p.threadId === "*";
-    if (!p.enabled || (!appliesToAllDiscord && p.threadId !== threadId)) {
+    const appliesToTarget = !!threadId && p.threadId === threadId;
+    if (!p.enabled || (!appliesToAllDiscord && !appliesToTarget)) {
       continue;
     }
     if (isWithinWindow(nowMs, p.window)) {
@@ -313,15 +315,17 @@ function resolveEffectiveRule(
 }
 
 export function isDiscordDnrTarget(ctx: DiscordDnrContext): boolean {
-  const threadId = resolveCandidateThreadId(ctx);
-  if (!threadId || ctx.channel !== "discord") {
+  if (ctx.channel !== "discord") {
     return false;
   }
+  const threadId = resolveCandidateThreadId(ctx);
   const nowMs = Date.now();
   const { recurring, oneOff } = readPolicyStore(nowMs);
   return (
-    recurring.some((p) => (p.threadId === threadId || p.threadId === "*") && p.enabled !== false) ||
-    oneOff.some((p) => p.threadId === threadId || p.threadId === "*")
+    recurring.some(
+      (p) => p.enabled !== false && (p.threadId === "*" || (!!threadId && p.threadId === threadId)),
+    ) ||
+    oneOff.some((p) => p.threadId === "*" || (!!threadId && p.threadId === threadId))
   );
 }
 
