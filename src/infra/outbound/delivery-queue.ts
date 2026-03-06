@@ -194,7 +194,11 @@ export async function loadPendingDeliveries(stateDir?: string): Promise<QueuedDe
         continue;
       }
       const raw = await fs.promises.readFile(filePath, "utf-8");
-      const parsed = JSON.parse(raw) as QueuedDelivery;
+      const parsed = JSON.parse(raw) as QueuedDelivery & { origin?: string };
+      // Skip entries from the programmatic alert queue (different schema, managed by alert_queue.py).
+      if (parsed.origin === "programmatic-alert-queue") {
+        continue;
+      }
       const { entry, migrated } = normalizeLegacyQueuedDeliveryEntry(parsed);
       if (migrated) {
         const tmp = `${filePath}.${process.pid}.tmp`;
