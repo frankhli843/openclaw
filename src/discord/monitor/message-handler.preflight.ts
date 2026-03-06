@@ -50,7 +50,10 @@ import {
   resolveDiscordSystemLocation,
   resolveTimestampMs,
 } from "./format.js";
-import { resolveDiscordGateModeCheck } from "./message-handler.preflight.frankclaw.js";
+import {
+  resolveDiscordGateModeCheck,
+  resolveSessionExistsFallback,
+} from "./message-handler.preflight.frankclaw.js";
 import type {
   DiscordMessagePreflightContext,
   DiscordMessagePreflightParams,
@@ -391,7 +394,12 @@ export async function preflightDiscordMessage(
         matchedBy: "binding.channel" as const,
       }
     : (configuredRoute?.route ?? route);
-  const isBoundThreadSession = Boolean(boundSessionKey && earlyThreadChannel);
+  const isBoundThreadSession =
+    Boolean(boundSessionKey && earlyThreadChannel) ||
+    resolveSessionExistsFallback({
+      channelId: messageChannelId,
+      isThread: Boolean(earlyThreadChannel),
+    });
   if (
     isBoundThreadBotSystemMessage({
       isBoundThreadSession,

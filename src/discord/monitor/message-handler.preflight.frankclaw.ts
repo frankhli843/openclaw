@@ -6,11 +6,16 @@
  * - Applies owner/allowlist/mention filters
  * - Sends blocked notifications for unknown groups
  * - Returns approval status for downstream mention gating bypass
+ *
+ * Also provides session-existence fallback for thread binding recovery
+ * after gateway restarts (resolveSessionExistsFallback).
  */
 import { notifyBlocked } from "../../channels/gate-notify.js";
 import { resolveGateMode } from "../../channels/mention-gating.js";
 import { resolveDiscordGroupGateMode } from "../../channels/plugins/group-mentions.js";
 import type { OpenClawConfig } from "../../config/config.js";
+import { loadSessionStore, resolveStorePath } from "../../config/sessions.js";
+import { logVerbose } from "../../globals.js";
 
 export type DiscordGateModeCheckParams = {
   cfg: OpenClawConfig;
@@ -137,4 +142,53 @@ export function resolveDiscordGateModeCheck(
     effectiveMention: gateModeAction.effectiveWasMentioned,
     shouldDrop: false,
   };
+}
+
+// ============================================================================
+// Session-existence fallback for thread binding recovery after gateway restart
+// ============================================================================
+
+/**
+ * Check whether a session already exists in the session store for a given
+ * Discord thread channel ID.
+ *
+ * After a gateway restart, in-memory thread bindings are lost. This fallback
+ * checks the persisted session store (which is cached in-memory with a 45s TTL,
+ * so no extra disk IO per message) for a session key matching the pattern
+ * `agent:<agentId>:discord:channel:<channelId>`.
+ *
+ * If a matching session exists, the thread previously had a conversation and
+ * should be treated as "bound" — no @mention required.
+ */
+export function resolveSessionExistsFallback(params: {
+  channelId: string;
+  isThread: boolean;
+  agentId?: string;
+}): boolean {
+  if (!params.isThread || !params.channelId) {
+    return false;
+  }
+
+  try {
+    const storePath = resolveStorePath(undefined, { agentId: params.agentId });
+    const store = loadSessionStore(storePath);
+
+    // Session keys for Discord channels follow the pattern:
+    // agent:<agentId>:discord:channel:<channelId>
+    // We check for any key containing discord:channel:<channelId> to be robust
+    // across agent IDs.
+    const suffix = `:discord:channel:${params.channelId}`;
+    for (const key of Object.keys(store)) {
+      if (key.endsWith(suffix)) {
+        logVerbose(
+          `discord: thread session fallback hit for channel ${params.channelId} (key=${key})`,
+        );
+        return true;
+      }
+    }
+  } catch {
+    // If session store is unreadable, don't block — just return false
+  }
+
+  return false;
 }
