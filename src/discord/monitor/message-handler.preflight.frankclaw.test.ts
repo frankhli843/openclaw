@@ -12,7 +12,7 @@ const loadSessionStoreMock = vi.hoisted(() => vi.fn());
 const resolveStorePathMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../../config/sessions.js", async (importOriginal) => {
-  const original = await importOriginal();
+  const original = await importOriginal<Record<string, unknown>>();
   return {
     ...original,
     loadSessionStore: loadSessionStoreMock,
@@ -21,7 +21,7 @@ vi.mock("../../config/sessions.js", async (importOriginal) => {
 });
 
 vi.mock("../../globals.js", async (importOriginal) => {
-  const original = await importOriginal();
+  const original = await importOriginal<Record<string, unknown>>();
   return {
     ...original,
     logVerbose: vi.fn(),
