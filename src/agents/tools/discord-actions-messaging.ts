@@ -28,6 +28,14 @@ import {
 } from "../../discord/send.js";
 import type { DiscordSendComponents, DiscordSendEmbeds } from "../../discord/send.shared.js";
 import { parseDiscordTarget, resolveDiscordChannelId } from "../../discord/targets.js";
+import {
+  DiscordDnrSuppressedError,
+  enforceDiscordDnrWindow,
+} from "../../infra/outbound/discord-dnr.js";
+import {
+  deferDelivery,
+  enqueueDelivery,
+} from "../../infra/outbound/delivery-queue.js";
 import { readBooleanParam } from "../../plugin-sdk/boolean-param.js";
 import { resolvePollMaxSelections } from "../../polls.js";
 import { withNormalizedTimestamp } from "../date-time.js";
@@ -306,6 +314,36 @@ export async function handleDiscordMessagingAction(
         }
       }
 
+      // Enforce Discord Do-Not-Reply window before any send
+      try {
+        enforceDiscordDnrWindow({ channel: "discord", to });
+      } catch (err) {
+        if (err instanceof DiscordDnrSuppressedError) {
+          const queueId = await enqueueDelivery(
+            {
+              channel: "discord",
+              to,
+              accountId: accountId ?? undefined,
+              payloads: [{ text: content ?? "" }],
+              replyToId: replyTo ?? null,
+              threadId: null,
+            },
+          ).catch(() => null);
+          if (queueId) {
+            await deferDelivery(queueId, err.nextEligibleAtMs, "discord-dnr-window").catch(
+              () => {},
+            );
+          }
+          return jsonResult({
+            ok: true,
+            queued: true,
+            reason: "Message queued — Discord quiet hours active. Will deliver when the window ends.",
+            nextEligibleAt: new Date(err.nextEligibleAtMs).toISOString(),
+          });
+        }
+        throw err;
+      }
+
       if (componentSpec) {
         if (asVoice) {
           throw new Error("Discord components cannot be sent as voice messages.");
@@ -458,6 +496,37 @@ export async function handleDiscordMessagingAction(
       });
       const mediaUrl = readStringParam(params, "mediaUrl");
       const replyTo = readStringParam(params, "replyTo");
+
+      // Enforce Discord Do-Not-Reply window before thread reply
+      try {
+        enforceDiscordDnrWindow({ channel: "discord", to: `channel:${channelId}` });
+      } catch (err) {
+        if (err instanceof DiscordDnrSuppressedError) {
+          const queueId = await enqueueDelivery(
+            {
+              channel: "discord",
+              to: `channel:${channelId}`,
+              accountId: accountId ?? undefined,
+              payloads: [{ text: content }],
+              replyToId: replyTo ?? null,
+              threadId: null,
+            },
+          ).catch(() => null);
+          if (queueId) {
+            await deferDelivery(queueId, err.nextEligibleAtMs, "discord-dnr-window").catch(
+              () => {},
+            );
+          }
+          return jsonResult({
+            ok: true,
+            queued: true,
+            reason: "Thread reply queued — Discord quiet hours active. Will deliver when the window ends.",
+            nextEligibleAt: new Date(err.nextEligibleAtMs).toISOString(),
+          });
+        }
+        throw err;
+      }
+
       const result = await sendMessageDiscord(`channel:${channelId}`, content, {
         ...cfgOptions,
         ...(accountId ? { accountId } : {}),
