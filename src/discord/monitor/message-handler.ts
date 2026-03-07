@@ -32,7 +32,6 @@ export type DiscordMessageHandlerWithLifecycle = DiscordMessageHandler & {
   deactivate: () => void;
 };
 
-
 export function createDiscordMessageHandler(
   params: DiscordMessageHandlerParams,
 ): DiscordMessageHandlerWithLifecycle {
@@ -58,7 +57,6 @@ export function createDiscordMessageHandler(
     abortSignal: params.abortSignal,
     runTimeoutMs: params.workerRunTimeoutMs,
   });
-
 
   const { debouncer } = createChannelInboundDebouncer<{
     data: DiscordMessageEvent;
@@ -108,7 +106,13 @@ export function createDiscordMessageHandler(
       if (!last) {
         return;
       }
-      const abortSignal = last.abortSignal;
+      // [frankclaw] Use the handler-level lifecycle abort signal instead of
+      // per-entry abortSignal.  Per-entry signals can be stale/aborted from a
+      // previous processing cycle, causing fresh messages to be silently
+      // dropped (race condition: user sees 👀 ack but never gets a response).
+      // Only the lifecycle signal represents genuine cancellation (gateway
+      // shutdown / handler deactivation).
+      const abortSignal = params.abortSignal;
       if (abortSignal?.aborted) {
         return;
       }
