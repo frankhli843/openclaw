@@ -16,6 +16,7 @@ const FAILURE_REASON_PRIORITY: AuthProfileFailureReason[] = [
   "billing",
   "format",
   "model_not_found",
+  "overloaded",
   "timeout",
   "rate_limit",
   "unknown",
@@ -42,7 +43,7 @@ export function resolveProfileUnusableUntil(
 }
 
 /**
- * Check if a profile is currently in cooldown (due to rate limiting or errors).
+ * Check if a profile is currently in cooldown (due to rate limits, overload, or other transient failures).
  */
 export function isProfileInCooldown(
   store: AuthProfileStore,

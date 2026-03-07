@@ -6,6 +6,7 @@ import { formatCliCommand } from "../../cli/command-format.js";
 import { waitForever } from "../../cli/wait.js";
 import { loadConfig } from "../../config/config.js";
 import { createDiscordInboundDurableQueue } from "../../discord/monitor/inbound-durable-queue.js";
+import { createConnectedChannelStatusPatch } from "../../gateway/channel-status-patches.js";
 import { logVerbose } from "../../globals.js";
 import { formatDurationPrecise } from "../../infra/format-time/format-duration.ts";
 import { enqueueSystemEvent } from "../../infra/system-events.js";
@@ -245,9 +246,7 @@ export async function monitorWebChannel(
       },
     });
 
-    status.connected = true;
-    status.lastConnectedAt = Date.now();
-    status.lastEventAt = status.lastConnectedAt;
+    Object.assign(status, createConnectedChannelStatusPatch());
     status.lastError = null;
     emitStatus();
 

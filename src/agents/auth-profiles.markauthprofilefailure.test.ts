@@ -152,6 +152,23 @@ describe("markAuthProfileFailure", () => {
     });
   });
 
+  it("records overloaded failures in the cooldown bucket", async () => {
+    await withAuthProfileStore(async ({ agentDir, store }) => {
+      await markAuthProfileFailure({
+        store,
+        profileId: "anthropic:default",
+        reason: "overloaded",
+        agentDir,
+      });
+
+      const stats = store.usageStats?.["anthropic:default"];
+      expect(typeof stats?.cooldownUntil).toBe("number");
+      expect(stats?.disabledUntil).toBeUndefined();
+      expect(stats?.disabledReason).toBeUndefined();
+      expect(stats?.failureCounts?.overloaded).toBe(1);
+    });
+  });
+
   it("keeps lockout profile-scoped (does not write provider-wide lock entries)", async () => {
     await withAuthProfileStore(async ({ agentDir, store }) => {
       await markAuthProfileFailure({
