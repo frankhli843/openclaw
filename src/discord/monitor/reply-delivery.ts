@@ -220,6 +220,10 @@ async function sendAdditionalDiscordMedia(params: {
   }
 }
 
+export type DeliverDiscordReplyResult = {
+  dnrSuppressed?: boolean;
+};
+
 export async function deliverDiscordReply(params: {
   replies: ReplyPayload[];
   target: string;
@@ -236,7 +240,7 @@ export async function deliverDiscordReply(params: {
   sessionKey?: string;
   threadBindings?: DiscordThreadBindingLookup;
   mediaLocalRoots?: readonly string[];
-}) {
+}): Promise<DeliverDiscordReplyResult> {
   const stateDir = resolveStateDir();
   const dnrCtx = { channel: "discord", to: params.target } as const;
   if (isDiscordDnrTarget(dnrCtx)) {
@@ -256,7 +260,7 @@ export async function deliverDiscordReply(params: {
           stateDir,
         );
         await deferDelivery(queueId, err.nextEligibleAtMs, "discord-dnr-window", stateDir);
-        return;
+        return { dnrSuppressed: true };
       }
       throw err;
     }
@@ -408,4 +412,5 @@ export async function deliverDiscordReply(params: {
   if (binding && deliveredAny) {
     params.threadBindings?.touchThread?.({ threadId: binding.threadId });
   }
+  return {};
 }
