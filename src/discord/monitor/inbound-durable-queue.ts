@@ -19,7 +19,11 @@ type DurableDiscordInboundJob = {
   state: DurableJobState;
   enqueuedAt: number;
   updatedAt: number;
+  /** Timestamp (ms) when this job was last claimed for processing. */
+  claimedAt: number | null;
   leaseUntil: number | null;
+  /** The visibility timeout (ms) applied to this specific job when it was claimed. */
+  visibilityTimeoutMs: number;
   attempts: number;
   nextAttemptAt: number;
   lastError?: string;
@@ -34,6 +38,13 @@ export type DeadLetterReason = {
 export type DurableDiscordInboundQueueOptions = {
   accountId: string;
   stateDir?: string;
+  /**
+   * SQS-style visibility timeout: how long (ms) a claimed job is hidden from the
+   * queue before being re-enqueued if not explicitly completed. Default: 300000 (5 min).
+   * Alias for `leaseMs`; takes precedence when both are provided.
+   */
+  visibilityTimeoutMs?: number;
+  /** @deprecated Use visibilityTimeoutMs. */
   leaseMs?: number;
   maxAttempts?: number;
   maxConcurrent?: number;
@@ -52,7 +63,8 @@ export type DurableDiscordInboundQueueStats = {
   dead: number;
 };
 
-const DEFAULT_LEASE_MS = 60_000;
+/** Default visibility timeout: 5 minutes. Jobs not completed within this window are re-enqueued. */
+const DEFAULT_LEASE_MS = 300_000;
 const DEFAULT_MAX_ATTEMPTS = 5;
 const DEFAULT_BACKOFF_MS: readonly number[] = [2_000, 10_000, 60_000, 300_000];
 
@@ -196,7 +208,8 @@ async function listJobFiles(queueDir: string): Promise<string[]> {
 
 export function createDiscordInboundDurableQueue(options: DurableDiscordInboundQueueOptions) {
   const queueDir = resolveQueueRoot({ stateDir: options.stateDir, accountId: options.accountId });
-  const leaseMs = Math.max(1_000, options.leaseMs ?? DEFAULT_LEASE_MS);
+  // visibilityTimeoutMs takes precedence over leaseMs for the SQS-style naming.
+  const leaseMs = options.visibilityTimeoutMs ?? options.leaseMs ?? DEFAULT_LEASE_MS;
   const maxAttempts = Math.max(1, options.maxAttempts ?? DEFAULT_MAX_ATTEMPTS);
   const now = options.now ?? (() => Date.now());
   const backoffMs = options.backoffMs ?? computeDefaultBackoffMs;
@@ -209,6 +222,9 @@ export function createDiscordInboundDurableQueue(options: DurableDiscordInboundQ
   let drainRequested = false;
   let activeBatches = 0;
   let wakeTimer: NodeJS.Timeout | null = null;
+  // Periodic check every 60s to recover visibility timeouts even when no new events arrive.
+  const PERIODIC_RECOVERY_INTERVAL_MS = 60_000;
+  let periodicRecoveryTimer: NodeJS.Timeout | null = null;
 
   async function ensureDirs(): Promise<void> {
     await fs.promises.mkdir(queueDir, { recursive: true, mode: 0o700 });
@@ -223,6 +239,31 @@ export function createDiscordInboundDurableQueue(options: DurableDiscordInboundQ
     if (wakeTimer) {
       clearTimeout(wakeTimer);
       wakeTimer = null;
+    }
+  }
+
+  function startPeriodicRecovery(): void {
+    if (periodicRecoveryTimer) {
+      return;
+    }
+    periodicRecoveryTimer = setInterval(() => {
+      void (async () => {
+        const recovered = await recoverExpiredLeases();
+        if (recovered > 0) {
+          console.info(
+            `[durable-queue] periodic check: reclaimed ${recovered} expired visibility timeout(s) for reprocessing`,
+          );
+          void drain();
+        }
+      })();
+    }, PERIODIC_RECOVERY_INTERVAL_MS);
+    periodicRecoveryTimer.unref?.();
+  }
+
+  function stopPeriodicRecovery(): void {
+    if (periodicRecoveryTimer) {
+      clearInterval(periodicRecoveryTimer);
+      periodicRecoveryTimer = null;
     }
   }
 
@@ -307,7 +348,12 @@ export function createDiscordInboundDurableQueue(options: DurableDiscordInboundQ
       if (job.leaseUntil && job.leaseUntil > current) {
         continue;
       }
+      const expiredAgoMs = job.leaseUntil ? current - job.leaseUntil : 0;
+      console.info(
+        `[durable-queue] reclaiming expired in-flight message: id=${job.id} msgId=${job.event.messageId} channelId=${job.event.channelId} claimedAt=${job.claimedAt ?? "?"} expiredAgoMs=${expiredAgoMs} attempts=${job.attempts}`,
+      );
       job.state = "queued";
+      job.claimedAt = null;
       job.leaseUntil = null;
       job.nextAttemptAt = Math.min(job.nextAttemptAt, current);
       job.updatedAt = current;
@@ -367,7 +413,9 @@ export function createDiscordInboundDurableQueue(options: DurableDiscordInboundQ
         continue;
       }
       job.state = "processing";
+      job.claimedAt = current;
       job.leaseUntil = current + leaseMs;
+      job.visibilityTimeoutMs = leaseMs;
       job.updatedAt = current;
       await writeJob(job);
       return job;
@@ -430,7 +478,9 @@ export function createDiscordInboundDurableQueue(options: DurableDiscordInboundQ
     // Lease all jobs in the batch
     for (const job of batch) {
       job.state = "processing";
+      job.claimedAt = current;
       job.leaseUntil = current + leaseMs;
+      job.visibilityTimeoutMs = leaseMs;
       job.updatedAt = current;
       await writeJob(job);
     }
@@ -601,9 +651,9 @@ export function createDiscordInboundDurableQueue(options: DurableDiscordInboundQ
       } while (drainRequested && processor);
     } finally {
       draining = false;
-      if (activeBatches === 0) {
-        await scheduleNextWakeFromQueue();
-      }
+      // Always schedule next wake so lease-expiry timers fire even while jobs
+      // are actively processing (needed for visibility-timeout re-enqueue).
+      await scheduleNextWakeFromQueue();
     }
   }
 
@@ -615,7 +665,13 @@ export function createDiscordInboundDurableQueue(options: DurableDiscordInboundQ
       processor = params.process;
       batchProcessor = params.processBatch ?? null;
       await ensureDirs();
-      await recoverExpiredLeases();
+      const recovered = await recoverExpiredLeases();
+      if (recovered > 0) {
+        console.info(
+          `[durable-queue] startup: reclaimed ${recovered} expired visibility timeout(s) for reprocessing`,
+        );
+      }
+      startPeriodicRecovery();
       await drain();
     },
 
@@ -623,6 +679,7 @@ export function createDiscordInboundDurableQueue(options: DurableDiscordInboundQ
       processor = null;
       batchProcessor = null;
       clearWakeTimer();
+      stopPeriodicRecovery();
     },
 
     async enqueue(input: {
@@ -651,7 +708,9 @@ export function createDiscordInboundDurableQueue(options: DurableDiscordInboundQ
         state: "queued",
         enqueuedAt: timestamp,
         updatedAt: timestamp,
+        claimedAt: null,
         leaseUntil: null,
+        visibilityTimeoutMs: leaseMs,
         attempts: 0,
         nextAttemptAt: timestamp,
         event: {
