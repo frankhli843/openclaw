@@ -324,6 +324,131 @@ describe("coalesced message batch loss scenarios", () => {
     });
   });
 
+  describe("Durable queue round-trip: _rawData rehydration", () => {
+    /**
+     * After JSON round-trip through the durable queue, Carbon Message
+     * instances become plain objects.  Getter-backed fields like
+     * `mentionedUsers`, `attachments`, `content` only exist inside
+     * `_rawData`.  The coalescing handler must rehydrate these so merging
+     * works correctly.
+     */
+    function makeDurableEvent(overrides: {
+      messageId: string;
+      content: string;
+      mentionedUsers?: Array<{ id: string }>;
+      attachments?: unknown[];
+    }): DurableDiscordInboundEvent {
+      return {
+        accountId: "default",
+        channelId: "ch1",
+        orderingKey: "ch1",
+        messageId: overrides.messageId,
+        payload: {
+          message: {
+            // After JSON round-trip: no own properties except _rawData
+            _rawData: {
+              id: overrides.messageId,
+              content: overrides.content,
+              mentions: overrides.mentionedUsers ?? [],
+              mention_roles: [],
+              mention_everyone: false,
+              attachments: overrides.attachments ?? [],
+              type: 0,
+            },
+          },
+          author: {
+            id: "user1",
+            username: "Frank",
+            globalName: "Frank",
+          },
+          timestamp: new Date().toISOString(),
+        },
+      };
+    }
+
+    it("should rehydrate mentions from _rawData and merge across events", async () => {
+      mocks.preflightDiscordMessage.mockResolvedValue({
+        message: { id: "m2" },
+      });
+
+      const handler = createCoalescedDiscordMessageHandler(baseParams);
+      const events = [
+        makeDurableEvent({
+          messageId: "m1",
+          content: "<@bot123> do task A",
+          mentionedUsers: [{ id: "bot123" }],
+        }),
+        makeDurableEvent({
+          messageId: "m2",
+          content: "also do task B",
+        }),
+      ];
+
+      await handler(events, client);
+
+      expect(mocks.preflightDiscordMessage).toHaveBeenCalledTimes(1);
+      const preflightArgs = mocks.preflightDiscordMessage.mock.calls[0]?.[0] as {
+        data: { message: { mentionedUsers: unknown[] } };
+      };
+      // Bot mention from m1 should be preserved in the merged synthetic message
+      expect(preflightArgs.data.message.mentionedUsers).toEqual(
+        expect.arrayContaining([expect.objectContaining({ id: "bot123" })]),
+      );
+    });
+
+    it("should rehydrate attachments from _rawData and merge across events", async () => {
+      mocks.preflightDiscordMessage.mockResolvedValue({
+        message: { id: "m2" },
+      });
+
+      const handler = createCoalescedDiscordMessageHandler(baseParams);
+      const events = [
+        makeDurableEvent({
+          messageId: "m1",
+          content: "image attached",
+          attachments: [
+            { id: "att-1", url: "https://cdn.example.com/img.png", filename: "img.png" },
+          ],
+        }),
+        makeDurableEvent({
+          messageId: "m2",
+          content: "text only follow-up",
+        }),
+      ];
+
+      await handler(events, client);
+
+      expect(mocks.preflightDiscordMessage).toHaveBeenCalledTimes(1);
+      const preflightArgs = mocks.preflightDiscordMessage.mock.calls[0]?.[0] as {
+        data: { message: { attachments: unknown[] } };
+      };
+      // Attachment from m1 should be preserved in merged message
+      expect(preflightArgs.data.message.attachments).toEqual(
+        expect.arrayContaining([expect.objectContaining({ id: "att-1" })]),
+      );
+    });
+
+    it("should rehydrate content from _rawData for text resolution", async () => {
+      mocks.preflightDiscordMessage.mockResolvedValue({
+        message: { id: "m1" },
+      });
+
+      const handler = createCoalescedDiscordMessageHandler(baseParams);
+      const events = [
+        makeDurableEvent({
+          messageId: "m1",
+          content: "first request",
+        }),
+      ];
+
+      await handler(events, client);
+
+      // resolveDiscordMessageText should have been called with a message
+      // that has content accessible (either as own property or via _rawData)
+      expect(mocks.resolveDiscordMessageText).toHaveBeenCalled();
+    });
+  });
+
   describe("Preflight filtering drops coalesced batch", () => {
     it("when preflight returns null for coalesced batch, throws COALESCE_PREFLIGHT_REJECTED for fallback", async () => {
       /**

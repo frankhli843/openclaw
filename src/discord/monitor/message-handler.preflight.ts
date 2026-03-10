@@ -53,6 +53,7 @@ import {
 import {
   resolveDiscordGateModeCheck,
   resolveSessionExistsFallback,
+  resolveWebhookRelay,
 } from "./message-handler.preflight.frankclaw.js";
 import type {
   DiscordMessagePreflightContext,
@@ -161,6 +162,34 @@ export async function preflightDiscordMessage(
     // Always ignore own messages to prevent self-reply loops
     return null;
   }
+
+  // ── frankclaw: webhook relay check ──────────────────────────────
+  // Must run BEFORE the bot-drop gate so relay webhook messages are
+  // not silently discarded. When matched, we rewrite the author to
+  // impersonate the configured owner and let the message flow through
+  // as a normal user message.
+  let webhookRelayResult: ReturnType<typeof resolveWebhookRelay> | undefined;
+  if (author.bot) {
+    const rawText = message.content ?? "";
+    webhookRelayResult = resolveWebhookRelay({
+      authorId: author.id,
+      authorBot: true,
+      messageText: rawText,
+    });
+    if (webhookRelayResult.matched && webhookRelayResult.ownerUserId) {
+      // Rewrite author identity so downstream logic treats this as
+      // a message from the owner. Mutating params.data.author is safe
+      // because the data object is ephemeral per-message.
+      author.id = webhookRelayResult.ownerUserId;
+      author.bot = false;
+      // If the relay config specifies a prefix to strip, update the
+      // message content in-place so downstream sees the clean text.
+      if (webhookRelayResult.rewrittenText != null) {
+        (message as Record<string, unknown>).content = webhookRelayResult.rewrittenText;
+      }
+    }
+  }
+  // ── end frankclaw: webhook relay ────────────────────────────────
 
   const pluralkitConfig = params.discordConfig?.pluralkit;
   const webhookId = resolveDiscordWebhookId(message);

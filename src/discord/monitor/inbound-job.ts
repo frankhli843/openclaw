@@ -124,6 +124,7 @@ export function rehydrateCarbonMessage(message: any): void {
   }
 
   // Fields that Carbon exposes via getters and the downstream pipeline reads.
+  // These are the raw Discord API field names stored in _rawData.
   const CARBON_GETTER_FIELDS = [
     "attachments",
     "content",
@@ -139,11 +140,30 @@ export function rehydrateCarbonMessage(message: any): void {
     "mention_roles",
     "edited_timestamp",
     "position",
+    "referenced_message",
   ] as const;
 
   for (const field of CARBON_GETTER_FIELDS) {
     if (!(field in message) && field in raw) {
       message[field] = raw[field];
+    }
+  }
+
+  // Carbon getters use camelCase names that differ from the raw API snake_case.
+  // The coalescing handler and other downstream code reads these camelCase names.
+  // Map raw → Carbon getter name so both work on deserialized plain objects.
+  const CARBON_ALIASES: Array<[string, string]> = [
+    ["mentions", "mentionedUsers"],
+    ["mention_roles", "mentionedRoles"],
+    ["mention_everyone", "mentionedEveryone"],
+    ["referenced_message", "referencedMessage"],
+    ["edited_timestamp", "editedTimestamp"],
+    ["sticker_items", "stickerItems"],
+  ];
+
+  for (const [rawName, carbonName] of CARBON_ALIASES) {
+    if (!(carbonName in message) && rawName in raw) {
+      message[carbonName] = raw[rawName];
     }
   }
 }

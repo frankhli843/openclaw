@@ -9,6 +9,10 @@
  *
  * Also provides session-existence fallback for thread binding recovery
  * after gateway restarts (resolveSessionExistsFallback).
+ *
+ * Also provides webhookRelay resolution: messages from configured webhook
+ * bot IDs are rewritten as if they came from the owner user, enabling
+ * voice-to-Discord pipelines (e.g. Google Assistant → Zapier → webhook).
  */
 import { notifyBlocked } from "../../channels/gate-notify.js";
 import { resolveGateMode } from "../../channels/mention-gating.js";
@@ -191,4 +195,103 @@ export function resolveSessionExistsFallback(params: {
   }
 
   return false;
+}
+
+// ============================================================================
+// Webhook Relay: rewrite webhook bot messages as owner messages
+// ============================================================================
+
+export type WebhookRelayResult = {
+  /** Whether this message matched a webhook relay entry. */
+  matched: boolean;
+  /** The owner user ID to impersonate. */
+  ownerUserId?: string;
+  /** The message text after stripping the configured prefix (if any). */
+  rewrittenText?: string;
+};
+
+/**
+ * Check if an incoming message is from a configured webhook relay bot.
+ * If matched, returns the owner user ID and optionally stripped message text.
+ *
+ * This enables voice-to-Discord pipelines where external services (Zapier,
+ * IFTTT, etc.) post via Discord webhooks and the agent treats those messages
+ * as if the owner sent them.
+ */
+type WebhookRelayEntry = {
+  webhookBotId: string;
+  ownerUserId: string;
+  stripPrefix?: string;
+};
+
+function loadWebhookRelayEntries(): WebhookRelayEntry[] {
+  // Optional JSON override: FRANKCLAW_DISCORD_WEBHOOK_RELAY='[{...}]'
+  const raw = process.env.FRANKCLAW_DISCORD_WEBHOOK_RELAY?.trim();
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        return parsed
+          .filter((v): v is Record<string, unknown> => typeof v === "object" && v !== null)
+          .map((v) => ({
+            webhookBotId: String((v.webhookBotId as string) ?? "").trim(),
+            ownerUserId: String((v.ownerUserId as string) ?? "").trim(),
+            stripPrefix: typeof v.stripPrefix === "string" ? v.stripPrefix : undefined,
+          }))
+          .filter((v) => v.webhookBotId && v.ownerUserId);
+      }
+    } catch {
+      // fall through to default
+    }
+  }
+
+  // frankclaw default: Doraemon Voice Bridge webhook → Frank
+  return [
+    {
+      webhookBotId: "1480933997193461782",
+      ownerUserId: "257595674042826753",
+      stripPrefix: "Google Voice Note:",
+    },
+  ];
+}
+
+export function resolveWebhookRelay(params: {
+  authorId: string;
+  authorBot: boolean;
+  messageText: string;
+}): WebhookRelayResult {
+  const noMatch: WebhookRelayResult = { matched: false };
+
+  if (!params.authorBot) {
+    return noMatch;
+  }
+
+  const relayEntries = loadWebhookRelayEntries();
+  if (!relayEntries.length) {
+    return noMatch;
+  }
+
+  const entry = relayEntries.find((e) => e.webhookBotId === params.authorId);
+  if (!entry) {
+    return noMatch;
+  }
+
+  let text = params.messageText;
+  if (entry.stripPrefix) {
+    const variants = [entry.stripPrefix, `📝 ${entry.stripPrefix}`];
+    for (const prefix of variants) {
+      if (text.startsWith(prefix)) {
+        text = text.slice(prefix.length).trim();
+        break;
+      }
+    }
+  }
+
+  logVerbose(`discord: webhook relay matched bot=${params.authorId} → owner=${entry.ownerUserId}`);
+
+  return {
+    matched: true,
+    ownerUserId: entry.ownerUserId,
+    rewrittenText: text,
+  };
 }
