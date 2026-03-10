@@ -2,6 +2,7 @@ import type { Client } from "@buape/carbon";
 import { hasControlCommand } from "../../auto-reply/command-detection.js";
 import { buildCollectPrompt } from "../../utils/queue-helpers.js";
 import type { DurableDiscordInboundEvent } from "./inbound-durable-queue.js";
+import { rehydrateCarbonMessage } from "./inbound-job.js";
 import { preflightDiscordMessage } from "./message-handler.preflight.js";
 import type {
   DiscordMessageEvent,
@@ -35,6 +36,10 @@ function toDiscordMessageEvent(payload: unknown): Record<string, unknown> | null
   if (!candidate.message || typeof candidate.message !== "object") {
     return null;
   }
+  // After JSON round-trip through the durable queue, Carbon Message getter
+  // fields (attachments, embeds, content, …) live only inside `_rawData`.
+  // Hoist them so downstream code that reads `message.attachments` works.
+  rehydrateCarbonMessage(candidate.message);
   return payload as Record<string, unknown>;
 }
 
@@ -90,9 +95,7 @@ export function createCoalescedDiscordMessageHandler(params: CoalescedMessageHan
       }
       // If all events were bot messages, nothing to process.
       if (regularEvents.length === 0 && commandEvents.length === 0) {
-        console.info(
-          `[coalesce-diag] batch contained only bot-self messages, skipping`,
-        );
+        console.info(`[coalesce-diag] batch contained only bot-self messages, skipping`);
         return;
       }
     }
