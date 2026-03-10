@@ -699,6 +699,8 @@ export async function monitorDiscordProvider(opts: MonitorDiscordOpts = {}) {
       guildEntries,
       threadBindings,
       discordRestFetch,
+      // [frankclaw] Pass client for durable worker runtime resolution.
+      client,
     });
     deactivateMessageHandler = messageHandler.deactivate;
     const trackInboundEvent = opts.setStatus

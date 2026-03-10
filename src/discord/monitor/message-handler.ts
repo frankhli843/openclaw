@@ -12,6 +12,8 @@ import { createDiscordInboundWorker } from "./inbound-worker.js";
 import type { DiscordMessageEvent, DiscordMessageHandler } from "./listeners.js";
 import { preflightDiscordMessage } from "./message-handler.preflight.js";
 import type { DiscordMessagePreflightParams } from "./message-handler.preflight.types.js";
+// [frankclaw] Durable worker for crash-resistant message processing.
+import { createFrankclawDurableInboundWorker } from "./message-handler.worker.frankclaw.js";
 import {
   hasDiscordMessageStickers,
   resolveDiscordMessageChannelId,
@@ -26,6 +28,8 @@ type DiscordMessageHandlerParams = Omit<
   setStatus?: DiscordMonitorStatusSink;
   abortSignal?: AbortSignal;
   workerRunTimeoutMs?: number;
+  // [frankclaw] Client reference for durable worker runtime resolution.
+  client?: import("@buape/carbon").Client;
 };
 
 export type DiscordMessageHandlerWithLifecycle = DiscordMessageHandler & {
@@ -51,12 +55,30 @@ export function createDiscordMessageHandler(
     channel: "discord",
     accountId: params.accountId,
   });
-  const inboundWorker = createDiscordInboundWorker({
-    runtime: params.runtime,
-    setStatus: params.setStatus,
-    abortSignal: params.abortSignal,
-    runTimeoutMs: params.workerRunTimeoutMs,
-  });
+  // [frankclaw] Use durable worker when client is available (crash-resistant).
+  // Falls back to in-memory worker if client ref is not provided.
+  const inboundWorker = params.client
+    ? createFrankclawDurableInboundWorker({
+        accountId: params.accountId,
+        runtime: params.runtime,
+        setStatus: params.setStatus,
+        abortSignal: params.abortSignal,
+        runTimeoutMs: params.workerRunTimeoutMs,
+        resolveRuntime: () => ({
+          runtime: params.runtime,
+          abortSignal: params.abortSignal,
+          guildHistories: params.guildHistories,
+          client: params.client!,
+          threadBindings: params.threadBindings,
+          discordRestFetch: params.discordRestFetch,
+        }),
+      })
+    : createDiscordInboundWorker({
+        runtime: params.runtime,
+        setStatus: params.setStatus,
+        abortSignal: params.abortSignal,
+        runTimeoutMs: params.workerRunTimeoutMs,
+      });
 
   const { debouncer } = createChannelInboundDebouncer<{
     data: DiscordMessageEvent;

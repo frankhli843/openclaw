@@ -55,6 +55,10 @@ export type DurableDiscordInboundWorkerParams = {
    */
   resolveRuntime: () => import("./inbound-job.js").DiscordInboundJobRuntime;
   onDeadLetter?: (event: DurableDiscordInboundEvent, reason: DeadLetterReason) => void;
+  /** Called before each job starts processing (e.g. for RunStateMachine.onRunStart). */
+  onProcessStart?: () => void;
+  /** Called after each job finishes processing (success or failure, e.g. for RunStateMachine.onRunEnd). */
+  onProcessEnd?: () => void;
 };
 
 export type DurableDiscordInboundWorker = {
@@ -99,50 +103,56 @@ export function createDurableDiscordInboundWorker(
   });
 
   async function processEvent(event: DurableDiscordInboundEvent): Promise<void> {
-    const runtime = params.resolveRuntime();
-    const payload = event.payload as DiscordInboundJobPayload;
-    const ctx = materializeDiscordInboundJob(
-      {
-        queueKey: event.orderingKey,
-        payload,
-        runtime,
-      },
-      params.abortSignal,
-    );
-
-    const suffix = formatContextSuffix(event);
-    const didTimeout = await runDiscordTaskWithTimeout({
-      run: async (abortSignal) => {
-        await processDiscordMessage({ ...ctx, abortSignal });
-      },
-      timeoutMs,
-      abortSignals: [params.abortSignal],
-      onTimeout: (resolvedTimeoutMs) => {
-        params.runtime.error?.(
-          danger(
-            `discord durable worker timed out after ${formatDurationSeconds(resolvedTimeoutMs, {
-              decimals: 1,
-              unit: "seconds",
-            })}${suffix}`,
-          ),
-        );
-      },
-      onErrorAfterTimeout: (error) => {
-        params.runtime.error?.(
-          danger(`discord durable worker failed after timeout: ${String(error)}${suffix}`),
-        );
-      },
-    });
-
-    if (didTimeout) {
-      // Throw so the durable queue marks the attempt as failed and applies
-      // backoff / dead-letter logic instead of deleting the job.
-      throw new Error(
-        `discord durable worker timed out after ${formatDurationSeconds(timeoutMs ?? 0, {
-          decimals: 1,
-          unit: "seconds",
-        })}${suffix}`,
+    params.onProcessStart?.();
+    try {
+      const runtime = params.resolveRuntime();
+      const payload = event.payload as DiscordInboundJobPayload;
+      const ctx = materializeDiscordInboundJob(
+        {
+          queueKey: event.orderingKey,
+          payload,
+          runtime,
+        },
+        params.abortSignal,
       );
+
+      const suffix = formatContextSuffix(event);
+      const didTimeout = await runDiscordTaskWithTimeout({
+        run: async (abortSignal) => {
+          await processDiscordMessage({ ...ctx, abortSignal });
+        },
+        timeoutMs,
+        // Include the per-job runtime abort signal alongside the lifecycle signal.
+        abortSignals: [runtime.abortSignal, params.abortSignal],
+        onTimeout: (resolvedTimeoutMs) => {
+          params.runtime.error?.(
+            danger(
+              `discord durable worker timed out after ${formatDurationSeconds(resolvedTimeoutMs, {
+                decimals: 1,
+                unit: "seconds",
+              })}${suffix}`,
+            ),
+          );
+        },
+        onErrorAfterTimeout: (error) => {
+          params.runtime.error?.(
+            danger(`discord durable worker failed after timeout: ${String(error)}${suffix}`),
+          );
+        },
+      });
+
+      if (didTimeout) {
+        // Throw so the durable queue marks the attempt as failed and applies
+        // backoff / dead-letter logic instead of deleting the job.
+        throw new Error(
+          `discord durable worker timed out after ${formatDurationSeconds(timeoutMs ?? 0, {
+            decimals: 1,
+            unit: "seconds",
+          })}${suffix}`,
+        );
+      }
+    } finally {
+      params.onProcessEnd?.();
     }
   }
 
