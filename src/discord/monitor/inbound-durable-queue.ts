@@ -226,6 +226,39 @@ export function createDiscordInboundDurableQueue(options: DurableDiscordInboundQ
   const PERIODIC_RECOVERY_INTERVAL_MS = 60_000;
   let periodicRecoveryTimer: NodeJS.Timeout | null = null;
 
+  // ── Completed-key cache ──────────────────────────────────────────
+  // Keeps dedupeKeys of successfully processed jobs for a short window
+  // so that late-arriving duplicate Discord events are caught even after
+  // the job file has been deleted.
+  const COMPLETED_KEY_TTL_MS = 10 * 60_000; // 10 minutes
+  const completedKeys = new Map<string, number>(); // dedupeKey → completedAtMs
+
+  function recordCompleted(dedupeKey: string): void {
+    completedKeys.set(dedupeKey, now());
+  }
+
+  function isRecentlyCompleted(dedupeKey: string): boolean {
+    const completedAt = completedKeys.get(dedupeKey);
+    if (completedAt === undefined) {
+      return false;
+    }
+    if (now() - completedAt > COMPLETED_KEY_TTL_MS) {
+      completedKeys.delete(dedupeKey);
+      return false;
+    }
+    return true;
+  }
+
+  function pruneCompletedKeys(): void {
+    const cutoff = now() - COMPLETED_KEY_TTL_MS;
+    for (const [key, ts] of completedKeys) {
+      if (ts < cutoff) {
+        completedKeys.delete(key);
+      }
+    }
+  }
+  // ────────────────────────────────────────────────────────────────
+
   async function ensureDirs(): Promise<void> {
     await fs.promises.mkdir(queueDir, { recursive: true, mode: 0o700 });
     await fs.promises.mkdir(resolveDeadDir(queueDir), { recursive: true, mode: 0o700 });
@@ -248,6 +281,7 @@ export function createDiscordInboundDurableQueue(options: DurableDiscordInboundQ
     }
     periodicRecoveryTimer = setInterval(() => {
       void (async () => {
+        pruneCompletedKeys();
         const recovered = await recoverExpiredLeases();
         if (recovered > 0) {
           console.info(
@@ -323,6 +357,10 @@ export function createDiscordInboundDurableQueue(options: DurableDiscordInboundQ
   }
 
   async function hasDedupeKey(dedupeKey: string): Promise<boolean> {
+    // Check in-memory completed-key cache first (cheapest check).
+    if (isRecentlyCompleted(dedupeKey)) {
+      return true;
+    }
     const jobs = await listLiveJobs();
     if (jobs.some((job) => job.dedupeKey === dedupeKey)) {
       return true;
@@ -494,6 +532,7 @@ export function createDiscordInboundDurableQueue(options: DurableDiscordInboundQ
     }
     try {
       await processor(job.event);
+      recordCompleted(job.dedupeKey);
       await removeJob(job.id);
       return;
     } catch (err) {
@@ -541,8 +580,9 @@ export function createDiscordInboundDurableQueue(options: DurableDiscordInboundQ
     try {
       // Pass all events to the batch processor
       await batchProcessor(batch.map((j) => j.event));
-      // On success, remove all jobs
+      // On success, record completed keys and remove all jobs
       for (const job of batch) {
+        recordCompleted(job.dedupeKey);
         await removeJob(job.id);
       }
     } catch (err) {
