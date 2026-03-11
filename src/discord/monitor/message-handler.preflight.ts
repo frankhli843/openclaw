@@ -182,10 +182,24 @@ export async function preflightDiscordMessage(
     });
     if (webhookRelayResult.matched && webhookRelayResult.ownerUserId) {
       // Rewrite author identity so downstream logic treats this as
-      // a message from the owner. Mutating params.data.author is safe
-      // because the data object is ephemeral per-message.
-      author.id = webhookRelayResult.ownerUserId;
-      author.bot = false;
+      // a message from the owner.
+      // Note: author.bot may be a getter-only property (Discord API types),
+      // so we use Object.defineProperty for robust mutation.
+      try {
+        author.id = webhookRelayResult.ownerUserId;
+      } catch {
+        /* noop */
+      }
+      try {
+        Object.defineProperty(author, "bot", { value: false, writable: true, configurable: true });
+      } catch {
+        // Fallback: replace author entirely on the message object
+        (message as Record<string, unknown>).author = {
+          ...author,
+          id: webhookRelayResult.ownerUserId,
+          bot: false,
+        };
+      }
       // If the relay config specifies a prefix to strip, update the
       // message content in-place so downstream sees the clean text.
       if (webhookRelayResult.rewrittenText != null) {

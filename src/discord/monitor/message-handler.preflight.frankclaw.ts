@@ -246,11 +246,13 @@ function loadWebhookRelayEntries(): WebhookRelayEntry[] {
   }
 
   // frankclaw default: Doraemon Voice Bridge webhook → Frank
+  // Zapier posts the raw Google Tasks title, e.g. "[DORA] How are you doing?"
+  // We strip the [DORA] tag so the agent sees clean text.
   return [
     {
       webhookBotId: "1480933997193461782",
       ownerUserId: "257595674042826753",
-      stripPrefix: "Google Voice Note:",
+      stripPrefix: "[DORA]",
     },
   ];
 }
