@@ -15,12 +15,11 @@ import { DEFAULT_ACCOUNT_ID, resolveThreadSessionKeys } from "../routing/session
 import { withTelegramApiErrorLogging } from "./api-logging.js";
 import { firstDefined, normalizeAllowFrom, normalizeDmAllowFromWithStore } from "./bot-access.js";
 import { resolveTelegramInboundBody } from "./bot-message-context.body.js";
+import { resolveTelegramGateModeCheck } from "./bot-message-context.frankclaw.js";
 import { buildTelegramInboundContextPayload } from "./bot-message-context.session.js";
 import type { BuildTelegramMessageContextParams } from "./bot-message-context.types.js";
 import {
-} from "./bot-access.js";
-import { resolveTelegramGateModeCheck } from "./bot-message-context.frankclaw.js";
-import {
+  buildSenderName,
   buildTypingThreadParams,
   resolveTelegramDirectPeerId,
   resolveTelegramThreadSpec,
@@ -437,7 +436,7 @@ export const buildTelegramMessageContext = async ({
         hasControlCommand: hasControlCommandInMessage,
         commandAuthorized,
       });
-  const effectiveWasMentioned = mentionGate.effectiveWasMentioned;
+  const _effectiveWasMentioned = mentionGate.effectiveWasMentioned;
   if (isGroup && requireMention && canDetectMention && !tgGateModeApproved) {
     if (mentionGate.shouldSkip) {
       logger.info({ chatId, reason: "no-mention" }, "skipping group message");
