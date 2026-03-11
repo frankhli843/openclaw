@@ -303,101 +303,8 @@ export const buildTelegramMessageContext = async ({
     return null;
   }
 
-  let bodyText = rawBody;
-  const hasAudio = allMedia.some((media) => media.contentType?.startsWith("audio/"));
-
-  const disableAudioPreflight =
-    firstDefined(
-      topicConfig?.disableAudioPreflight,
-      (groupConfig as TelegramGroupConfig | undefined)?.disableAudioPreflight,
-    ) === true;
-
-  // Preflight audio transcription for mention detection in groups
-  // This allows voice notes to be checked for mentions before being dropped
-  let preflightTranscript: string | undefined;
-  const needsPreflightTranscription =
-    isGroup &&
-    requireMention &&
-    hasAudio &&
-    !hasUserText &&
-    mentionRegexes.length > 0 &&
-    !disableAudioPreflight;
-
-  if (needsPreflightTranscription) {
-    try {
-      const { transcribeFirstAudio } = await import("../media-understanding/audio-preflight.js");
-      // Build a minimal context for transcription
-      const tempCtx: MsgContext = {
-        MediaPaths: allMedia.length > 0 ? allMedia.map((m) => m.path) : undefined,
-        MediaTypes:
-          allMedia.length > 0
-            ? (allMedia.map((m) => m.contentType).filter(Boolean) as string[])
-            : undefined,
-      };
-      preflightTranscript = await transcribeFirstAudio({
-        ctx: tempCtx,
-        cfg,
-        agentDir: undefined,
-      });
-    } catch (err) {
-      logVerbose(`telegram: audio preflight transcription failed: ${String(err)}`);
-    }
-  }
-
-  // Replace audio placeholder with transcript when preflight succeeds.
-  if (hasAudio && bodyText === "<media:audio>" && preflightTranscript) {
-    bodyText = preflightTranscript;
-  }
-
-  // Build bodyText fallback for messages that still have no text.
-  if (!bodyText && allMedia.length > 0) {
-    if (hasAudio) {
-      bodyText = preflightTranscript || "<media:audio>";
-    } else {
-      bodyText = `<media:image>${allMedia.length > 1 ? ` (${allMedia.length} images)` : ""}`;
-    }
-  }
-
-  const hasAnyMention = (msg.entities ?? msg.caption_entities ?? []).some(
-    (ent) => ent.type === "mention",
-  );
-  const explicitlyMentioned = botUsername ? hasBotMention(msg, botUsername) : false;
-
-  const computedWasMentioned = matchesMentionWithExplicit({
-    text: msg.text ?? msg.caption ?? "",
-    mentionRegexes,
-    explicit: {
-      hasAnyMention,
-      isExplicitlyMentioned: explicitlyMentioned,
-      canResolveExplicit: Boolean(botUsername),
-    },
-    transcript: preflightTranscript,
-  });
-  const wasMentioned = options?.forceWasMentioned === true ? true : computedWasMentioned;
-  if (isGroup && commandGate.shouldBlock) {
-    logInboundDrop({
-      log: logVerbose,
-      channel: "telegram",
-      reason: "control command (unauthorized)",
-      target: senderId ?? "unknown",
-    });
-    return null;
-  }
-  // Reply-chain detection: replying to a bot message acts like an implicit mention.
-  // Exclude forum-topic service messages (auto-generated "Topic created" etc. messages
-  // by the bot) so that every message inside a bot-created topic does not incorrectly
-  // bypass requireMention (#32256).
-  // We detect service messages by the presence of Telegram's forum_topic_* fields
-  // rather than by the absence of text/caption, because legitimate bot media messages
-  // (stickers, voice notes, captionless photos) also lack text/caption.
-  const botId = primaryCtx.me?.id;
-  const replyFromId = msg.reply_to_message?.from?.id;
-  const replyToBotMessage = botId != null && replyFromId === botId;
-  const isReplyToServiceMessage =
-    replyToBotMessage && isTelegramForumServiceMessage(msg.reply_to_message);
-  const implicitMention = replyToBotMessage && !isReplyToServiceMessage;
-
-  // [frankclaw] gateMode check for Telegram groups
+  // [frankclaw] gateMode check for Telegram groups — runs after bodyResult
+  // so we can use its computed values (rawBody, effectiveWasMentioned, etc.)
   const tgGateModeCheck = resolveTelegramGateModeCheck({
     cfg,
     isGroup,
@@ -408,53 +315,11 @@ export const buildTelegramMessageContext = async ({
     senderId,
     senderName,
     senderUsername,
-    wasMentioned,
-    rawBody: rawBody ?? "",
+    wasMentioned: bodyResult.effectiveWasMentioned,
+    rawBody: bodyResult.rawBody ?? "",
   });
   if (tgGateModeCheck.shouldDrop) {
     return null;
-  }
-  const tgGateModeApproved = tgGateModeCheck.approved;
-  const tgGateModeEffectiveMention = tgGateModeCheck.effectiveMention;
-
-  const canDetectMention = Boolean(botUsername) || mentionRegexes.length > 0;
-  // When gateMode already approved the message, skip legacy mention gating entirely.
-  const mentionGate = tgGateModeApproved
-    ? {
-        effectiveWasMentioned: tgGateModeEffectiveMention,
-        shouldSkip: false,
-        shouldBypassMention: false,
-      }
-    : resolveMentionGatingWithBypass({
-        isGroup,
-        requireMention: Boolean(requireMention),
-        canDetectMention,
-        wasMentioned,
-        implicitMention: isGroup && Boolean(requireMention) && implicitMention,
-        hasAnyMention,
-        allowTextCommands: true,
-        hasControlCommand: hasControlCommandInMessage,
-        commandAuthorized,
-      });
-  const _effectiveWasMentioned = mentionGate.effectiveWasMentioned;
-  if (isGroup && requireMention && canDetectMention && !tgGateModeApproved) {
-    if (mentionGate.shouldSkip) {
-      logger.info({ chatId, reason: "no-mention" }, "skipping group message");
-      recordPendingHistoryEntryIfEnabled({
-        historyMap: groupHistories,
-        historyKey: historyKey ?? "",
-        limit: historyLimit,
-        entry: historyKey
-          ? {
-              sender: buildSenderLabel(msg, senderId || chatId),
-              body: rawBody,
-              timestamp: msg.date ? msg.date * 1000 : undefined,
-              messageId: typeof msg.message_id === "number" ? String(msg.message_id) : undefined,
-            }
-          : null,
-      });
-      return null;
-    }
   }
 
   if (!(await ensureConfiguredBindingReady())) {
