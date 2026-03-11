@@ -1,7 +1,7 @@
 import os from "node:os";
 import path from "node:path";
 import { CHANNEL_IDS } from "../../channels/registry.js";
-import { STATE_DIR } from "../../config/config.js";
+import { STATE_DIR } from "../../config/paths.js";
 
 const EFFECTIVE_STATE_DIR =
   typeof STATE_DIR === "string" && STATE_DIR.trim().length > 0

@@ -12,6 +12,7 @@ import type {
   GroupToolPolicyBySenderConfig,
   GroupToolPolicyConfig,
 } from "../../config/types.tools.js";
+import { resolveExactLineGroupConfigKey } from "../../line/group-keys.js";
 import { normalizeAtHashSlug, normalizeHyphenSlug } from "../../shared/string-normalization.js";
 import { inspectSlackAccount } from "../../slack/account-inspect.js";
 import type { ChannelGroupContext } from "./types.js";
@@ -151,7 +152,8 @@ type ChannelGroupPolicyChannel =
   | "whatsapp"
   | "imessage"
   | "googlechat"
-  | "bluebubbles";
+  | "bluebubbles"
+  | "line";
 
 function resolveSlackChannelPolicyEntry(
   params: GroupMentionParams,
@@ -347,6 +349,37 @@ export function resolveBlueBubblesGroupToolPolicy(
   params: GroupMentionParams,
 ): GroupToolPolicyConfig | undefined {
   return resolveChannelToolPolicyForSender(params, "bluebubbles");
+}
+
+export function resolveLineGroupRequireMention(params: GroupMentionParams): boolean {
+  const exactGroupId = resolveExactLineGroupConfigKey({
+    cfg: params.cfg,
+    accountId: params.accountId,
+    groupId: params.groupId,
+  });
+  if (exactGroupId) {
+    return resolveChannelGroupRequireMention({
+      cfg: params.cfg,
+      channel: "line",
+      groupId: exactGroupId,
+      accountId: params.accountId,
+    });
+  }
+  return resolveChannelRequireMention(params, "line");
+}
+
+export function resolveLineGroupToolPolicy(
+  params: GroupMentionParams,
+): GroupToolPolicyConfig | undefined {
+  const exactGroupId = resolveExactLineGroupConfigKey({
+    cfg: params.cfg,
+    accountId: params.accountId,
+    groupId: params.groupId,
+  });
+  if (exactGroupId) {
+    return resolveChannelToolPolicyForSender(params, "line", exactGroupId);
+  }
+  return resolveChannelToolPolicyForSender(params, "line");
 }
 
 // ---- GateMode resolvers ----

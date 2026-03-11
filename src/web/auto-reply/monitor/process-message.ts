@@ -21,7 +21,10 @@ import { logVerbose, shouldLogVerbose } from "../../../globals.js";
 import type { getChildLogger } from "../../../logging.js";
 import { getAgentScopedMediaLocalRoots } from "../../../media/local-roots.js";
 import { readChannelAllowFromStore } from "../../../pairing/pairing-store.js";
-import type { resolveAgentRoute } from "../../../routing/resolve-route.js";
+import {
+  resolveInboundLastRouteSessionKey,
+  type resolveAgentRoute,
+} from "../../../routing/resolve-route.js";
 import {
   readStoreAllowFromForDmPolicy,
   resolvePinnedMainDmOwnerFromAllowlist,
@@ -335,9 +338,13 @@ export async function processMessage(params: {
   });
   const shouldUpdateMainLastRoute =
     !pinnedMainDmRecipient || pinnedMainDmRecipient === dmRouteTarget;
+  const inboundLastRouteSessionKey = resolveInboundLastRouteSessionKey({
+    route: params.route,
+    sessionKey: params.route.sessionKey,
+  });
   if (
     dmRouteTarget &&
-    params.route.sessionKey === params.route.mainSessionKey &&
+    inboundLastRouteSessionKey === params.route.mainSessionKey &&
     shouldUpdateMainLastRoute
   ) {
     updateLastRouteInBackground({
@@ -353,7 +360,7 @@ export async function processMessage(params: {
     });
   } else if (
     dmRouteTarget &&
-    params.route.sessionKey === params.route.mainSessionKey &&
+    inboundLastRouteSessionKey === params.route.mainSessionKey &&
     pinnedMainDmRecipient
   ) {
     logVerbose(

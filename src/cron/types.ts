@@ -1,3 +1,4 @@
+import type { FailoverReason } from "../agents/pi-embedded-helpers.js";
 import type { ChannelId } from "../channels/plugins/types.js";
 import type { CronJobBase } from "./types-shared.js";
 
@@ -106,6 +107,7 @@ type CronAgentTurnPayloadPatch = {
   kind: "agentTurn";
 } & Partial<CronAgentTurnPayloadFields>;
 
+
 /** [frankclaw] Cron self-heal state for automatic retry tracking. */
 export type CronSelfHealState = {
   /** The scheduled run time (from nextRunAtMs) of the original cron tick that failed. */
@@ -118,6 +120,7 @@ export type CronSelfHealState = {
   lastAlertAtMs?: number;
 };
 
+
 export type CronJobState = {
   nextRunAtMs?: number;
   runningAtMs?: number;
@@ -127,6 +130,8 @@ export type CronJobState = {
   /** Back-compat alias for lastRunStatus. */
   lastStatus?: "ok" | "error" | "skipped";
   lastError?: string;
+  /** Classified reason for the last error (when available). */
+  lastErrorReason?: FailoverReason;
   lastDurationMs?: number;
   /** Number of consecutive execution errors (reset on success). Used for backoff. */
   consecutiveErrors?: number;

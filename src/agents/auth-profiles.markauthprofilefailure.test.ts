@@ -244,6 +244,52 @@ describe("markAuthProfileFailure", () => {
     });
   });
 
+  it("resets error count when previous cooldown has expired to prevent escalation", async () => {
+    const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-auth-"));
+    try {
+      const authPath = path.join(agentDir, "auth-profiles.json");
+      const now = Date.now();
+      fs.writeFileSync(
+        authPath,
+        JSON.stringify({
+          version: 1,
+          profiles: {
+            "anthropic:default": {
+              type: "api_key",
+              provider: "anthropic",
+              key: "sk-default",
+            },
+          },
+          usageStats: {
+            "anthropic:default": {
+              errorCount: 3,
+              failureCounts: { rate_limit: 3 },
+              lastFailureAt: now - 120_000,
+              cooldownUntil: now - 60_000,
+            },
+          },
+        }),
+      );
+
+      const store = ensureAuthProfileStore(agentDir);
+      await markAuthProfileFailure({
+        store,
+        profileId: "anthropic:default",
+        reason: "rate_limit",
+        agentDir,
+      });
+
+      const stats = store.usageStats?.["anthropic:default"];
+      expect(stats?.errorCount).toBe(1);
+      expect(stats?.failureCounts?.rate_limit).toBe(1);
+      const cooldownMs = (stats?.cooldownUntil ?? 0) - now;
+      expect(cooldownMs).toBeLessThan(120_000);
+      expect(cooldownMs).toBeGreaterThan(0);
+    } finally {
+      fs.rmSync(agentDir, { recursive: true, force: true });
+    }
+  });
+
   it("does not persist cooldown windows for OpenRouter profiles", async () => {
     await withAuthProfileStore(async ({ agentDir, store }) => {
       await markAuthProfileFailure({
