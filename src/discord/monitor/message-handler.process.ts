@@ -603,6 +603,9 @@ export async function processDiscordMessage(ctx: DiscordMessagePreflightContext)
   // When draft streaming is active, suppress block streaming to avoid double-streaming.
   const disableBlockStreamingForDraft = draftStream ? true : undefined;
 
+  // ── frankclaw: webhook relay mention flag ──
+  let webhookRelayMentionPending = Boolean(ctx.webhookRelayMentionUserId);
+
   const { dispatcher, replyOptions, markDispatchIdle, markRunComplete } =
     createReplyDispatcherWithTyping({
       ...prefixOptions,
@@ -616,6 +619,11 @@ export async function processDiscordMessage(ctx: DiscordMessagePreflightContext)
         if (payload.isReasoning) {
           // Reasoning/thinking payloads should not be delivered to Discord.
           return;
+        }
+        // ── frankclaw: prepend @mention for webhook relay responses ──
+        if (webhookRelayMentionPending && ctx.webhookRelayMentionUserId && payload.text) {
+          payload = { ...payload, text: `<@${ctx.webhookRelayMentionUserId}> ${payload.text}` };
+          webhookRelayMentionPending = false;
         }
         if (draftStream && isFinal) {
           await flushDraft();

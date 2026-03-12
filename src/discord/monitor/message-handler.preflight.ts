@@ -202,8 +202,18 @@ export async function preflightDiscordMessage(
       }
       // If the relay config specifies a prefix to strip, update the
       // message content in-place so downstream sees the clean text.
+      // Note: message.content may also be a getter-only property.
       if (webhookRelayResult.rewrittenText != null) {
-        (message as Record<string, unknown>).content = webhookRelayResult.rewrittenText;
+        try {
+          Object.defineProperty(message, "content", {
+            value: webhookRelayResult.rewrittenText,
+            writable: true,
+            configurable: true,
+          });
+        } catch {
+          // Silently proceed — downstream will see the original text
+          // which still contains the [DORA] prefix but is functional.
+        }
       }
     }
   }
@@ -924,5 +934,11 @@ export async function preflightDiscordMessage(
     historyEntry,
     threadBindings: params.threadBindings,
     discordRestFetch: params.discordRestFetch,
+
+    // ── frankclaw: webhook relay mention ──
+    webhookRelayMentionUserId:
+      webhookRelayResult?.matched && webhookRelayResult.ownerUserId
+        ? webhookRelayResult.ownerUserId
+        : undefined,
   };
 }

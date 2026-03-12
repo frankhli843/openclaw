@@ -87,6 +87,11 @@ export type DiscordMessagePreflightContext = {
   historyEntry?: HistoryEntry;
   threadBindings: DiscordThreadBindingLookup;
   discordRestFetch?: typeof fetch;
+
+  // ── frankclaw: webhook relay mention ──
+  // When set, the first reply should prepend <@userId> so the owner
+  // gets a Discord notification for voice-pipeline responses.
+  webhookRelayMentionUserId?: string;
 };
 
 export type DiscordMessagePreflightParams = {

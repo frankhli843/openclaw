@@ -625,7 +625,6 @@ export async function markAuthProfileFailure(params: {
 }): Promise<void> {
   const { store, profileId, reason, agentDir, cfg, runId } = params;
   const profile = store.profiles[profileId];
-  const previousStats = store.usageStats?.[profileId];
   if (!profile || isAuthCooldownBypassedForProvider(profile.provider)) {
     return;
   }
