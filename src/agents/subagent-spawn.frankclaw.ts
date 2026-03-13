@@ -33,7 +33,7 @@ async function sendSubagentDeadLetterAlert(params: {
       method: "send",
       params: {
         channel: "discord",
-        to: "1474420675933638847",
+        to: "1481643321922420787",
         message,
         idempotencyKey: `subagent-dlq:${crypto.randomUUID()}`,
       },
