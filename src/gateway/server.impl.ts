@@ -783,7 +783,7 @@ export async function startGatewayServer(
     void runDeliveryRecovery().catch((err) =>
       log.error(`Delivery recovery failed: ${String(err)}`),
     );
-    const intervalMs = 15 * 60_000;
+    const intervalMs = 10 * 60_000;
     deliveryRecoveryInterval = setInterval(() => {
       void runDeliveryRecovery().catch((err) =>
         log.error(`Delivery periodic recovery failed: ${String(err)}`),
