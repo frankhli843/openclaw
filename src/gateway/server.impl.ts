@@ -783,9 +783,7 @@ export async function startGatewayServer(
     void runDeliveryRecovery().catch((err) =>
       log.error(`Delivery recovery failed: ${String(err)}`),
     );
-    // Reduced from 15 min to 2 min so deferred quiet-hours messages
-    // are delivered promptly after the DNR window ends.
-    const intervalMs = 2 * 60_000;
+    const intervalMs = 15 * 60_000;
     deliveryRecoveryInterval = setInterval(() => {
       void runDeliveryRecovery().catch((err) =>
         log.error(`Delivery periodic recovery failed: ${String(err)}`),
