@@ -133,6 +133,11 @@ export async function enqueueDelivery(
   const tmp = `${filePath}.${process.pid}.tmp`;
   const json = JSON.stringify(entry, null, 2);
   await fs.promises.writeFile(tmp, json, { encoding: "utf-8", mode: 0o600 });
+  // fsync the temp file to ensure durability before the atomic rename.
+  // Without this, an OOM kill or crash can lose the deferred entry entirely.
+  const fd = await fs.promises.open(tmp, "r");
+  await fd.sync();
+  await fd.close();
   await fs.promises.rename(tmp, filePath);
   return id;
 }
@@ -202,6 +207,9 @@ export async function deferDelivery(
     encoding: "utf-8",
     mode: 0o600,
   });
+  const deferFd = await fs.promises.open(tmp, "r");
+  await deferFd.sync();
+  await deferFd.close();
   await fs.promises.rename(tmp, filePath);
 }
 

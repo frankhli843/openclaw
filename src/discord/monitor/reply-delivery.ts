@@ -270,6 +270,12 @@ export async function deliverDiscordReply(params: {
       enforceDiscordDnrWindow(dnrCtx);
     } catch (err) {
       if (err instanceof DiscordDnrSuppressedError) {
+        // Preserve thread context so deferred delivery replays to the correct thread.
+        // params.target is "channel:<threadId>" for thread messages, so extract the
+        // thread ID to ensure recovery sends to the thread, not the parent channel.
+        const threadId = params.target.startsWith("channel:")
+          ? params.target.slice("channel:".length)
+          : null;
         const queueId = await enqueueDelivery(
           {
             channel: "discord",
@@ -277,7 +283,7 @@ export async function deliverDiscordReply(params: {
             accountId: params.accountId,
             payloads: params.replies,
             replyToId: params.replyToId ?? null,
-            threadId: null,
+            threadId,
           },
           stateDir,
         );
