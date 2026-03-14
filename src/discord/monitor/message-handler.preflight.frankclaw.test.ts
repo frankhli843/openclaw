@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const loadSessionStoreMock = vi.hoisted(() => vi.fn());
 const resolveStorePathMock = vi.hoisted(() => vi.fn());
 
-vi.mock("../../config/sessions.js", async (importOriginal) => {
+vi.mock("../../../../src/config/sessions.js", async (importOriginal) => {
   const original = await importOriginal<Record<string, unknown>>();
   return {
     ...original,
@@ -20,7 +20,7 @@ vi.mock("../../config/sessions.js", async (importOriginal) => {
   };
 });
 
-vi.mock("../../globals.js", async (importOriginal) => {
+vi.mock("../../../../src/globals.js", async (importOriginal) => {
   const original = await importOriginal<Record<string, unknown>>();
   return {
     ...original,

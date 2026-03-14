@@ -115,6 +115,7 @@ describe("deliverDiscordReply", () => {
     });
 
     await deliverDiscordReply({
+      cfg,
       replies: [{ text: "queued" }],
       target: "channel:123",
       token: "token",

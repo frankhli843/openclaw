@@ -1,6 +1,6 @@
-import { hasControlCommand } from "../../../auto-reply/command-detection.js";
-import type { loadConfig } from "../../../config/config.js";
-import { buildCollectPrompt } from "../../../utils/queue-helpers.js";
+import { hasControlCommand } from "../../../../../src/auto-reply/command-detection.js";
+import type { loadConfig } from "../../../../../src/config/config.js";
+import { buildCollectPrompt } from "../../../../../src/utils/queue-helpers.js";
 import type { WebInboundMsg } from "../types.js";
 
 type ConversationState = {

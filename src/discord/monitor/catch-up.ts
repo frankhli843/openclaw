@@ -1,8 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
-import { resolveStateDir } from "../../config/paths.js";
-import { formatErrorMessage } from "../../infra/errors.js";
-import { createSubsystemLogger } from "../../logging/subsystem.js";
+import { resolveStateDir } from "../../../../src/config/paths.js";
+import { formatErrorMessage } from "../../../../src/infra/errors.js";
+import { createSubsystemLogger } from "../../../../src/logging/subsystem.js";
 
 const logger = createSubsystemLogger("discord/catch-up");
 

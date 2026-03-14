@@ -11,8 +11,8 @@
  * the message is automatically re-queued on the next startup or drain cycle.
  */
 
-import { danger } from "../../globals.js";
-import { formatDurationSeconds } from "../../infra/format-time/format-duration.ts";
+import { danger } from "../../../../src/globals.js";
+import { formatDurationSeconds } from "../../../../src/infra/format-time/format-duration.ts";
 import {
   createDiscordInboundDurableQueue,
   type DeadLetterReason,

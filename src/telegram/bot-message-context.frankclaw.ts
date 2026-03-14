@@ -3,10 +3,10 @@
  *
  * Implements gateMode check for Telegram group messages.
  */
-import { notifyBlocked } from "../channels/gate-notify.js";
-import { resolveGateMode } from "../channels/mention-gating.js";
-import { resolveTelegramGroupGateMode } from "../channels/plugins/group-mentions.js";
-import type { OpenClawConfig } from "../config/config.js";
+import { notifyBlocked } from "../../../src/channels/gate-notify.js";
+import { resolveGateMode } from "../../../src/channels/mention-gating.js";
+import { resolveTelegramGroupGateMode } from "../../../src/channels/plugins/group-mentions.js";
+import type { OpenClawConfig } from "../../../src/config/config.js";
 
 export type TelegramGateModeCheckParams = {
   cfg: OpenClawConfig;

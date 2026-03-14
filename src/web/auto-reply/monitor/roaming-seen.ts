@@ -1,6 +1,6 @@
-import { markSilentSeen } from "../../../channels/silent-seen-reaction.js";
-import type { loadConfig } from "../../../config/config.js";
-import { sendReactionWhatsApp } from "../../outbound.js";
+import { markSilentSeen } from "../../../../../src/channels/silent-seen-reaction.js";
+import type { loadConfig } from "../../../../../src/config/config.js";
+import { sendReactionWhatsApp } from "../../send.js";
 import type { WebInboundMsg } from "../types.js";
 
 export function maybeMarkWhatsAppRoamingSeen(params: {

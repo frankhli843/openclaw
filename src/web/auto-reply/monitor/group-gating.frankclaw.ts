@@ -3,11 +3,11 @@
  *
  * Implements gateMode check for web-channel group messages (WhatsApp, Signal, etc.).
  */
-import { getChannelDock } from "../../../channels/dock.js";
-import { notifyBlocked } from "../../../channels/gate-notify.js";
-import { resolveGateMode } from "../../../channels/mention-gating.js";
-import type { OpenClawConfig } from "../../../config/config.js";
-import { normalizeE164 } from "../../../utils.js";
+import { getChannelDock } from "../../../../../src/channels/dock.js";
+import { notifyBlocked } from "../../../../../src/channels/gate-notify.js";
+import { resolveGateMode } from "../../../../../src/channels/mention-gating.js";
+import type { OpenClawConfig } from "../../../../../src/config/config.js";
+import { normalizeE164 } from "../../../../../src/utils.js";
 import type { WebInboundMsg } from "../types.js";
 import { formatGroupMembers } from "./group-members.js";
 import { maybeMarkWhatsAppRoamingSeen } from "./roaming-seen.js";

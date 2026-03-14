@@ -14,12 +14,12 @@
  * bot IDs are rewritten as if they came from the owner user, enabling
  * voice-to-Discord pipelines (e.g. Google Assistant → Zapier → webhook).
  */
-import { notifyBlocked } from "../../channels/gate-notify.js";
-import { resolveGateMode } from "../../channels/mention-gating.js";
-import { resolveDiscordGroupGateMode } from "../../channels/plugins/group-mentions.js";
-import type { OpenClawConfig } from "../../config/config.js";
-import { loadSessionStore, resolveStorePath } from "../../config/sessions.js";
-import { logVerbose } from "../../globals.js";
+import { notifyBlocked } from "../../../../src/channels/gate-notify.js";
+import { resolveGateMode } from "../../../../src/channels/mention-gating.js";
+import { resolveDiscordGroupGateMode } from "../../../../src/channels/plugins/group-mentions.js";
+import type { OpenClawConfig } from "../../../../src/config/config.js";
+import { loadSessionStore, resolveStorePath } from "../../../../src/config/sessions.js";
+import { logVerbose } from "../../../../src/globals.js";
 
 export type DiscordGateModeCheckParams = {
   cfg: OpenClawConfig;

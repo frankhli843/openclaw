@@ -10,8 +10,11 @@ import type { Client } from "@buape/carbon";
  * (oldest two messages), wrapped in <thread_starting_messages> tags.
  */
 import { Routes } from "discord-api-types/v10";
-import { formatInboundEnvelope, type EnvelopeFormatOptions } from "../../auto-reply/envelope.js";
-import { logVerbose } from "../../globals.js";
+import {
+  formatInboundEnvelope,
+  type EnvelopeFormatOptions,
+} from "../../../../src/auto-reply/envelope.js";
+import { logVerbose } from "../../../../src/globals.js";
 
 // ---------------------------------------------------------------------------
 // Types

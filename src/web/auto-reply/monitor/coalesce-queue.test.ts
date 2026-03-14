@@ -3,13 +3,14 @@ import type { WebInboundMsg } from "../types.js";
 
 const mocks = vi.hoisted(() => ({
   hasControlCommand: vi.fn<(text?: string) => boolean>(),
-  buildCollectPrompt: vi.fn<
-    (params: {
-      title: string;
-      items: WebInboundMsg[];
-      renderItem: (item: WebInboundMsg, index: number) => string;
-    }) => string
-  >(),
+  buildCollectPrompt:
+    vi.fn<
+      (params: {
+        title: string;
+        items: WebInboundMsg[];
+        renderItem: (item: WebInboundMsg, index: number) => string;
+      }) => string
+    >(),
 }));
 
 vi.mock("../../../auto-reply/command-detection.js", () => ({
@@ -56,7 +57,7 @@ async function flush() {
 describe("createWebCoalesceQueue", () => {
   let processOne: ReturnType<typeof vi.fn<(msg: WebInboundMsg) => Promise<void>>>;
   const cfg = { messages: {} } as unknown as ReturnType<
-    typeof import("../../../config/config.js").loadConfig
+    typeof import("../../../../../src/config/config.js").loadConfig
   >;
 
   beforeEach(() => {
@@ -128,7 +129,7 @@ describe("createWebCoalesceQueue", () => {
       expect(mocks.buildCollectPrompt).toHaveBeenCalledTimes(1);
       expect(processOne).toHaveBeenCalledTimes(2);
 
-      const syntheticMsg = processOne.mock.calls[1]?.[0] as WebInboundMsg;
+      const syntheticMsg = processOne.mock.calls[1]?.[0];
       expect(syntheticMsg.body).toBe("BATCH_PROMPT");
       // Synthetic message should carry metadata from the last regular message.
       expect(syntheticMsg.from).toBe(msg3.from);
@@ -183,7 +184,7 @@ describe("createWebCoalesceQueue", () => {
       d.resolve();
       await flush();
 
-      const syntheticMsg = processOne.mock.calls[1]?.[0] as WebInboundMsg;
+      const syntheticMsg = processOne.mock.calls[1]?.[0];
       expect(syntheticMsg.mentionedJids).toEqual([
         "jid1@s.whatsapp.net",
         "jid2@s.whatsapp.net",
@@ -219,7 +220,7 @@ describe("createWebCoalesceQueue", () => {
       expect(processOne).toHaveBeenCalledTimes(3);
       expect(processOne).toHaveBeenNthCalledWith(2, cmdMsg);
 
-      const syntheticMsg = processOne.mock.calls[2]?.[0] as WebInboundMsg;
+      const syntheticMsg = processOne.mock.calls[2]?.[0];
       expect(syntheticMsg.body).toBe("BATCH");
     });
 
@@ -358,7 +359,7 @@ describe("createWebCoalesceQueue", () => {
       expect(mocks.buildCollectPrompt).toHaveBeenCalledTimes(1);
       expect(processOne).toHaveBeenCalledTimes(2);
 
-      const syntheticMsg = processOne.mock.calls[1]?.[0] as WebInboundMsg;
+      const syntheticMsg = processOne.mock.calls[1]?.[0];
       expect(syntheticMsg.body).toBe("GROUP_BATCH");
       expect(syntheticMsg.from).toBe(groupJid);
     });
@@ -396,7 +397,7 @@ describe("createWebCoalesceQueue", () => {
       d.resolve();
       await flush();
 
-      const rendered = processOne.mock.calls[1]?.[0] as WebInboundMsg;
+      const rendered = processOne.mock.calls[1]?.[0];
       // rendered.body = renderItem(msg2, 0) = "Queued #1 (Alice @ ...)\nhello"
       expect(rendered.body).toMatch(/Queued #1 \(Alice @ /);
       expect(rendered.body).toMatch(/hello/);
@@ -424,7 +425,7 @@ describe("createWebCoalesceQueue", () => {
       d.resolve();
       await flush();
 
-      const rendered = processOne.mock.calls[1]?.[0] as WebInboundMsg;
+      const rendered = processOne.mock.calls[1]?.[0];
       expect(rendered.body).toMatch(new RegExp(`Queued #1 \\(${from.replace("+", "\\+")} @`));
     });
   });

@@ -10,7 +10,7 @@
  * deactivation, matching the behavior of the upstream in-memory worker.
  */
 
-import { createRunStateMachine } from "../../channels/run-state-machine.js";
+import { createRunStateMachine } from "../../../../src/channels/run-state-machine.js";
 import type { DiscordInboundJob, DiscordInboundJobRuntime } from "./inbound-job.js";
 import {
   createDurableDiscordInboundWorker,

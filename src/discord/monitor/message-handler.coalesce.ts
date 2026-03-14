@@ -1,6 +1,6 @@
 import type { Client } from "@buape/carbon";
-import { hasControlCommand } from "../../auto-reply/command-detection.js";
-import { buildCollectPrompt } from "../../utils/queue-helpers.js";
+import { hasControlCommand } from "../../../../src/auto-reply/command-detection.js";
+import { buildCollectPrompt } from "../../../../src/utils/queue-helpers.js";
 import type { DurableDiscordInboundEvent } from "./inbound-durable-queue.js";
 import { rehydrateCarbonMessage } from "./inbound-job.js";
 import { preflightDiscordMessage } from "./message-handler.preflight.js";
