@@ -507,6 +507,8 @@ export async function runWithModelFallback<T>(params: {
   agentDir?: string;
   /** Optional explicit fallbacks list; when provided (even empty), replaces agents.defaults.model.fallbacks. */
   fallbacksOverride?: string[];
+  /** Optional auth profile order override (e.g. for sub-agent sessions). */
+  authOrderOverride?: Record<string, string[]>;
   run: ModelFallbackRunFn<T>;
   onError?: ModelFallbackErrorHandler;
 }): Promise<ModelFallbackRunResult<T>> {
@@ -538,6 +540,7 @@ export async function runWithModelFallback<T>(params: {
         cfg: params.cfg,
         store: authStore,
         provider: candidate.provider,
+        authOrderOverride: params.authOrderOverride,
       });
       const isAnyProfileAvailable = profileIds.some((id) => !isProfileInCooldown(authStore, id));
 

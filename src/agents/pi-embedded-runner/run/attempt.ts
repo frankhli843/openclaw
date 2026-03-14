@@ -27,6 +27,7 @@ import { resolveTelegramReactionLevel } from "../../../telegram/reaction-level.j
 import { buildTtsSystemPromptHint } from "../../../tts/tts.js";
 import { resolveUserPath } from "../../../utils.js";
 import { normalizeMessageChannel } from "../../../utils/message-channel.js";
+import { isAnthropicProviderFamily } from "../../provider-capabilities.js";
 import { isReasoningTagProvider } from "../../../utils/provider-utils.js";
 import { resolveOpenClawAgentDir } from "../../agent-paths.js";
 import { resolveSessionAgentIds } from "../../agent-scope.js";
@@ -118,7 +119,7 @@ import {
   buildEmbeddedSystemPrompt,
   createSystemPromptOverride,
 } from "../system-prompt.js";
-import { dropThinkingBlocks } from "../thinking.js";
+import { dropHistoricalThinkingBlocks, dropThinkingBlocks } from "../thinking.js";
 import { collectAllowedToolNames } from "../tool-name-allowlist.js";
 import { installToolResultContextGuard } from "../tool-result-context-guard.js";
 import { splitSdkTools } from "../tool-split.js";
@@ -1316,6 +1317,57 @@ export async function runEmbeddedAttempt(
         };
       }
 
+      // For Anthropic: proactively strip historical thinking blocks (from all assistant
+      // messages except the latest) to prevent "thinking blocks cannot be modified"
+      // rejections after compaction or session resume. Also adds reactive error
+      // recovery: if the API still rejects due to stale thinking blocks in the
+      // latest message, strip ALL thinking blocks and retry once.
+      if (isAnthropicProviderFamily(params.provider)) {
+        const inner = activeSession.agent.streamFn;
+        activeSession.agent.streamFn = (model, context, options) => {
+          const ctx = context as unknown as { messages?: unknown };
+          const messages = ctx?.messages;
+          if (!Array.isArray(messages)) {
+            return inner(model, context, options);
+          }
+          // Layer 1: proactively strip historical (non-latest) thinking blocks
+          const cleaned = dropHistoricalThinkingBlocks(
+            messages as unknown as AgentMessage[],
+          ) as unknown;
+          const primaryContext =
+            cleaned === messages
+              ? context
+              : ({
+                  ...(context as unknown as Record<string, unknown>),
+                  messages: cleaned,
+                } as unknown as typeof context);
+
+          // Wrap with Layer 2: reactive error recovery
+          const result = inner(model, primaryContext, options);
+          // Handle both sync EventStream and Promise<EventStream> returns
+          const maybeRetry = async () => {
+            try {
+              return await result;
+            } catch (err: unknown) {
+              if (!isThinkingBlockError(err)) throw err;
+              // Fallback: strip ALL thinking blocks (including latest) and retry once
+              const fullyStripped = dropThinkingBlocks(
+                messages as unknown as AgentMessage[],
+              ) as unknown;
+              const retryContext = {
+                ...(context as unknown as Record<string, unknown>),
+                messages: fullyStripped,
+              } as unknown;
+              log.warn(
+                "Retrying after stripping all thinking blocks due to Anthropic rejection",
+              );
+              return inner(model, retryContext as typeof context, options);
+            }
+          };
+          return maybeRetry();
+        };
+      }
+
       // Mistral (and other strict providers) reject tool call IDs that don't match their
       // format requirements (e.g. [a-zA-Z0-9]{9}). sanitizeSessionHistory only processes
       // historical messages at attempt start, but the agent loop's internal tool call →
@@ -2093,4 +2145,12 @@ export async function runEmbeddedAttempt(
     restoreSkillEnv?.();
     process.chdir(prevCwd);
   }
+}
+
+/**
+ * Detect the specific Anthropic error about thinking blocks that cannot be modified.
+ */
+function isThinkingBlockError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return msg.includes("thinking") && msg.includes("cannot be modified");
 }

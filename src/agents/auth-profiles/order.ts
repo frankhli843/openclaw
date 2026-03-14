@@ -69,8 +69,10 @@ export function resolveAuthProfileOrder(params: {
   store: AuthProfileStore;
   provider: string;
   preferredProfile?: string;
+  /** Optional override for auth profile order; checked before store.order and cfg.auth.order. */
+  authOrderOverride?: Record<string, string[]>;
 }): string[] {
-  const { cfg, store, provider, preferredProfile } = params;
+  const { cfg, store, provider, preferredProfile, authOrderOverride } = params;
   const providerKey = normalizeProviderId(provider);
   const providerAuthKey = normalizeProviderIdForAuth(provider);
   const now = Date.now();
@@ -79,9 +81,10 @@ export function resolveAuthProfileOrder(params: {
   // get a fresh error count and are not immediately re-penalized on the
   // next transient failure. See #3604.
   clearExpiredCooldowns(store, now);
+  const overrideOrder = findNormalizedProviderValue(authOrderOverride, providerKey);
   const storedOrder = findNormalizedProviderValue(store.order, providerKey);
   const configuredOrder = findNormalizedProviderValue(cfg?.auth?.order, providerKey);
-  const explicitOrder = storedOrder ?? configuredOrder;
+  const explicitOrder = overrideOrder ?? storedOrder ?? configuredOrder;
   const explicitProfiles = cfg?.auth?.profiles
     ? Object.entries(cfg.auth.profiles)
         .filter(([, profile]) => normalizeProviderIdForAuth(profile.provider) === providerAuthKey)

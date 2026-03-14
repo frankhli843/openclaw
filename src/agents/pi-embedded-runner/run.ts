@@ -423,11 +423,18 @@ export async function runEmbeddedPiAgent(
           lockedProfileId = undefined;
         }
       }
+      // Sub-agent sessions (spawned via sessions_spawn) use a separate auth profile order
+      // so they don't compete for rate limits with the main session.
+      const isSubagentSession = Boolean(params.spawnedBy);
+      const subagentAuthOrderOverride = isSubagentSession
+        ? params.config?.agents?.defaults?.subagents?.auth?.order
+        : undefined;
       const profileOrder = resolveAuthProfileOrder({
         cfg: params.config,
         store: authStore,
         provider,
         preferredProfile: preferredProfileId,
+        authOrderOverride: subagentAuthOrderOverride,
       });
       if (lockedProfileId && !profileOrder.includes(lockedProfileId)) {
         throw new Error(`Auth profile "${lockedProfileId}" is not configured for ${provider}.`);
@@ -601,6 +608,7 @@ export async function runEmbeddedPiAgent(
           profileId: candidate,
           store: authStore,
           agentDir,
+          authOrderOverride: subagentAuthOrderOverride,
         });
       };
 

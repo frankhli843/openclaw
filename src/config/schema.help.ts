@@ -363,6 +363,10 @@ export const FIELD_HELP: Record<string, string> = {
   "gateway.auth.token":
     "Required by default for gateway access (unless using Tailscale Serve identity); required for non-loopback binds.",
   "gateway.auth.password": "Required for Tailscale funnel.",
+  "agents.defaults.subagents.auth":
+    "Auth settings applied to spawned sub-agent and cron sessions. Use this to route sub-agents to a separate set of auth profiles so they don't compete for rate limits with the main session.",
+  "agents.defaults.subagents.auth.order":
+    "Auth profile order for sub-agent sessions. Same shape as auth.order (Record<provider, profileId[]>). When set, sub-agent and cron runs use this order instead of auth.order.",
   "agents.defaults.sandbox.browser.network":
     "Docker network for sandbox browser containers (default: openclaw-sandbox-browser). Avoid bridge if you need stricter isolation.",
   "agents.list[].sandbox.browser.network": "Per-agent override for sandbox browser Docker network.",

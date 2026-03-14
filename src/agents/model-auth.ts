@@ -220,6 +220,7 @@ export async function resolveApiKeyForProvider(params: {
   preferredProfile?: string;
   store?: AuthProfileStore;
   agentDir?: string;
+  authOrderOverride?: Record<string, string[]>;
 }): Promise<ResolvedProviderAuth> {
   const { provider, cfg, profileId, preferredProfile } = params;
   const store = params.store ?? ensureAuthProfileStore(params.agentDir);
@@ -253,6 +254,7 @@ export async function resolveApiKeyForProvider(params: {
     store,
     provider,
     preferredProfile,
+    authOrderOverride: params.authOrderOverride,
   });
   for (const candidate of order) {
     try {
@@ -421,6 +423,7 @@ export async function getApiKeyForModel(params: {
   preferredProfile?: string;
   store?: AuthProfileStore;
   agentDir?: string;
+  authOrderOverride?: Record<string, string[]>;
 }): Promise<ResolvedProviderAuth> {
   return resolveApiKeyForProvider({
     provider: params.model.provider,
@@ -429,6 +432,7 @@ export async function getApiKeyForModel(params: {
     preferredProfile: params.preferredProfile,
     store: params.store,
     agentDir: params.agentDir,
+    authOrderOverride: params.authOrderOverride,
   });
 }
 

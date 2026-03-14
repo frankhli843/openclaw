@@ -281,6 +281,10 @@ export type AgentDefaultsConfig = {
     runTimeoutSeconds?: number;
     /** Gateway timeout in ms for sub-agent announce delivery calls (default: 60000). */
     announceTimeoutMs?: number;
+    /** Auth profile order override for sub-agent sessions (same shape as auth.order). */
+    auth?: {
+      order?: Record<string, string[]>;
+    };
   };
   /** Optional sandbox settings for non-main sessions. */
   sandbox?: AgentSandboxConfig;

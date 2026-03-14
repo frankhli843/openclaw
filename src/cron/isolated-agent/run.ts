@@ -558,6 +558,8 @@ export async function runCronIsolatedAgentTurn(params: {
         agentDir,
         fallbacksOverride:
           payloadFallbacks ?? resolveAgentModelFallbacksOverride(params.cfg, agentId),
+        // Cron sessions are sub-agent-like; use dedicated auth order when configured.
+        authOrderOverride: params.cfg.agents?.defaults?.subagents?.auth?.order,
         run: async (providerOverride, modelOverride, runOptions) => {
           if (abortSignal?.aborted) {
             throw new Error(abortReason());
