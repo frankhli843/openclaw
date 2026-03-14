@@ -14,8 +14,8 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { logVerbose } from "../globals.js";
 import { resolveStateDir } from "../config/paths.js";
+import { logVerbose } from "../globals.js";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -49,10 +49,14 @@ function getTrackingFilePath(): string {
 }
 
 function loadFromDisk(log: (msg: string) => void): Map<string, string> {
-  if (_persistenceDisabled) {return new Map();}
+  if (_persistenceDisabled) {
+    return new Map();
+  }
   try {
     const filePath = getTrackingFilePath();
-    if (!fs.existsSync(filePath)) {return new Map();}
+    if (!fs.existsSync(filePath)) {
+      return new Map();
+    }
     const raw = fs.readFileSync(filePath, "utf-8");
     const data: Record<string, string> = JSON.parse(raw);
     return new Map(Object.entries(data));
@@ -63,11 +67,15 @@ function loadFromDisk(log: (msg: string) => void): Map<string, string> {
 }
 
 function saveToDisk(map: Map<string, string>, log: (msg: string) => void): void {
-  if (_persistenceDisabled) {return;}
+  if (_persistenceDisabled) {
+    return;
+  }
   try {
     const filePath = getTrackingFilePath();
     const dir = path.dirname(filePath);
-    if (!fs.existsSync(dir)) {fs.mkdirSync(dir, { recursive: true });}
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
     const data = Object.fromEntries(map);
     fs.writeFileSync(filePath, JSON.stringify(data), "utf-8");
   } catch (err) {
@@ -168,7 +176,9 @@ export function _getTrackedMessageId(conversationId: string): string | undefined
 
 /** @internal — for tests only */
 export function _clearAllTracking(): void {
-  if (lastSeenByConversation) {lastSeenByConversation.clear();}
+  if (lastSeenByConversation) {
+    lastSeenByConversation.clear();
+  }
   _diskLoaded = false;
 }
 

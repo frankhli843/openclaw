@@ -1,8 +1,6 @@
 import type { AgentToolResult } from "@mariozechner/pi-agent-core";
 import { ChannelType } from "discord-api-types/v10";
-import type { DiscordActionConfig } from "../../config/config.js";
-import type { OpenClawConfig } from "../../config/config.js";
-import { readDiscordComponentSpec } from "../../discord/components.js";
+import { readDiscordComponentSpec } from "../../../extensions/discord/src/components.js";
 import {
   createThreadDiscord,
   deleteMessageDiscord,
@@ -25,17 +23,22 @@ import {
   sendStickerDiscord,
   sendVoiceMessageDiscord,
   unpinMessageDiscord,
-} from "../../discord/send.js";
-import type { DiscordSendComponents, DiscordSendEmbeds } from "../../discord/send.shared.js";
-import { parseDiscordTarget, resolveDiscordChannelId } from "../../discord/targets.js";
+} from "../../../extensions/discord/src/send.js";
+import type {
+  DiscordSendComponents,
+  DiscordSendEmbeds,
+} from "../../../extensions/discord/src/send.shared.js";
+import {
+  parseDiscordTarget,
+  resolveDiscordChannelId,
+} from "../../../extensions/discord/src/targets.js";
+import type { DiscordActionConfig } from "../../config/config.js";
+import type { OpenClawConfig } from "../../config/config.js";
+import { deferDelivery, enqueueDelivery } from "../../infra/outbound/delivery-queue.js";
 import {
   DiscordDnrSuppressedError,
   enforceDiscordDnrWindow,
 } from "../../infra/outbound/discord-dnr.js";
-import {
-  deferDelivery,
-  enqueueDelivery,
-} from "../../infra/outbound/delivery-queue.js";
 import { readBooleanParam } from "../../plugin-sdk/boolean-param.js";
 import { resolvePollMaxSelections } from "../../polls.js";
 import { withNormalizedTimestamp } from "../date-time.js";
@@ -319,16 +322,14 @@ export async function handleDiscordMessagingAction(
         enforceDiscordDnrWindow({ channel: "discord", to });
       } catch (err) {
         if (err instanceof DiscordDnrSuppressedError) {
-          const queueId = await enqueueDelivery(
-            {
-              channel: "discord",
-              to,
-              accountId: accountId ?? undefined,
-              payloads: [{ text: content ?? "" }],
-              replyToId: replyTo ?? null,
-              threadId: null,
-            },
-          ).catch(() => null);
+          const queueId = await enqueueDelivery({
+            channel: "discord",
+            to,
+            accountId: accountId ?? undefined,
+            payloads: [{ text: content ?? "" }],
+            replyToId: replyTo ?? null,
+            threadId: null,
+          }).catch(() => null);
           if (queueId) {
             await deferDelivery(queueId, err.nextEligibleAtMs, "discord-dnr-window").catch(
               () => {},
@@ -337,7 +338,8 @@ export async function handleDiscordMessagingAction(
           return jsonResult({
             ok: true,
             queued: true,
-            reason: "Message queued — Discord quiet hours active. Will deliver when the window ends.",
+            reason:
+              "Message queued — Discord quiet hours active. Will deliver when the window ends.",
             nextEligibleAt: new Date(err.nextEligibleAtMs).toISOString(),
           });
         }
@@ -502,16 +504,14 @@ export async function handleDiscordMessagingAction(
         enforceDiscordDnrWindow({ channel: "discord", to: `channel:${channelId}` });
       } catch (err) {
         if (err instanceof DiscordDnrSuppressedError) {
-          const queueId = await enqueueDelivery(
-            {
-              channel: "discord",
-              to: `channel:${channelId}`,
-              accountId: accountId ?? undefined,
-              payloads: [{ text: content }],
-              replyToId: replyTo ?? null,
-              threadId: null,
-            },
-          ).catch(() => null);
+          const queueId = await enqueueDelivery({
+            channel: "discord",
+            to: `channel:${channelId}`,
+            accountId: accountId ?? undefined,
+            payloads: [{ text: content }],
+            replyToId: replyTo ?? null,
+            threadId: null,
+          }).catch(() => null);
           if (queueId) {
             await deferDelivery(queueId, err.nextEligibleAtMs, "discord-dnr-window").catch(
               () => {},
@@ -520,7 +520,8 @@ export async function handleDiscordMessagingAction(
           return jsonResult({
             ok: true,
             queued: true,
-            reason: "Thread reply queued — Discord quiet hours active. Will deliver when the window ends.",
+            reason:
+              "Thread reply queued — Discord quiet hours active. Will deliver when the window ends.",
             nextEligibleAt: new Date(err.nextEligibleAtMs).toISOString(),
           });
         }

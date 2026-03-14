@@ -83,9 +83,7 @@ describe("dropThinkingBlocks", () => {
 
 describe("dropHistoricalThinkingBlocks", () => {
   it("returns the original reference when no assistant messages exist", () => {
-    const messages: AgentMessage[] = [
-      castAgentMessage({ role: "user", content: "hello" }),
-    ];
+    const messages: AgentMessage[] = [castAgentMessage({ role: "user", content: "hello" })];
     const result = dropHistoricalThinkingBlocks(messages);
     expect(result).toBe(messages);
   });

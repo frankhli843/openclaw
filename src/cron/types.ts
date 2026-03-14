@@ -13,7 +13,7 @@ export type CronSchedule =
       staggerMs?: number;
     };
 
-export type CronSessionTarget = "main" | "isolated";
+export type CronSessionTarget = "main" | "isolated" | "current" | `session:${string}`;
 export type CronWakeMode = "next-heartbeat" | "now";
 
 export type CronMessageChannel = ChannelId | "last";
@@ -107,7 +107,6 @@ type CronAgentTurnPayloadPatch = {
   kind: "agentTurn";
 } & Partial<CronAgentTurnPayloadFields>;
 
-
 /** [frankclaw] Cron self-heal state for automatic retry tracking. */
 export type CronSelfHealState = {
   /** The scheduled run time (from nextRunAtMs) of the original cron tick that failed. */
@@ -119,7 +118,6 @@ export type CronSelfHealState = {
   /** Timestamp of the last "give up" alert (used for simple de-dupe). */
   lastAlertAtMs?: number;
 };
-
 
 export type CronJobState = {
   nextRunAtMs?: number;

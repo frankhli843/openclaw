@@ -66,6 +66,7 @@ export type StatusReactionsEmojiConfig = {
   error?: string;
   stallSoft?: string;
   stallHard?: string;
+  compacting?: string;
 };
 
 export type StatusReactionsTimingConfig = {

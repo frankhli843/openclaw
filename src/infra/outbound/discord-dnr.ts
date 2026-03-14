@@ -324,8 +324,7 @@ export function isDiscordDnrTarget(ctx: DiscordDnrContext): boolean {
   return (
     recurring.some(
       (p) => p.enabled !== false && (p.threadId === "*" || (!!threadId && p.threadId === threadId)),
-    ) ||
-    oneOff.some((p) => p.threadId === "*" || (!!threadId && p.threadId === threadId))
+    ) || oneOff.some((p) => p.threadId === "*" || (!!threadId && p.threadId === threadId))
   );
 }
 

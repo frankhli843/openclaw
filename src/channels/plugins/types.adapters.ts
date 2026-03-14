@@ -1,11 +1,11 @@
 import type { ReplyPayload } from "../../auto-reply/types.js";
 import type { OpenClawConfig } from "../../config/config.js";
+import type { ChannelGroupGateModeResult } from "../../config/group-policy.js";
 import type { GroupToolPolicyConfig } from "../../config/types.tools.js";
 import type { OutboundDeliveryResult, OutboundSendDeps } from "../../infra/outbound/deliver.js";
 import type { OutboundIdentity } from "../../infra/outbound/identity.js";
 import type { PluginRuntime } from "../../plugins/runtime/types.js";
 import type { RuntimeEnv } from "../../runtime.js";
-import type { ChannelGroupGateModeResult } from "../../config/group-policy.js";
 import type {
   ChannelAccountSnapshot,
   ChannelAccountState,
@@ -95,6 +95,8 @@ export type ChannelOutboundContext = {
   mediaUrl?: string;
   mediaLocalRoots?: readonly string[];
   gifPlayback?: boolean;
+  /** Send image as document to avoid Telegram compression. */
+  forceDocument?: boolean;
   replyToId?: string | null;
   threadId?: string | number | null;
   accountId?: string | null;

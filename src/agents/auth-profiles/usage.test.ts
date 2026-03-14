@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { AuthProfileStore, ProfileUsageStats } from "./types.js";
+import type { AuthProfileFailureReason, AuthProfileStore, ProfileUsageStats } from "./types.js";
 import {
   clearAuthProfileCooldown,
   clearExpiredCooldowns,
@@ -231,7 +231,7 @@ describe("resolveProfilesUnavailableReason", () => {
     ).toBe("overloaded");
   });
 
-  it("falls back to rate_limit when active cooldown has no reason history", () => {
+  it("falls back to unknown when active cooldown has no reason history", () => {
     const now = Date.now();
     const store = makeStore({
       "anthropic:default": {
@@ -245,7 +245,7 @@ describe("resolveProfilesUnavailableReason", () => {
         profileIds: ["anthropic:default"],
         now,
       }),
-    ).toBe("rate_limit");
+    ).toBe("unknown");
   });
 
   it("ignores expired windows and returns null when no profile is actively unavailable", () => {
@@ -591,7 +591,7 @@ describe("markAuthProfileFailure — active windows may escalate on retry", () =
   async function markFailureAt(params: {
     store: ReturnType<typeof makeStore>;
     now: number;
-    reason: "billing" | "auth_permanent";
+    reason: AuthProfileFailureReason;
   }): Promise<void> {
     vi.useFakeTimers();
     vi.setSystemTime(params.now);

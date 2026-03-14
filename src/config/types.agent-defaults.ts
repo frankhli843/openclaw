@@ -279,7 +279,7 @@ export type AgentDefaultsConfig = {
     thinking?: string;
     /** Default run timeout in seconds for spawned sub-agents (0 = no timeout). */
     runTimeoutSeconds?: number;
-    /** Gateway timeout in ms for sub-agent announce delivery calls (default: 60000). */
+    /** Gateway timeout in ms for sub-agent announce delivery calls (default: 90000). */
     announceTimeoutMs?: number;
     /** Auth profile order override for sub-agent sessions (same shape as auth.order). */
     auth?: {
@@ -299,6 +299,7 @@ export type AgentDefaultsConfig = {
 };
 
 export type AgentCompactionMode = "default" | "safeguard";
+export type AgentCompactionPostIndexSyncMode = "off" | "async" | "await";
 export type AgentCompactionIdentifierPolicy = "strict" | "off" | "custom";
 export type AgentCompactionQualityGuardConfig = {
   /** Enable compaction summary quality audits and regeneration retries. Default: false. */
@@ -318,6 +319,8 @@ export type AgentCompactionConfig = {
   reserveTokensFloor?: number;
   /** Max share of context window for history during safeguard pruning (0.1–0.9, default 0.5). */
   maxHistoryShare?: number;
+  /** Additional compaction-summary instructions that can preserve language or persona continuity. */
+  customInstructions?: string;
   /** Preserve this many most-recent user/assistant turns verbatim in compaction summary context. */
   recentTurnsPreserve?: number;
   /** Identifier-preservation instruction policy for compaction summaries. */
@@ -326,6 +329,8 @@ export type AgentCompactionConfig = {
   identifierInstructions?: string;
   /** Optional quality-audit retries for safeguard compaction summaries. */
   qualityGuard?: AgentCompactionQualityGuardConfig;
+  /** Post-compaction session memory index sync mode. */
+  postIndexSync?: AgentCompactionPostIndexSyncMode;
   /** Pre-compaction memory flush (agentic turn). Default: enabled. */
   memoryFlush?: AgentCompactionMemoryFlushConfig;
   /**

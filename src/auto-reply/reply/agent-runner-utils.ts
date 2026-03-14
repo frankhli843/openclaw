@@ -4,7 +4,6 @@ import { getChannelDock } from "../../channels/dock.js";
 import type { ChannelId, ChannelThreadingToolContext } from "../../channels/plugins/types.js";
 import { normalizeAnyChannelId, normalizeChannelId } from "../../channels/registry.js";
 import type { OpenClawConfig } from "../../config/config.js";
-import { resolveAgentIdFromSessionKey } from "../../config/sessions.js";
 import { isReasoningTagProvider } from "../../utils/provider-utils.js";
 import { estimateUsageCost, formatTokenCount, formatUsd } from "../../utils/usage-format.js";
 import type { TemplateContext } from "../templating.js";
@@ -261,6 +260,31 @@ export function buildEmbeddedRunContexts(params: {
       hasRepliedRef: params.hasRepliedRef,
     }),
     senderContext: buildTemplateSenderContext(params.sessionCtx),
+  };
+}
+
+export function buildEmbeddedRunExecutionParams(params: {
+  run: FollowupRun["run"];
+  sessionCtx: TemplateContext;
+  hasRepliedRef: { value: boolean } | undefined;
+  provider: string;
+  model: string;
+  runId: string;
+  allowTransientCooldownProbe?: boolean;
+}) {
+  const { authProfile, embeddedContext, senderContext } = buildEmbeddedRunContexts(params);
+  const runBaseParams = buildEmbeddedRunBaseParams({
+    run: params.run,
+    provider: params.provider,
+    model: params.model,
+    runId: params.runId,
+    authProfile,
+    allowTransientCooldownProbe: params.allowTransientCooldownProbe,
+  });
+  return {
+    embeddedContext,
+    senderContext,
+    runBaseParams,
   };
 }
 

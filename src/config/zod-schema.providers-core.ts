@@ -60,6 +60,14 @@ const TelegramCapabilitiesSchema = z.union([
     })
     .strict(),
 ]);
+const SlackCapabilitiesSchema = z.union([
+  z.array(z.string()),
+  z
+    .object({
+      interactiveReplies: z.boolean().optional(),
+    })
+    .strict(),
+]);
 
 export const TelegramTopicSchema = z
   .object({
@@ -109,8 +117,8 @@ export const TelegramDirectSchema = z
 
 const TelegramCustomCommandSchema = z
   .object({
-    command: z.string().transform(normalizeTelegramCommandName),
-    description: z.string().transform(normalizeTelegramCommandDescription),
+    command: z.string().overwrite(normalizeTelegramCommandName),
+    description: z.string().overwrite(normalizeTelegramCommandDescription),
   })
   .strict();
 
@@ -249,7 +257,9 @@ export const TelegramAccountSchemaBase = z
         sendMessage: z.boolean().optional(),
         poll: z.boolean().optional(),
         deleteMessage: z.boolean().optional(),
+        editMessage: z.boolean().optional(),
         sticker: z.boolean().optional(),
+        createForumTopic: z.boolean().optional(),
       })
       .strict()
       .optional(),
@@ -842,7 +852,7 @@ export const SlackAccountSchema = z
     mode: z.enum(["socket", "http"]).optional(),
     signingSecret: SecretInputSchema.optional().register(sensitive),
     webhookPath: z.string().optional(),
-    capabilities: z.array(z.string()).optional(),
+    capabilities: SlackCapabilitiesSchema.optional(),
     markdown: MarkdownConfigSchema,
     enabled: z.boolean().optional(),
     commands: ProviderCommandsSchema,
@@ -982,6 +992,16 @@ export const SlackConfigSchema = SlackAccountSchema.safeExtend({
   validateSlackSigningSecretRequirements(value, ctx);
 });
 
+const SignalGroupEntrySchema = z
+  .object({
+    requireMention: z.boolean().optional(),
+    tools: ToolPolicySchema,
+    toolsBySender: ToolPolicyBySenderSchema,
+  })
+  .strict();
+
+const SignalGroupsSchema = z.record(z.string(), SignalGroupEntrySchema.optional()).optional();
+
 export const SignalAccountSchemaBase = z
   .object({
     name: z.string().optional(),
@@ -990,6 +1010,7 @@ export const SignalAccountSchemaBase = z
     enabled: z.boolean().optional(),
     configWrites: z.boolean().optional(),
     account: z.string().optional(),
+    accountUuid: z.string().optional(),
     httpUrl: z.string().optional(),
     httpHost: z.string().optional(),
     httpPort: z.number().int().positive().optional(),
@@ -1004,7 +1025,8 @@ export const SignalAccountSchemaBase = z
     allowFrom: z.array(z.union([z.string(), z.number()])).optional(),
     defaultTo: z.string().optional(),
     groupAllowFrom: z.array(z.union([z.string(), z.number()])).optional(),
-    groupPolicy: GroupPolicySchema.optional().default("open"),
+    groupPolicy: GroupPolicySchema.optional().default("allowlist"),
+    groups: SignalGroupsSchema,
     historyLimit: z.number().int().min(0).optional(),
     dmHistoryLimit: z.number().int().min(0).optional(),
     dms: z.record(z.string(), DmConfigSchema.optional()).optional(),

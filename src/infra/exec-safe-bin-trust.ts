@@ -27,7 +27,6 @@ export type WritableTrustedSafeBinDir = {
 };
 
 let trustedSafeBinCache: TrustedSafeBinCache | null = null;
-const STARTUP_PATH_ENV = process.env.PATH ?? process.env.Path ?? "";
 
 function normalizeTrustedDir(value: string): string | null {
   const trimmed = value.trim();

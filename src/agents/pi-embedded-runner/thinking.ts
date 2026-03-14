@@ -33,7 +33,8 @@ export function dropThinkingBlocks(messages: AgentMessage[]): AgentMessage[] {
     const nextContent: AssistantContentBlock[] = [];
     let changed = false;
     for (const block of msg.content) {
-      const blockType = block && typeof block === "object" ? (block as { type?: unknown }).type : undefined;
+      const blockType =
+        block && typeof block === "object" ? (block as { type?: unknown }).type : undefined;
       if (blockType === "thinking" || blockType === "redacted_thinking") {
         touched = true;
         changed = true;
@@ -70,7 +71,9 @@ export function dropHistoricalThinkingBlocks(messages: AgentMessage[]): AgentMes
       break;
     }
   }
-  if (lastAssistantIdx === -1) return messages;
+  if (lastAssistantIdx === -1) {
+    return messages;
+  }
 
   let touched = false;
   const out: AgentMessage[] = [];

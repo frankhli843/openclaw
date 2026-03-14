@@ -65,43 +65,6 @@ export function isProfileInCooldown(
   return unusableUntil ? ts < unusableUntil : false;
 }
 
-function scoreUnavailableStats(params: {
-  stats: ProfileUsageStats | undefined;
-  now: number;
-  addScore: (reason: AuthProfileFailureReason, value: number) => void;
-}): void {
-  const { stats, now, addScore } = params;
-  if (!stats) {
-    return;
-  }
-
-  const disabledActive = isActiveUnusableWindow(stats.disabledUntil, now);
-  if (disabledActive && stats.disabledReason && FAILURE_REASON_SET.has(stats.disabledReason)) {
-    // Disabled reasons are explicit and high-signal; weight heavily.
-    addScore(stats.disabledReason, 1_000);
-    return;
-  }
-
-  const cooldownActive = isActiveUnusableWindow(stats.cooldownUntil, now);
-  if (!cooldownActive) {
-    return;
-  }
-
-  let recordedReason = false;
-  for (const [rawReason, rawCount] of Object.entries(stats.failureCounts ?? {})) {
-    const reason = rawReason as AuthProfileFailureReason;
-    const count = typeof rawCount === "number" ? rawCount : 0;
-    if (!FAILURE_REASON_SET.has(reason) || count <= 0) {
-      continue;
-    }
-    addScore(reason, count);
-    recordedReason = true;
-  }
-  if (!recordedReason) {
-    addScore("rate_limit", 1);
-  }
-}
-
 function isActiveUnusableWindow(until: number | undefined, now: number): boolean {
   return typeof until === "number" && Number.isFinite(until) && until > 0 && now < until;
 }
@@ -127,11 +90,40 @@ export function resolveProfilesUnavailableReason(params: {
   };
 
   for (const profileId of params.profileIds) {
-    scoreUnavailableStats({
-      stats: params.store.usageStats?.[profileId],
-      now,
-      addScore,
-    });
+    const stats = params.store.usageStats?.[profileId];
+    if (!stats) {
+      continue;
+    }
+
+    const disabledActive = isActiveUnusableWindow(stats.disabledUntil, now);
+    if (disabledActive && stats.disabledReason && FAILURE_REASON_SET.has(stats.disabledReason)) {
+      // Disabled reasons are explicit and high-signal; weight heavily.
+      addScore(stats.disabledReason, 1_000);
+      continue;
+    }
+
+    const cooldownActive = isActiveUnusableWindow(stats.cooldownUntil, now);
+    if (!cooldownActive) {
+      continue;
+    }
+
+    let recordedReason = false;
+    for (const [rawReason, rawCount] of Object.entries(stats.failureCounts ?? {})) {
+      const reason = rawReason as AuthProfileFailureReason;
+      const count = typeof rawCount === "number" ? rawCount : 0;
+      if (!FAILURE_REASON_SET.has(reason) || count <= 0) {
+        continue;
+      }
+      addScore(reason, count);
+      recordedReason = true;
+    }
+    if (!recordedReason) {
+      // No failure counts recorded for this cooldown window. Previously this
+      // defaulted to "rate_limit", which caused false "rate limit reached"
+      // warnings when the actual reason was unknown (e.g. transient network
+      // blip or server error without a classified failure count).
+      addScore("unknown", 1);
+    }
   }
 
   if (scores.size === 0) {

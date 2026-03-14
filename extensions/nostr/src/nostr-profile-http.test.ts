@@ -115,6 +115,13 @@ function createMockContext(overrides?: Partial<NostrProfileHttpContext>): NostrP
   };
 }
 
+function expectOkResponse(res: ReturnType<typeof createMockResponse>) {
+  expect(res._getStatusCode()).toBe(200);
+  const data = JSON.parse(res._getData());
+  expect(data.ok).toBe(true);
+  return data;
+}
+
 function mockSuccessfulProfileImport() {
   vi.mocked(importProfileFromRelays).mockResolvedValue({
     ok: true,
@@ -208,6 +215,22 @@ describe("nostr-profile-http", () => {
   });
 
   describe("PUT /api/channels/nostr/:accountId/profile", () => {
+    function mockPublishSuccess() {
+      vi.mocked(publishNostrProfile).mockResolvedValue({
+        eventId: "event123",
+        createdAt: 1234567890,
+        successes: ["wss://relay.damus.io"],
+        failures: [],
+      });
+    }
+
+    function expectBadRequestResponse(res: ReturnType<typeof createMockResponse>) {
+      expect(res._getStatusCode()).toBe(400);
+      const data = JSON.parse(res._getData());
+      expect(data.ok).toBe(false);
+      return data;
+    }
+
     async function expectPrivatePictureRejected(pictureUrl: string) {
       const ctx = createMockContext();
       const handler = createNostrProfileHttpHandler(ctx);
@@ -219,9 +242,7 @@ describe("nostr-profile-http", () => {
 
       await handler(req, res);
 
-      expect(res._getStatusCode()).toBe(400);
-      const data = JSON.parse(res._getData());
-      expect(data.ok).toBe(false);
+      const data = expectBadRequestResponse(res);
       expect(data.error).toContain("private");
     }
 
@@ -235,18 +256,11 @@ describe("nostr-profile-http", () => {
       });
       const res = createMockResponse();
 
-      vi.mocked(publishNostrProfile).mockResolvedValue({
-        eventId: "event123",
-        createdAt: 1234567890,
-        successes: ["wss://relay.damus.io"],
-        failures: [],
-      });
+      mockPublishSuccess();
 
       await handler(req, res);
 
-      expect(res._getStatusCode()).toBe(200);
-      const data = JSON.parse(res._getData());
-      expect(data.ok).toBe(true);
+      const data = expectOkResponse(res);
       expect(data.eventId).toBe("event123");
       expect(data.successes).toContain("wss://relay.damus.io");
       expect(data.persisted).toBe(true);
@@ -349,9 +363,7 @@ describe("nostr-profile-http", () => {
 
       await handler(req, res);
 
-      expect(res._getStatusCode()).toBe(400);
-      const data = JSON.parse(res._getData());
-      expect(data.ok).toBe(false);
+      const data = expectBadRequestResponse(res);
       // The schema validation catches non-https URLs before SSRF check
       expect(data.error).toBe("Validation failed");
       expect(data.details).toBeDefined();
@@ -385,12 +397,7 @@ describe("nostr-profile-http", () => {
       const ctx = createMockContext();
       const handler = createNostrProfileHttpHandler(ctx);
 
-      vi.mocked(publishNostrProfile).mockResolvedValue({
-        eventId: "event123",
-        createdAt: 1234567890,
-        successes: ["wss://relay.damus.io"],
-        failures: [],
-      });
+      mockPublishSuccess();
 
       // Make 6 requests (limit is 5/min)
       for (let i = 0; i < 6; i++) {
@@ -401,7 +408,7 @@ describe("nostr-profile-http", () => {
         await handler(req, res);
 
         if (i < 5) {
-          expect(res._getStatusCode()).toBe(200);
+          expectOkResponse(res);
         } else {
           expect(res._getStatusCode()).toBe(429);
           const data = JSON.parse(res._getData());
@@ -431,6 +438,12 @@ describe("nostr-profile-http", () => {
   });
 
   describe("POST /api/channels/nostr/:accountId/profile/import", () => {
+    function expectImportSuccessResponse(res: ReturnType<typeof createMockResponse>) {
+      const data = expectOkResponse(res);
+      expect(data.imported.name).toBe("imported");
+      return data;
+    }
+
     it("imports profile from relays", async () => {
       const ctx = createMockContext();
       const handler = createNostrProfileHttpHandler(ctx);
@@ -441,10 +454,7 @@ describe("nostr-profile-http", () => {
 
       await handler(req, res);
 
-      expect(res._getStatusCode()).toBe(200);
-      const data = JSON.parse(res._getData());
-      expect(data.ok).toBe(true);
-      expect(data.imported.name).toBe("imported");
+      const data = expectImportSuccessResponse(res);
       expect(data.saved).toBe(false); // autoMerge not requested
     });
 
@@ -507,8 +517,7 @@ describe("nostr-profile-http", () => {
 
       await handler(req, res);
 
-      expect(res._getStatusCode()).toBe(200);
-      const data = JSON.parse(res._getData());
+      const data = expectImportSuccessResponse(res);
       expect(data.saved).toBe(true);
       expect(ctx.updateConfigProfile).toHaveBeenCalled();
     });
