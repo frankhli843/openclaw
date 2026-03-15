@@ -1,5 +1,5 @@
 import "./isolated-agent.mocks.js";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runSubagentAnnounceFlow } from "../agents/subagent-announce.js";
 import { discordOutbound } from "../channels/plugins/outbound/discord.js";
 import { imessageOutbound } from "../channels/plugins/outbound/imessage.js";
@@ -8,6 +8,7 @@ import { slackOutbound } from "../channels/plugins/outbound/slack.js";
 import { telegramOutbound } from "../channels/plugins/outbound/telegram.js";
 import { whatsappOutbound } from "../channels/plugins/outbound/whatsapp.js";
 import type { CliDeps } from "../cli/deps.js";
+import { __resetDiscordDnrPolicyCacheForTests } from "../infra/outbound/discord-dnr.js";
 import { setActivePluginRegistry } from "../plugins/runtime.js";
 import { createOutboundTestPlugin, createTestRegistry } from "../test-utils/channel-plugins.js";
 import { createCliDeps, mockAgentPayloads } from "./isolated-agent.delivery.test-helpers.js";
@@ -88,6 +89,9 @@ async function runExplicitAnnounceTurn(params: {
 
 describe("runCronIsolatedAgentTurn core-channel direct delivery", () => {
   beforeEach(() => {
+    // frankclaw: set time outside Discord DNR window (18:00-08:00 ET) so Discord delivery is not suppressed
+    vi.useFakeTimers({ now: new Date("2026-03-15T12:00:00-04:00") });
+    __resetDiscordDnrPolicyCacheForTests();
     setupIsolatedAgentTurnMocks();
     setActivePluginRegistry(
       createTestRegistry([
@@ -123,6 +127,11 @@ describe("runCronIsolatedAgentTurn core-channel direct delivery", () => {
         },
       ]),
     );
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    __resetDiscordDnrPolicyCacheForTests();
   });
 
   for (const testCase of CASES) {
