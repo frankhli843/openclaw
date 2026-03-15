@@ -77,7 +77,9 @@ export function resolveWebGroupGateModeCheck(
     params.logVerbose(
       `Group message blocked by gateMode=${gateModeResult.gateMode} in ${params.conversationId}`,
     );
-    if (gateModeResult.gateMode === "blocked") {
+    // Notify for ALL blocked groups, including unknown groups that default to "blocked"
+    // This ensures new groups always trigger a gate-control notification
+    if (gateModeResult.gateMode === "blocked" || !gateModeResult.gateMode) {
       notifyBlocked({
         platform: channelId,
         chatName: params.msg.groupSubject ?? params.conversationId,
