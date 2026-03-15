@@ -207,6 +207,10 @@ export async function runAgentTurnWithFallback(params: {
       const fallbackResult = await runWithModelFallback({
         ...resolveModelFallbackOptions(params.followupRun.run),
         runId,
+        // Enable rate-limit retry: pass abort signal so the fallback loop can
+        // wait for cooldowns instead of dying when all providers are rate-limited.
+        abortSignal: params.opts?.abortSignal,
+        sessionStartedAt: Date.now(),
         run: (provider, model, runOptions) => {
           // Notify that model selection is complete (including after fallback).
           // This allows responsePrefix template interpolation with the actual model.

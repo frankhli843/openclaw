@@ -575,32 +575,65 @@ export async function runEmbeddedPiAgent(
         return classified ?? "auth";
       };
 
-      const throwAuthProfileFailover = (params: {
+      const throwAuthProfileFailover = (failoverParams: {
         allInCooldown: boolean;
         message?: string;
         error?: unknown;
       }): never => {
         const fallbackMessage = `No available auth profile for ${provider} (all in cooldown or unavailable).`;
         const message =
-          params.message?.trim() ||
-          (params.error ? describeUnknownError(params.error).trim() : "") ||
+          failoverParams.message?.trim() ||
+          (failoverParams.error ? describeUnknownError(failoverParams.error).trim() : "") ||
           fallbackMessage;
         const reason = resolveAuthProfileFailoverReason({
-          allInCooldown: params.allInCooldown,
+          allInCooldown: failoverParams.allInCooldown,
           message,
           profileIds: profileCandidates,
         });
+
+        // ── Diagnostic logging for "all models failed" debugging ──────
+        {
+          const now = Date.now();
+          const profileDiag = profileCandidates.map((id) => {
+            if (!id) {
+              return { id: "(empty)", inCooldown: false };
+            }
+            const stats = authStore.usageStats?.[id];
+            const cooldownUntil = stats?.cooldownUntil;
+            const disabledUntil = stats?.disabledUntil;
+            const inCooldown = isProfileInCooldown(authStore, id);
+            return {
+              id,
+              inCooldown,
+              errorCount: stats?.errorCount ?? 0,
+              cooldownUntil: cooldownUntil ? new Date(cooldownUntil).toISOString() : null,
+              cooldownRemainingMs: cooldownUntil ? Math.max(0, cooldownUntil - now) : 0,
+              disabledUntil: disabledUntil ? new Date(disabledUntil).toISOString() : null,
+              lastFailureAt: stats?.lastFailureAt
+                ? new Date(stats.lastFailureAt).toISOString()
+                : null,
+              failureCounts: stats?.failureCounts ?? {},
+            };
+          });
+          log.warn(
+            `[auth-profile-failover-diag] allInCooldown=${failoverParams.allInCooldown} ` +
+              `reason=${reason} provider=${provider}/${modelId} ` +
+              `sessionKey=${params.sessionKey ?? params.sessionId} ` +
+              `profiles=${JSON.stringify(profileDiag)}`,
+          );
+        }
+
         if (fallbackConfigured) {
           throw new FailoverError(message, {
             reason,
             provider,
             model: modelId,
             status: resolveFailoverStatus(reason),
-            cause: params.error,
+            cause: failoverParams.error,
           });
         }
-        if (params.error instanceof Error) {
-          throw params.error;
+        if (failoverParams.error instanceof Error) {
+          throw failoverParams.error;
         }
         throw new Error(message);
       };
