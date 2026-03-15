@@ -13,7 +13,10 @@ import {
   resolveTelegramCustomCommands,
 } from "./telegram-custom-commands.js";
 import { ToolPolicySchema } from "./zod-schema.agent-runtime.js";
-import { ChannelHeartbeatVisibilitySchema } from "./zod-schema.channels.js";
+import {
+  ChannelHealthMonitorSchema,
+  ChannelHeartbeatVisibilitySchema,
+} from "./zod-schema.channels.js";
 import {
   BlockStreamingChunkSchema,
   BlockStreamingCoalesceSchema,
@@ -276,6 +279,7 @@ export const TelegramAccountSchemaBase = z
     reactionNotifications: z.enum(["off", "own", "all"]).optional(),
     reactionLevel: z.enum(["off", "ack", "minimal", "extensive"]).optional(),
     heartbeat: ChannelHeartbeatVisibilitySchema,
+    healthMonitor: ChannelHealthMonitorSchema,
     linkPreview: z.boolean().optional(),
     responsePrefix: z.string().optional(),
     ackReaction: z.string().optional(),
@@ -520,6 +524,7 @@ export const DiscordAccountSchema = z
     dm: DiscordDmSchema.optional(),
     guilds: z.record(z.string(), DiscordGuildSchema.optional()).optional(),
     heartbeat: ChannelHeartbeatVisibilitySchema,
+    healthMonitor: ChannelHealthMonitorSchema,
     execApprovals: z
       .object({
         enabled: z.boolean().optional(),
@@ -793,6 +798,7 @@ export const GoogleChatAccountSchema = z
       .strict()
       .optional(),
     dm: GoogleChatDmSchema.optional(),
+    healthMonitor: ChannelHealthMonitorSchema,
     typingIndicator: z.enum(["none", "message", "reaction"]).optional(),
     responsePrefix: z.string().optional(),
   })
@@ -911,6 +917,7 @@ export const SlackAccountSchema = z
     dm: SlackDmSchema.optional(),
     channels: z.record(z.string(), SlackChannelSchema.optional()).optional(),
     heartbeat: ChannelHeartbeatVisibilitySchema,
+    healthMonitor: ChannelHealthMonitorSchema,
     responsePrefix: z.string().optional(),
     ackReaction: z.string().optional(),
     typingReaction: z.string().optional(),
@@ -1045,6 +1052,7 @@ export const SignalAccountSchemaBase = z
       .optional(),
     reactionLevel: z.enum(["off", "ack", "minimal", "extensive"]).optional(),
     heartbeat: ChannelHeartbeatVisibilitySchema,
+    healthMonitor: ChannelHealthMonitorSchema,
     responsePrefix: z.string().optional(),
   })
   .strict();
@@ -1158,6 +1166,7 @@ export const IrcAccountSchemaBase = z
     blockStreamingCoalesce: BlockStreamingCoalesceSchema.optional(),
     mediaMaxMb: z.number().positive().optional(),
     heartbeat: ChannelHeartbeatVisibilitySchema,
+    healthMonitor: ChannelHealthMonitorSchema,
     responsePrefix: z.string().optional(),
   })
   .strict();
@@ -1287,6 +1296,7 @@ export const IMessageAccountSchemaBase = z
       )
       .optional(),
     heartbeat: ChannelHeartbeatVisibilitySchema,
+    healthMonitor: ChannelHealthMonitorSchema,
     responsePrefix: z.string().optional(),
   })
   .strict();
@@ -1400,6 +1410,7 @@ export const BlueBubblesAccountSchemaBase = z
     blockStreamingCoalesce: BlockStreamingCoalesceSchema.optional(),
     groups: z.record(z.string(), BlueBubblesGroupConfigSchema.optional()).optional(),
     heartbeat: ChannelHeartbeatVisibilitySchema,
+    healthMonitor: ChannelHealthMonitorSchema,
     responsePrefix: z.string().optional(),
   })
   .strict();
@@ -1516,6 +1527,7 @@ export const MSTeamsConfigSchema = z
     /** SharePoint site ID for file uploads in group chats/channels (e.g., "contoso.sharepoint.com,guid1,guid2") */
     sharePointSiteId: z.string().optional(),
     heartbeat: ChannelHeartbeatVisibilitySchema,
+    healthMonitor: ChannelHealthMonitorSchema,
     responsePrefix: z.string().optional(),
   })
   .strict()
