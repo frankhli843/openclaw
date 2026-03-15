@@ -2609,6 +2609,10 @@ export async function runEmbeddedAttempt(
           }
         }
 
+        if (params.onBlockReplyFlush) {
+          await params.onBlockReplyFlush();
+        }
+
         // Check if ANY compaction occurred during the entire attempt (prompt + retry).
         // Using a cumulative count (> 0) instead of a delta check avoids missing
         // compactions that complete during activeSession.prompt() before the delta
