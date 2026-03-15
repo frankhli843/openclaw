@@ -7,6 +7,8 @@ import { normalizeE164 } from "../../../../../src/utils.js";
 import type { MentionConfig } from "../mentions.js";
 import { buildMentionConfig, debugMention, resolveOwnerList } from "../mentions.js";
 import type { WebInboundMsg } from "../types.js";
+import { checkChannelPolicy } from "../../../../../src/frankclaw/channel-policy.js";
+import { notifyBlocked } from "../../../../../src/channels/gate-notify.js";
 import { stripMentionsForCommand } from "./commands.js";
 import { resolveGroupActivationFor, resolveGroupPolicyFor } from "./group-activation.js";
 import { resolveWebGroupGateModeCheck } from "./group-gating.frankclaw.js";
@@ -85,6 +87,45 @@ function skipGroupMessageAndStoreHistory(params: ApplyGroupGatingParams, verbose
 }
 
 export function applyGroupGating(params: ApplyGroupGatingParams) {
+  // [frankclaw] Channel-policy gate: notify about unknown groups
+  const channelKey = `whatsapp:${params.conversationId}`;
+  const policyDecision = checkChannelPolicy(
+    params.channel ?? "whatsapp",
+    params.conversationId,
+    params.msg.wasMentioned,
+  );
+  if (policyDecision.action === "ask") {
+    // Unknown group — notify owner and block
+    notifyBlocked({
+      platform: params.channel ?? "whatsapp",
+      chatName: params.msg.groupSubject ?? params.conversationId,
+      chatId: params.conversationId,
+      senderId: params.msg.senderE164 ?? params.msg.senderJid ?? "unknown",
+      isGroup: true,
+      preview: (params.msg.body ?? "").slice(0, 100),
+      metadata: {
+        "Group Subject": params.msg.groupSubject,
+        "Sender Name": params.msg.senderName,
+        "Channel Key": channelKey,
+      },
+    });
+    params.logVerbose(`Unknown group ${params.conversationId} — gate notification sent`);
+    return { shouldProcess: false };
+  }
+  if (policyDecision.action === "block") {
+    params.logVerbose(`Group ${params.conversationId} blocked by channel-policy`);
+    return { shouldProcess: false };
+  }
+  if (policyDecision.action === "view-only") {
+    recordPendingGroupHistoryEntry({
+      msg: params.msg,
+      groupHistories: params.groupHistories,
+      groupHistoryKey: params.groupHistoryKey,
+      groupHistoryLimit: params.groupHistoryLimit,
+    });
+    return { shouldProcess: false };
+  }
+
   const groupPolicy = resolveGroupPolicyFor(params.cfg, params.conversationId);
   if (groupPolicy.allowlistEnabled && !groupPolicy.allowed) {
     params.logVerbose(`Skipping group message ${params.conversationId} (not in allowlist)`);

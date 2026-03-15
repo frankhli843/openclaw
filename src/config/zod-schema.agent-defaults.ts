@@ -198,6 +198,8 @@ export const AgentDefaultsSchema = z
       .strict()
       .optional(),
     sandbox: AgentSandboxSchema,
+    gateNotifyChannel: z.string().optional(),
+    gateNotifyOwner: z.string().optional(),
   })
   .strict()
   .optional();

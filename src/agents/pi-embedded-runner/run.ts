@@ -734,11 +734,14 @@ export async function runEmbeddedPiAgent(
           const inCooldown =
             candidate && candidate !== lockedProfileId && isProfileInCooldown(authStore, candidate);
           if (inCooldown) {
-            if (allowTransientCooldownProbe && !didTransientCooldownProbe) {
-              didTransientCooldownProbe = true;
+            if (allowTransientCooldownProbe) {
+              if (!didTransientCooldownProbe) {
+                didTransientCooldownProbe = true;
+              }
               log.warn(
-                `probing cooldowned auth profile for ${provider}/${modelId} due to ${unavailableReason ?? "transient"} unavailability`,
+                `probing cooldowned auth profile ${candidate} for ${provider}/${modelId} due to ${unavailableReason ?? "transient"} unavailability`,
               );
+              // Try this profile despite cooldown — don't skip it
             } else {
               profileIndex += 1;
               continue;
