@@ -1,21 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // Mock dependencies before importing the module under test
-vi.mock("../../../../../src/channels/dock.js", () => ({
-  getChannelDock: vi.fn(() => ({
-    groups: {
-      resolveGateMode: ({ groupId }: { groupId: string }) => {
-        // Simulate channel-policy lookup
-        const policies: Record<string, any> = {
-          "known-blocked@g.us": { gateMode: "blocked", allowedSenders: [] },
-          "known-open@g.us": { gateMode: "open", allowedSenders: [] },
-          "known-mention@g.us": { gateMode: "mention", allowedSenders: [] },
-        };
-        // Unknown groups return gateMode undefined (defaults to blocked in resolveGateMode)
-        return policies[groupId] ?? { gateMode: undefined, allowedSenders: [] };
-      },
-    },
-  })),
+vi.mock("../../../../../src/config/group-policy.js", () => ({
+  resolveChannelGroupGateMode: vi.fn(({ groupId }: { groupId: string }) => {
+    // Simulate channel-policy lookup
+    const policies: Record<string, any> = {
+      "known-blocked@g.us": { gateMode: "blocked", allowedSenders: [] },
+      "known-open@g.us": { gateMode: "open", allowedSenders: [] },
+      "known-mention@g.us": { gateMode: "mention", allowedSenders: [] },
+    };
+    // Unknown groups return gateMode undefined (defaults to blocked in resolveGateMode)
+    return policies[groupId] ?? { gateMode: undefined, allowedSenders: [] };
+  }),
 }));
 
 const notifyBlockedCalls: any[] = [];

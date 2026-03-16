@@ -3,10 +3,10 @@
  *
  * Implements gateMode check for web-channel group messages (WhatsApp, Signal, etc.).
  */
-import { getChannelDock } from "../../../../../src/channels/dock.js";
 import { notifyBlocked } from "../../../../../src/channels/gate-notify.js";
 import { resolveGateMode } from "../../../../../src/channels/mention-gating.js";
 import type { OpenClawConfig } from "../../../../../src/config/config.js";
+import { resolveChannelGroupGateMode } from "../../../../../src/config/group-policy.js";
 import { normalizeE164 } from "../../../../../src/utils.js";
 import type { WebInboundMsg } from "../types.js";
 import { formatGroupMembers } from "./group-members.js";
@@ -44,11 +44,11 @@ export function resolveWebGroupGateModeCheck(
   };
 
   const channelId = params.channel ?? "whatsapp";
-  const dock = getChannelDock(channelId as Parameters<typeof getChannelDock>[0]);
-  const gateModeResult = dock?.groups?.resolveGateMode?.({
+  const gateModeResult = resolveChannelGroupGateMode({
     cfg: params.cfg,
+    channel: channelId as Parameters<typeof resolveChannelGroupGateMode>[0]["channel"],
     groupId: params.conversationId,
-    accountId: undefined,
+    accountId: params.accountId,
   });
 
   if (!gateModeResult?.gateMode) {

@@ -14,9 +14,11 @@ import {
   listThreadsDiscord,
   pinMessageDiscord,
   reactMessageDiscord,
+  readDiscordComponentSpec,
   readMessagesDiscord,
   removeOwnReactionsDiscord,
   removeReactionDiscord,
+  resolveDiscordChannelId,
   searchMessagesDiscord,
   sendDiscordComponentMessage,
   sendMessageDiscord,
@@ -28,8 +30,6 @@ import {
 import type {
   DiscordSendComponents,
   DiscordSendEmbeds,
-  readDiscordComponentSpec,
-  resolveDiscordChannelId,
 } from "../../plugin-sdk-internal/discord.js";
 import {
   parseDiscordTarget,
