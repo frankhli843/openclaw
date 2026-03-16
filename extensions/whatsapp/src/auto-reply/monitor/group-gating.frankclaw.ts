@@ -52,7 +52,27 @@ export function resolveWebGroupGateModeCheck(
   });
 
   if (!gateModeResult?.gateMode) {
-    return noGate;
+    // Unknown group (not in channel-policy): notify gate-control and drop
+    notifyBlocked({
+      platform: channelId,
+      chatName: params.msg.groupSubject ?? params.conversationId,
+      chatId: params.conversationId,
+      senderId: normalizeE164(params.msg.senderE164 ?? "") || params.msg.senderJid || "unknown",
+      isGroup: true,
+      preview: (params.msg.body ?? "").slice(0, 100),
+      metadata: {
+        "Group Subject": params.msg.groupSubject,
+        "Sender Name": params.msg.senderName,
+        "Sender JID": params.msg.senderJid,
+        Participants: formatGroupMembers({
+          participants: params.msg.groupParticipants,
+          roster: params.groupMemberNames.get(params.groupHistoryKey),
+          fallbackE164: params.msg.senderE164,
+        }),
+      },
+    });
+    params.recordHistory();
+    return { approved: false, effectiveMention: false, shouldDrop: true };
   }
 
   const mentionKeywords = params.cfg.agents?.defaults?.mentionKeywords ?? [];
