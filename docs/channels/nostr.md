@@ -16,7 +16,7 @@ Nostr is a decentralized protocol for social networking. This channel enables Op
 
 ### Onboarding (recommended)
 
-- The onboarding wizard (`openclaw onboard`) and `openclaw channels add` list optional channel plugins.
+- The setup wizard (`openclaw onboard`) and `openclaw channels add` list optional channel plugins.
 - Selecting Nostr prompts you to install the plugin on demand.
 
 Install defaults:
@@ -40,7 +40,16 @@ openclaw plugins install --link <path-to-openclaw>/extensions/nostr
 
 Restart the Gateway after installing or enabling plugins.
 
-## Onboarding
+### Non-interactive setup
+
+```bash
+openclaw channels add --channel nostr --private-key "$NOSTR_PRIVATE_KEY"
+openclaw channels add --channel nostr --private-key "$NOSTR_PRIVATE_KEY" --relay-urls "wss://relay.damus.io,wss://relay.primal.net"
+```
+
+Use `--use-env` to keep `NOSTR_PRIVATE_KEY` in the environment instead of storing the key in config.
+
+## Quick setup
 
 1. Generate a Nostr keypair (if needed):
 
@@ -69,7 +78,7 @@ export NOSTR_PRIVATE_KEY="nsec1..."
 
 4. Restart the Gateway.
 
-## Configuration
+## Configuration reference
 
 | Key          | Type     | Default                                     | Description                         |
 | ------------ | -------- | ------------------------------------------- | ----------------------------------- |

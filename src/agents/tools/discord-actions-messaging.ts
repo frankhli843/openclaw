@@ -1,6 +1,7 @@
 import type { AgentToolResult } from "@mariozechner/pi-agent-core";
 import { ChannelType } from "discord-api-types/v10";
-import { readDiscordComponentSpec } from "../../../extensions/discord/src/components.js";
+import type { DiscordActionConfig } from "../../config/config.js";
+import type { OpenClawConfig } from "../../config/config.js";
 import {
   createThreadDiscord,
   deleteMessageDiscord,
@@ -23,17 +24,16 @@ import {
   sendStickerDiscord,
   sendVoiceMessageDiscord,
   unpinMessageDiscord,
-} from "../../../extensions/discord/src/send.js";
+} from "../../plugin-sdk-internal/discord.js";
 import type {
   DiscordSendComponents,
   DiscordSendEmbeds,
-} from "../../../extensions/discord/src/send.shared.js";
+  readDiscordComponentSpec,
+  resolveDiscordChannelId,
+} from "../../plugin-sdk-internal/discord.js";
 import {
   parseDiscordTarget,
-  resolveDiscordChannelId,
 } from "../../../extensions/discord/src/targets.js";
-import type { DiscordActionConfig } from "../../config/config.js";
-import type { OpenClawConfig } from "../../config/config.js";
 import { deferDelivery, enqueueDelivery } from "../../infra/outbound/delivery-queue.js";
 import {
   DiscordDnrSuppressedError,
