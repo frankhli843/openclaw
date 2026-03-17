@@ -14,6 +14,8 @@ import type { OpenClawConfig } from "../../config/config.js";
 import { runMessageAction, getToolResult } from "../../infra/outbound/message-action-runner.js";
 import { type AnyAgentTool, jsonResult } from "./common.js";
 
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 export function createRawSendTool(options: {
   cfg?: OpenClawConfig;
   agentSessionKey?: string;
@@ -52,27 +54,47 @@ export function createRawSendTool(options: {
         return jsonResult({ error: "channel, target, and message are all required" });
       }
 
-      try {
-        const result = await runMessageAction({
-          cfg: options.cfg as OpenClawConfig,
-          action: "send",
-          params: {
-            channel,
-            to: target,
-            message,
-          },
-          sessionKey: options.agentSessionKey,
-        });
+      // Retry with backoff for transient "No active WhatsApp Web listener" errors.
+      // The WhatsApp Baileys connection cycles through disconnect/reconnect (408 timeouts)
+      // and the listener is briefly null during those transitions.
+      // No retries — the "No active WhatsApp Web listener" error can be a
+      // false negative from the RPC layer while Baileys actually delivers.
+      // Retrying causes duplicate messages. (Learned Mar 16 2026)
+      const maxAttempts = 1;
+      const retryDelays: number[] = [];
 
-        const toolResult = getToolResult(result);
-        if (toolResult) {
-          return toolResult;
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+          const result = await runMessageAction({
+            cfg: options.cfg as OpenClawConfig,
+            action: "send",
+            params: {
+              channel,
+              to: target,
+              message,
+            },
+            sessionKey: options.agentSessionKey,
+          });
+
+          const toolResult = getToolResult(result);
+          if (toolResult) {
+            return toolResult;
+          }
+          return jsonResult({ ok: true, channel, target, delivered: true });
+        } catch (err: unknown) {
+          const errorMessage = err instanceof Error ? err.message : String(err);
+          const isTransientWaError =
+            channel === "whatsapp" && errorMessage.includes("No active WhatsApp Web listener");
+
+          if (isTransientWaError && attempt < maxAttempts) {
+            const delay = retryDelays[attempt - 1] ?? 5000;
+            await sleep(delay);
+            continue;
+          }
+          return jsonResult({ ok: false, error: errorMessage, attempts: attempt });
         }
-        return jsonResult({ ok: true, channel, target, delivered: true });
-      } catch (err: unknown) {
-        const errorMessage = err instanceof Error ? err.message : String(err);
-        return jsonResult({ ok: false, error: errorMessage });
       }
+      return jsonResult({ ok: false, error: "unreachable" });
     },
   } as unknown as AnyAgentTool;
 }

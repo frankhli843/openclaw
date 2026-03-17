@@ -83,11 +83,10 @@ describe("formatBlockedNotification", () => {
   it("formats correctly", () => {
     const info = makeInfo();
     const text = formatBlockedNotification(info);
-    expect(text).toContain("🔒 Blocked message");
+    expect(text).toContain("🔒 Blocked message: Canada Family,");
     expect(text).toContain("Platform: whatsapp");
     expect(text).toContain(`Chat: "${info.chatName}" (${info.chatId})`);
     expect(text).toContain(`Sender: ${info.senderId}`);
-    expect(text).toContain("Type: group");
     expect(text).toContain(`set ${info.chatId} to <mode>`);
     expect(text).toContain("silent");
     expect(text).toContain("frank-only");
@@ -96,21 +95,23 @@ describe("formatBlockedNotification", () => {
     expect(text).toContain("open");
   });
 
-  it("includes owner mention when provided", () => {
+  it("does not include owner mention in first line", () => {
     const text = formatBlockedNotification(makeInfo(), { ownerMention: "<@123456>" });
-    expect(text).toContain("<@123456>");
+    const firstLine = text.split("\n")[0];
+    expect(firstLine).not.toContain("<@123456>");
+    expect(firstLine).toContain("🔒 Blocked message: Canada Family,");
   });
 
   it("truncates preview at 100 chars", () => {
     const longPreview = "a".repeat(200);
     const text = formatBlockedNotification(makeInfo({ preview: longPreview }));
-    expect(text).toContain(`"${"a".repeat(100)}..."`);
+    expect(text).toContain(`${"a".repeat(100)}...`);
   });
 
   it("does not truncate short previews", () => {
     const shortPreview = "Hello!";
     const text = formatBlockedNotification(makeInfo({ preview: shortPreview }));
-    expect(text).toContain(`"${shortPreview}"`);
+    expect(text).toContain(`Canada Family, ${shortPreview}`);
     expect(text).not.toContain("...");
   });
 

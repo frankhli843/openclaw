@@ -70,18 +70,16 @@ export function formatBlockedNotification(
 ): string {
   const preview = info.preview.length > 100 ? `${info.preview.slice(0, 100)}...` : info.preview;
   const chatType = info.isGroup ? "group" : "dm";
-  const mention = options?.ownerMention ? `${options.ownerMention} ` : "";
   const metadataLines = Object.entries(info.metadata ?? {})
     .filter(([, value]) => value !== undefined && value !== null && `${value}`.trim().length > 0)
     .map(([key, value]) => `- ${key}: ${value}`);
 
   return [
-    `${mention}🔒 Blocked message`,
+    `🔒 Blocked message: ${info.chatName}, ${preview}`,
     `Platform: ${info.platform}`,
     `Chat: "${info.chatName}" (${info.chatId})`,
     `Sender: ${info.senderId}`,
     `Type: ${chatType}`,
-    `Preview: "${preview}"`,
     ...(metadataLines.length > 0 ? ["", "Metadata:", ...metadataLines] : []),
     ``,
     `Reply with: \`set ${info.chatId} to <mode>\``,

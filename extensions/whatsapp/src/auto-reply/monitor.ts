@@ -279,8 +279,14 @@ export async function monitorWebChannel(
       return true;
     });
 
-    const closeListener = async () => {
-      setActiveWebListener(account.accountId, null);
+    const closeListener = async (clearOutboundListener = true) => {
+      // Frankclaw patch: when clearOutboundListener is false, keep the listener
+      // reference alive during reconnect cycles (e.g. 408 timeouts) so outbound
+      // raw_send can still attempt delivery during the brief gap. The listener
+      // will be replaced by the next successful connection's setActiveWebListener.
+      if (clearOutboundListener) {
+        setActiveWebListener(account.accountId, null);
+      }
       if (unregisterUnhandled) {
         unregisterUnhandled();
         unregisterUnhandled = null;
@@ -350,7 +356,7 @@ export async function monitorWebChannel(
         whatsappHeartbeatLog.warn(
           `No messages received in ${minutesSinceLastMessage}m - restarting connection`,
         );
-        void closeListener().catch((err) => {
+        void closeListener(false).catch((err) => {
           logVerbose(`Close listener failed: ${formatError(err)}`);
         });
         listener.signalClose?.({
@@ -488,7 +494,7 @@ export async function monitorWebChannel(
     runtime.error(
       `WhatsApp Web connection closed (status ${statusCode}). Retry ${reconnectAttempts}/${reconnectPolicy.maxAttempts || "∞"} in ${formatDurationPrecise(delay)}… (${errorStr})`,
     );
-    await closeListener();
+    await closeListener(false); // Frankclaw: keep outbound listener alive during reconnect
     try {
       await sleep(delay, abortSignal);
     } catch {

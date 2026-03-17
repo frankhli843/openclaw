@@ -194,6 +194,14 @@ const CORE_TOOL_DEFINITIONS: CoreToolDefinition[] = [
     includeInOpenClawGroup: true,
   },
   {
+    id: "raw_send",
+    label: "raw_send",
+    description: "Send raw message cross-channel",
+    sectionId: "messaging",
+    profiles: ["coding"],
+    includeInOpenClawGroup: true,
+  },
+  {
     id: "cron",
     label: "cron",
     description: "Schedule tasks",
