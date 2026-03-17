@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { saveSessionStore } from "../../../../src/config/sessions.js";
-import { withTempDir } from "../../../../src/test-utils/temp-dir.js";
+import { withTempDir } from "../../../../test/helpers/extensions/temp-dir.js";
 import {
   debugMention,
   isBotMentionedFromTargets,

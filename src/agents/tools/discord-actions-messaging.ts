@@ -2,6 +2,7 @@ import type { AgentToolResult } from "@mariozechner/pi-agent-core";
 import { ChannelType } from "discord-api-types/v10";
 import type { DiscordActionConfig } from "../../config/config.js";
 import type { OpenClawConfig } from "../../config/config.js";
+import { readBooleanParam } from "../../plugin-sdk/boolean-param.js";
 import {
   createThreadDiscord,
   deleteMessageDiscord,
@@ -26,11 +27,9 @@ import {
   sendStickerDiscord,
   sendVoiceMessageDiscord,
   unpinMessageDiscord,
-} from "../../plugin-sdk-internal/discord.js";
-import type {
-  DiscordSendComponents,
-  DiscordSendEmbeds,
-} from "../../plugin-sdk-internal/discord.js";
+} from "../../plugin-sdk/discord.js";
+import type { DiscordSendComponents, DiscordSendEmbeds } from "../../plugin-sdk/discord.js";
+// [frankclaw] Discord DNR + delivery queue + target parsing
 import {
   parseDiscordTarget,
 } from "../../../extensions/discord/src/targets.js";
@@ -39,7 +38,6 @@ import {
   DiscordDnrSuppressedError,
   enforceDiscordDnrWindow,
 } from "../../infra/outbound/discord-dnr.js";
-import { readBooleanParam } from "../../plugin-sdk/boolean-param.js";
 import { resolvePollMaxSelections } from "../../polls.js";
 import { withNormalizedTimestamp } from "../date-time.js";
 import { assertMediaNotDataUrl } from "../sandbox-paths.js";
@@ -212,8 +210,8 @@ export async function handleDiscordMessagingAction(
       }
       const channelId = resolveChannelId();
       const permissions = accountId
-        ? await fetchChannelPermissionsDiscord(channelId, { accountId })
-        : await fetchChannelPermissionsDiscord(channelId);
+        ? await fetchChannelPermissionsDiscord(channelId, { ...cfgOptions, accountId })
+        : await fetchChannelPermissionsDiscord(channelId, cfgOptions);
       return jsonResult({ ok: true, permissions });
     }
     case "fetchMessage": {
@@ -236,8 +234,8 @@ export async function handleDiscordMessagingAction(
         );
       }
       const message = accountId
-        ? await fetchMessageDiscord(channelId, messageId, { accountId })
-        : await fetchMessageDiscord(channelId, messageId);
+        ? await fetchMessageDiscord(channelId, messageId, { ...cfgOptions, accountId })
+        : await fetchMessageDiscord(channelId, messageId, cfgOptions);
       return jsonResult({
         ok: true,
         message: normalizeMessage(message),
@@ -258,8 +256,8 @@ export async function handleDiscordMessagingAction(
         around: readStringParam(params, "around"),
       };
       const messages = accountId
-        ? await readMessagesDiscord(channelId, query, { accountId })
-        : await readMessagesDiscord(channelId, query);
+        ? await readMessagesDiscord(channelId, query, { ...cfgOptions, accountId })
+        : await readMessagesDiscord(channelId, query, cfgOptions);
       return jsonResult({
         ok: true,
         messages: messages.map((message) => normalizeMessage(message)),
@@ -416,8 +414,8 @@ export async function handleDiscordMessagingAction(
         required: true,
       });
       const message = accountId
-        ? await editMessageDiscord(channelId, messageId, { content }, { accountId })
-        : await editMessageDiscord(channelId, messageId, { content });
+        ? await editMessageDiscord(channelId, messageId, { content }, { ...cfgOptions, accountId })
+        : await editMessageDiscord(channelId, messageId, { content }, cfgOptions);
       return jsonResult({ ok: true, message });
     }
     case "deleteMessage": {
@@ -429,9 +427,9 @@ export async function handleDiscordMessagingAction(
         required: true,
       });
       if (accountId) {
-        await deleteMessageDiscord(channelId, messageId, { accountId });
+        await deleteMessageDiscord(channelId, messageId, { ...cfgOptions, accountId });
       } else {
-        await deleteMessageDiscord(channelId, messageId);
+        await deleteMessageDiscord(channelId, messageId, cfgOptions);
       }
       return jsonResult({ ok: true });
     }
@@ -453,8 +451,8 @@ export async function handleDiscordMessagingAction(
         appliedTags: appliedTags ?? undefined,
       };
       const thread = accountId
-        ? await createThreadDiscord(channelId, payload, { accountId })
-        : await createThreadDiscord(channelId, payload);
+        ? await createThreadDiscord(channelId, payload, { ...cfgOptions, accountId })
+        : await createThreadDiscord(channelId, payload, cfgOptions);
       return jsonResult({ ok: true, thread });
     }
     case "threadList": {
@@ -477,15 +475,18 @@ export async function handleDiscordMessagingAction(
               before,
               limit,
             },
-            { accountId },
+            { ...cfgOptions, accountId },
           )
-        : await listThreadsDiscord({
-            guildId,
-            channelId,
-            includeArchived,
-            before,
-            limit,
-          });
+        : await listThreadsDiscord(
+            {
+              guildId,
+              channelId,
+              includeArchived,
+              before,
+              limit,
+            },
+            cfgOptions,
+          );
       return jsonResult({ ok: true, threads });
     }
     case "threadReply": {
@@ -546,9 +547,9 @@ export async function handleDiscordMessagingAction(
         required: true,
       });
       if (accountId) {
-        await pinMessageDiscord(channelId, messageId, { accountId });
+        await pinMessageDiscord(channelId, messageId, { ...cfgOptions, accountId });
       } else {
-        await pinMessageDiscord(channelId, messageId);
+        await pinMessageDiscord(channelId, messageId, cfgOptions);
       }
       return jsonResult({ ok: true });
     }
@@ -561,9 +562,9 @@ export async function handleDiscordMessagingAction(
         required: true,
       });
       if (accountId) {
-        await unpinMessageDiscord(channelId, messageId, { accountId });
+        await unpinMessageDiscord(channelId, messageId, { ...cfgOptions, accountId });
       } else {
-        await unpinMessageDiscord(channelId, messageId);
+        await unpinMessageDiscord(channelId, messageId, cfgOptions);
       }
       return jsonResult({ ok: true });
     }
@@ -573,8 +574,8 @@ export async function handleDiscordMessagingAction(
       }
       const channelId = resolveChannelId();
       const pins = accountId
-        ? await listPinsDiscord(channelId, { accountId })
-        : await listPinsDiscord(channelId);
+        ? await listPinsDiscord(channelId, { ...cfgOptions, accountId })
+        : await listPinsDiscord(channelId, cfgOptions);
       return jsonResult({ ok: true, pins: pins.map((pin) => normalizeMessage(pin)) });
     }
     case "searchMessages": {
@@ -603,15 +604,18 @@ export async function handleDiscordMessagingAction(
               authorIds: authorIdList.length ? authorIdList : undefined,
               limit,
             },
-            { accountId },
+            { ...cfgOptions, accountId },
           )
-        : await searchMessagesDiscord({
-            guildId,
-            content,
-            channelIds: channelIdList.length ? channelIdList : undefined,
-            authorIds: authorIdList.length ? authorIdList : undefined,
-            limit,
-          });
+        : await searchMessagesDiscord(
+            {
+              guildId,
+              content,
+              channelIds: channelIdList.length ? channelIdList : undefined,
+              authorIds: authorIdList.length ? authorIdList : undefined,
+              limit,
+            },
+            cfgOptions,
+          );
       if (!results || typeof results !== "object") {
         return jsonResult({ ok: true, results });
       }

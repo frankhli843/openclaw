@@ -3,9 +3,10 @@ import { resolveAckReaction } from "../../../../src/agents/identity.js";
 import {
   createChannelInboundDebouncer,
   shouldDebounceTextInbound,
-} from "../../../../src/channels/inbound-debounce-policy.js";
-import { resolveOpenProviderRuntimeGroupPolicy } from "../../../../src/config/runtime-group-policy.js";
-import { danger, logVerbose } from "../../../../src/globals.js";
+} from "openclaw/plugin-sdk/channel-runtime";
+import { resolveOpenProviderRuntimeGroupPolicy } from "openclaw/plugin-sdk/config-runtime";
+import { danger, logVerbose } from "openclaw/plugin-sdk/runtime-env";
+// [frankclaw] Early ack reaction import
 import { reactMessageDiscord } from "../send.reactions.js";
 import { buildDiscordInboundJob } from "./inbound-job.js";
 import { createDiscordInboundWorker } from "./inbound-worker.js";
