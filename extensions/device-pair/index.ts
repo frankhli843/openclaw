@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import os from "node:os";
+import qrcode from "qrcode-terminal";
 import {
   approveDevicePairing,
   definePluginEntry,
@@ -9,8 +10,7 @@ import {
   runPluginCommandWithTimeout,
   resolveTailnetHostWithRunner,
   type OpenClawPluginApi,
-} from "openclaw/plugin-sdk/device-pair";
-import qrcode from "qrcode-terminal";
+} from "./api.js";
 import {
   armPairNotifyOnce,
   formatPendingRequests,
