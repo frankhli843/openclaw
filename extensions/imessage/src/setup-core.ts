@@ -1,11 +1,8 @@
 import {
-  createCliPathTextInput,
-  createDelegatedSetupWizardProxy,
-  createDelegatedTextInputShouldPrompt,
   createPatchedAccountSetupAdapter,
+  formatDocsLink,
   parseSetupEntriesAllowingWildcard,
-  promptParsedAllowFromForAccount,
-  setAccountAllowFromForChannel,
+  promptParsedAllowFromForScopedChannel,
   setChannelDmPolicyWithAllowFrom,
   setSetupChannelEnabled,
   type OpenClawConfig,
@@ -17,7 +14,6 @@ import type {
   ChannelSetupWizard,
   ChannelSetupWizardTextInput,
 } from "openclaw/plugin-sdk/setup";
-import { formatDocsLink } from "openclaw/plugin-sdk/setup-tools";
 import {
   listIMessageAccountIds,
   resolveDefaultIMessageAccountId,
@@ -75,8 +71,9 @@ export async function promptIMessageAllowFrom(params: {
   prompter: WizardPrompter;
   accountId?: string;
 }): Promise<OpenClawConfig> {
-  return promptParsedAllowFromForAccount({
+  return promptParsedAllowFromForScopedChannel({
     cfg: params.cfg,
+    channel,
     accountId: params.accountId,
     defaultAccountId: resolveDefaultIMessageAccountId(params.cfg),
     prompter: params.prompter,
@@ -96,13 +93,6 @@ export async function promptIMessageAllowFrom(params: {
     parseEntries: parseIMessageAllowFromEntries,
     getExistingAllowFrom: ({ cfg, accountId }) =>
       resolveIMessageAccount({ cfg, accountId }).config.allowFrom ?? [],
-    applyAllowFrom: ({ cfg, accountId, allowFrom }) =>
-      setAccountAllowFromForChannel({
-        cfg,
-        channel,
-        accountId,
-        allowFrom,
-      }),
   });
 }
 
@@ -128,14 +118,17 @@ function resolveIMessageCliPath(params: { cfg: OpenClawConfig; accountId: string
 export function createIMessageCliPathTextInput(
   shouldPrompt: NonNullable<ChannelSetupWizardTextInput["shouldPrompt"]>,
 ): ChannelSetupWizardTextInput {
-  return createCliPathTextInput({
+  return {
     inputKey: "cliPath",
     message: "imsg CLI path",
-    resolvePath: ({ cfg, accountId }) => resolveIMessageCliPath({ cfg, accountId }),
+    initialValue: ({ cfg, accountId }) => resolveIMessageCliPath({ cfg, accountId }),
+    currentValue: ({ cfg, accountId }) => resolveIMessageCliPath({ cfg, accountId }),
     shouldPrompt,
+    confirmCurrentValue: false,
+    applyCurrentValue: true,
     helpTitle: "iMessage",
     helpLines: ["imsg CLI path required to enable iMessage."],
-  });
+  };
 }
 
 export const imessageCompletionNote = {
@@ -174,29 +167,31 @@ export const imessageSetupStatusBase = {
     }),
 };
 
-export function createIMessageSetupWizardProxy(loadWizard: () => Promise<ChannelSetupWizard>) {
-  return createDelegatedSetupWizardProxy({
+export function createIMessageSetupWizardProxy(
+  loadWizard: () => Promise<{ imessageSetupWizard: ChannelSetupWizard }>,
+) {
+  return {
     channel,
-    loadWizard,
     status: {
-      configuredLabel: imessageSetupStatusBase.configuredLabel,
-      unconfiguredLabel: imessageSetupStatusBase.unconfiguredLabel,
-      configuredHint: imessageSetupStatusBase.configuredHint,
-      unconfiguredHint: imessageSetupStatusBase.unconfiguredHint,
-      configuredScore: imessageSetupStatusBase.configuredScore,
-      unconfiguredScore: imessageSetupStatusBase.unconfiguredScore,
+      ...imessageSetupStatusBase,
+      resolveStatusLines: async (params) =>
+        (await loadWizard()).imessageSetupWizard.status.resolveStatusLines?.(params) ?? [],
+      resolveSelectionHint: async (params) =>
+        await (await loadWizard()).imessageSetupWizard.status.resolveSelectionHint?.(params),
+      resolveQuickstartScore: async (params) =>
+        await (await loadWizard()).imessageSetupWizard.status.resolveQuickstartScore?.(params),
     },
     credentials: [],
     textInputs: [
-      createIMessageCliPathTextInput(
-        createDelegatedTextInputShouldPrompt({
-          loadWizard,
-          inputKey: "cliPath",
-        }),
-      ),
+      createIMessageCliPathTextInput(async (params) => {
+        const input = (await loadWizard()).imessageSetupWizard.textInputs?.find(
+          (entry) => entry.inputKey === "cliPath",
+        );
+        return (await input?.shouldPrompt?.(params)) ?? false;
+      }),
     ],
     completionNote: imessageCompletionNote,
     dmPolicy: imessageDmPolicy,
     disable: (cfg: OpenClawConfig) => setSetupChannelEnabled(cfg, channel, false),
-  });
+  } satisfies ChannelSetupWizard;
 }

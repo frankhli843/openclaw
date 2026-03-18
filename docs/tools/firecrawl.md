@@ -28,22 +28,20 @@ which helps with JS-heavy sites or pages that block plain HTTP fetches.
 
 ```json5
 {
-  tools: {
-    web: {
-      search: {
-        provider: "firecrawl",
-      },
-    },
-  },
   plugins: {
     entries: {
       firecrawl: {
         enabled: true,
-        config: {
-          webSearch: {
-            apiKey: "FIRECRAWL_API_KEY_HERE",
-            baseUrl: "https://api.firecrawl.dev",
-          },
+      },
+    },
+  },
+  tools: {
+    web: {
+      search: {
+        provider: "firecrawl",
+        firecrawl: {
+          apiKey: "FIRECRAWL_API_KEY_HERE",
+          baseUrl: "https://api.firecrawl.dev",
         },
       },
     },

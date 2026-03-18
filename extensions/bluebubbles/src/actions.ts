@@ -1,6 +1,3 @@
-import { createLazyRuntimeNamedExport } from "openclaw/plugin-sdk/lazy-runtime";
-import { resolveBlueBubblesAccount } from "./accounts.js";
-import { getCachedBlueBubblesPrivateApiStatus, isMacOS26OrHigher } from "./probe.js";
 import {
   BLUEBUBBLES_ACTION_NAMES,
   BLUEBUBBLES_ACTIONS,
@@ -13,18 +10,19 @@ import {
   readStringParam,
   type ChannelMessageActionAdapter,
   type ChannelMessageActionName,
-} from "./runtime-api.js";
+} from "openclaw/plugin-sdk/bluebubbles";
+import { createLazyRuntimeSurface } from "../../../src/shared/lazy-runtime.js";
+import { resolveBlueBubblesAccount } from "./accounts.js";
+import { getCachedBlueBubblesPrivateApiStatus, isMacOS26OrHigher } from "./probe.js";
 import { normalizeSecretInputString } from "./secret-input.js";
-import {
-  normalizeBlueBubblesHandle,
-  normalizeBlueBubblesMessagingTarget,
-  parseBlueBubblesTarget,
-} from "./targets.js";
+import { normalizeBlueBubblesHandle, parseBlueBubblesTarget } from "./targets.js";
 import type { BlueBubblesSendTarget } from "./types.js";
 
-const loadBlueBubblesActionsRuntime = createLazyRuntimeNamedExport(
+type BlueBubblesActionsRuntime = typeof import("./actions.runtime.js").blueBubblesActionsRuntime;
+
+const loadBlueBubblesActionsRuntime = createLazyRuntimeSurface(
   () => import("./actions.runtime.js"),
-  "blueBubblesActionsRuntime",
+  ({ blueBubblesActionsRuntime }) => blueBubblesActionsRuntime,
 );
 
 const providerId = "bluebubbles";
@@ -67,10 +65,10 @@ const PRIVATE_API_ACTIONS = new Set<ChannelMessageActionName>([
 ]);
 
 export const bluebubblesMessageActions: ChannelMessageActionAdapter = {
-  describeMessageTool: ({ cfg, currentChannelId }) => {
+  listActions: ({ cfg }) => {
     const account = resolveBlueBubblesAccount({ cfg: cfg });
     if (!account.enabled || !account.configured) {
-      return null;
+      return [];
     }
     const gate = createActionGate(cfg.channels?.bluebubbles?.actions);
     const actions = new Set<ChannelMessageActionName>();
@@ -91,23 +89,7 @@ export const bluebubblesMessageActions: ChannelMessageActionAdapter = {
         actions.add(action);
       }
     }
-    const normalizedTarget = currentChannelId
-      ? normalizeBlueBubblesMessagingTarget(currentChannelId)
-      : undefined;
-    const lowered = normalizedTarget?.trim().toLowerCase() ?? "";
-    const isGroupTarget =
-      lowered.startsWith("chat_guid:") ||
-      lowered.startsWith("chat_id:") ||
-      lowered.startsWith("chat_identifier:") ||
-      lowered.startsWith("group:");
-    if (!isGroupTarget) {
-      for (const action of BLUEBUBBLES_ACTION_NAMES) {
-        if ("groupOnly" in BLUEBUBBLES_ACTIONS[action] && BLUEBUBBLES_ACTIONS[action].groupOnly) {
-          actions.delete(action);
-        }
-      }
-    }
-    return { actions: Array.from(actions) };
+    return Array.from(actions);
   },
   supportsAction: ({ action }) => SUPPORTED_ACTIONS.has(action),
   extractToolSend: ({ args }) => extractToolSend(args, "sendMessage"),

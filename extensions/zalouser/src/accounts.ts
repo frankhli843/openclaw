@@ -1,6 +1,5 @@
-import { createAccountListHelpers } from "openclaw/plugin-sdk/account-helpers";
 import { DEFAULT_ACCOUNT_ID, normalizeAccountId } from "openclaw/plugin-sdk/account-id";
-import type { OpenClawConfig } from "../runtime-api.js";
+import { createAccountListHelpers, type OpenClawConfig } from "openclaw/plugin-sdk/zalouser";
 import type { ResolvedZalouserAccount, ZalouserAccountConfig, ZalouserConfig } from "./types.js";
 import { checkZaloAuthenticated, getZaloUserInfo } from "./zalo-js.js";
 
@@ -25,12 +24,7 @@ function mergeZalouserAccountConfig(cfg: OpenClawConfig, accountId: string): Zal
   const raw = (cfg.channels?.zalouser ?? {}) as ZalouserConfig;
   const { accounts: _ignored, defaultAccount: _ignored2, ...base } = raw;
   const account = resolveAccountConfig(cfg, accountId) ?? {};
-  const merged = { ...base, ...account };
-  return {
-    ...merged,
-    // Match Telegram's safe default: groups stay allowlisted unless explicitly opened.
-    groupPolicy: merged.groupPolicy ?? "allowlist",
-  };
+  return { ...base, ...account };
 }
 
 function resolveProfile(config: ZalouserAccountConfig, accountId: string): string {

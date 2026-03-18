@@ -11,19 +11,6 @@ function asConfig(value: unknown): OpenClawConfig {
   return value as OpenClawConfig;
 }
 
-function providerPluginId(provider: ProviderUnderTest): string {
-  switch (provider) {
-    case "gemini":
-      return "google";
-    case "grok":
-      return "xai";
-    case "kimi":
-      return "moonshot";
-    default:
-      return provider;
-  }
-}
-
 async function runRuntimeWebTools(params: { config: OpenClawConfig; env?: NodeJS.ProcessEnv }) {
   const sourceConfig = structuredClone(params.config);
   const resolvedConfig = structuredClone(params.config);
@@ -43,35 +30,40 @@ function createProviderSecretRefConfig(
   provider: ProviderUnderTest,
   envRefId: string,
 ): OpenClawConfig {
+  const search: Record<string, unknown> = {
+    enabled: true,
+    provider,
+  };
+  if (provider === "brave") {
+    search.apiKey = { source: "env", provider: "default", id: envRefId };
+  } else {
+    search[provider] = {
+      apiKey: { source: "env", provider: "default", id: envRefId },
+    };
+  }
   return asConfig({
     tools: {
       web: {
-        search: {
-          enabled: true,
-          provider,
-        },
-      },
-    },
-    plugins: {
-      entries: {
-        [providerPluginId(provider)]: {
-          enabled: true,
-          config: {
-            webSearch: {
-              apiKey: { source: "env", provider: "default", id: envRefId },
-            },
-          },
-        },
+        search,
       },
     },
   });
 }
 
 function readProviderKey(config: OpenClawConfig, provider: ProviderUnderTest): unknown {
-  const pluginConfig = config.plugins?.entries?.[providerPluginId(provider)]?.config as
-    | { webSearch?: { apiKey?: unknown } }
-    | undefined;
-  return pluginConfig?.webSearch?.apiKey;
+  if (provider === "brave") {
+    return config.tools?.web?.search?.apiKey;
+  }
+  if (provider === "gemini") {
+    return config.tools?.web?.search?.gemini?.apiKey;
+  }
+  if (provider === "grok") {
+    return config.tools?.web?.search?.grok?.apiKey;
+  }
+  if (provider === "kimi") {
+    return config.tools?.web?.search?.kimi?.apiKey;
+  }
+  return config.tools?.web?.search?.perplexity?.apiKey;
 }
 
 function expectInactiveFirecrawlSecretRef(params: {
@@ -179,40 +171,18 @@ describe("runtime web tools resolution", () => {
         tools: {
           web: {
             search: {
-              enabled: true,
-            },
-          },
-        },
-        plugins: {
-          entries: {
-            brave: {
-              enabled: true,
-              config: {
-                webSearch: { apiKey: { source: "env", provider: "default", id: "BRAVE_REF" } },
+              apiKey: { source: "env", provider: "default", id: "BRAVE_REF" },
+              gemini: {
+                apiKey: { source: "env", provider: "default", id: "GEMINI_REF" },
               },
-            },
-            google: {
-              enabled: true,
-              config: {
-                webSearch: { apiKey: { source: "env", provider: "default", id: "GEMINI_REF" } },
+              grok: {
+                apiKey: { source: "env", provider: "default", id: "GROK_REF" },
               },
-            },
-            xai: {
-              enabled: true,
-              config: {
-                webSearch: { apiKey: { source: "env", provider: "default", id: "GROK_REF" } },
+              kimi: {
+                apiKey: { source: "env", provider: "default", id: "KIMI_REF" },
               },
-            },
-            moonshot: {
-              enabled: true,
-              config: {
-                webSearch: { apiKey: { source: "env", provider: "default", id: "KIMI_REF" } },
-              },
-            },
-            perplexity: {
-              enabled: true,
-              config: {
-                webSearch: { apiKey: { source: "env", provider: "default", id: "PERPLEXITY_REF" } },
+              perplexity: {
+                apiKey: { source: "env", provider: "default", id: "PERPLEXITY_REF" },
               },
             },
           },
@@ -229,13 +199,13 @@ describe("runtime web tools resolution", () => {
 
     expect(metadata.search.providerSource).toBe("auto-detect");
     expect(metadata.search.selectedProvider).toBe("brave");
-    expect(readProviderKey(resolvedConfig, "brave")).toBe("brave-precedence-key");
+    expect(resolvedConfig.tools?.web?.search?.apiKey).toBe("brave-precedence-key");
     expect(context.warnings).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ path: "plugins.entries.google.config.webSearch.apiKey" }),
-        expect.objectContaining({ path: "plugins.entries.xai.config.webSearch.apiKey" }),
-        expect.objectContaining({ path: "plugins.entries.moonshot.config.webSearch.apiKey" }),
-        expect.objectContaining({ path: "plugins.entries.perplexity.config.webSearch.apiKey" }),
+        expect.objectContaining({ path: "tools.web.search.gemini.apiKey" }),
+        expect.objectContaining({ path: "tools.web.search.grok.apiKey" }),
+        expect.objectContaining({ path: "tools.web.search.kimi.apiKey" }),
+        expect.objectContaining({ path: "tools.web.search.perplexity.apiKey" }),
       ]),
     );
   });
@@ -246,25 +216,12 @@ describe("runtime web tools resolution", () => {
         tools: {
           web: {
             search: {
-              enabled: true,
-            },
-          },
-        },
-        plugins: {
-          entries: {
-            brave: {
-              enabled: true,
-              config: {
-                webSearch: {
-                  apiKey: { source: "env", provider: "default", id: "BRAVE_API_KEY_REF" },
-                },
-              },
-            },
-            google: {
-              enabled: true,
-              config: {
-                webSearch: {
-                  apiKey: { source: "env", provider: "default", id: "MISSING_GEMINI_API_KEY_REF" },
+              apiKey: { source: "env", provider: "default", id: "BRAVE_API_KEY_REF" },
+              gemini: {
+                apiKey: {
+                  source: "env",
+                  provider: "default",
+                  id: "MISSING_GEMINI_API_KEY_REF",
                 },
               },
             },
@@ -279,8 +236,8 @@ describe("runtime web tools resolution", () => {
     expect(metadata.search.providerSource).toBe("auto-detect");
     expect(metadata.search.selectedProvider).toBe("brave");
     expect(metadata.search.selectedProviderKeySource).toBe("secretRef");
-    expect(readProviderKey(resolvedConfig, "brave")).toBe("brave-runtime-key");
-    expect(readProviderKey(resolvedConfig, "gemini")).toEqual({
+    expect(resolvedConfig.tools?.web?.search?.apiKey).toBe("brave-runtime-key");
+    expect(resolvedConfig.tools?.web?.search?.gemini?.apiKey).toEqual({
       source: "env",
       provider: "default",
       id: "MISSING_GEMINI_API_KEY_REF",
@@ -289,7 +246,7 @@ describe("runtime web tools resolution", () => {
       expect.arrayContaining([
         expect.objectContaining({
           code: "SECRETS_REF_IGNORED_INACTIVE_SURFACE",
-          path: "plugins.entries.google.config.webSearch.apiKey",
+          path: "tools.web.search.gemini.apiKey",
         }),
       ]),
     );
@@ -304,26 +261,9 @@ describe("runtime web tools resolution", () => {
         tools: {
           web: {
             search: {
-              enabled: true,
-            },
-          },
-        },
-        plugins: {
-          entries: {
-            brave: {
-              enabled: true,
-              config: {
-                webSearch: {
-                  apiKey: { source: "env", provider: "default", id: "MISSING_BRAVE_API_KEY_REF" },
-                },
-              },
-            },
-            google: {
-              enabled: true,
-              config: {
-                webSearch: {
-                  apiKey: { source: "env", provider: "default", id: "GEMINI_API_KEY_REF" },
-                },
+              apiKey: { source: "env", provider: "default", id: "MISSING_BRAVE_API_KEY_REF" },
+              gemini: {
+                apiKey: { source: "env", provider: "default", id: "GEMINI_API_KEY_REF" },
               },
             },
           },
@@ -336,12 +276,12 @@ describe("runtime web tools resolution", () => {
 
     expect(metadata.search.providerSource).toBe("auto-detect");
     expect(metadata.search.selectedProvider).toBe("gemini");
-    expect(readProviderKey(resolvedConfig, "gemini")).toBe("gemini-runtime-key");
+    expect(resolvedConfig.tools?.web?.search?.gemini?.apiKey).toBe("gemini-runtime-key");
     expect(context.warnings).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           code: "SECRETS_REF_IGNORED_INACTIVE_SURFACE",
-          path: "plugins.entries.brave.config.webSearch.apiKey",
+          path: "tools.web.search.apiKey",
         }),
       ]),
     );
@@ -357,17 +297,8 @@ describe("runtime web tools resolution", () => {
           web: {
             search: {
               provider: "invalid-provider",
-            },
-          },
-        },
-        plugins: {
-          entries: {
-            google: {
-              enabled: true,
-              config: {
-                webSearch: {
-                  apiKey: { source: "env", provider: "default", id: "GEMINI_API_KEY_REF" },
-                },
+              gemini: {
+                apiKey: { source: "env", provider: "default", id: "GEMINI_API_KEY_REF" },
               },
             },
           },
@@ -381,7 +312,7 @@ describe("runtime web tools resolution", () => {
     expect(metadata.search.providerConfigured).toBeUndefined();
     expect(metadata.search.providerSource).toBe("auto-detect");
     expect(metadata.search.selectedProvider).toBe("gemini");
-    expect(readProviderKey(resolvedConfig, "gemini")).toBe("gemini-runtime-key");
+    expect(resolvedConfig.tools?.web?.search?.gemini?.apiKey).toBe("gemini-runtime-key");
     expect(metadata.search.diagnostics).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -406,17 +337,8 @@ describe("runtime web tools resolution", () => {
         web: {
           search: {
             provider: "gemini",
-          },
-        },
-      },
-      plugins: {
-        entries: {
-          google: {
-            enabled: true,
-            config: {
-              webSearch: {
-                apiKey: { source: "env", provider: "default", id: "MISSING_GEMINI_API_KEY_REF" },
-              },
+            gemini: {
+              apiKey: { source: "env", provider: "default", id: "MISSING_GEMINI_API_KEY_REF" },
             },
           },
         },
@@ -439,7 +361,7 @@ describe("runtime web tools resolution", () => {
       expect.arrayContaining([
         expect.objectContaining({
           code: "WEB_SEARCH_KEY_UNRESOLVED_NO_FALLBACK",
-          path: "plugins.entries.google.config.webSearch.apiKey",
+          path: "tools.web.search.gemini.apiKey",
         }),
       ]),
     );

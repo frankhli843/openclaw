@@ -1,7 +1,7 @@
 ---
 summary: "Plugin manifest + JSON schema requirements (strict config validation)"
 read_when:
-  - You are building an OpenClaw plugin
+  - You are building a OpenClaw plugin
   - You need to ship a plugin config schema or debug plugin validation errors
 title: "Plugin Manifest"
 ---
@@ -32,8 +32,6 @@ Every native OpenClaw plugin **must** ship a `openclaw.plugin.json` file in the
 plugin errors and block config validation.
 
 See the full plugin system guide: [Plugins](/tools/plugin).
-For the native capability model and current external-compatibility guidance:
-[Capability model](/tools/plugin#public-capability-model).
 
 ## Required fields
 
@@ -56,8 +54,8 @@ Required keys:
 Optional keys:
 
 - `kind` (string): plugin kind (examples: `"memory"`, `"context-engine"`).
-- `channels` (array): channel ids registered by this plugin (channel capability; example: `["matrix"]`).
-- `providers` (array): provider ids registered by this plugin (text inference capability).
+- `channels` (array): channel ids registered by this plugin (example: `["matrix"]`).
+- `providers` (array): provider ids registered by this plugin.
 - `providerAuthEnvVars` (object): auth env vars keyed by provider id. Use this
   when OpenClaw should resolve provider credentials from env without loading
   plugin runtime first.
@@ -121,8 +119,6 @@ Example:
 - If plugin config exists but the plugin is **disabled**, the config is kept and
   a **warning** is surfaced in Doctor + logs.
 
-See [Configuration reference](/configuration) for the full `plugins.*` schema.
-
 ## Notes
 
 - The manifest is **required for native OpenClaw plugins**, including local filesystem loads.
@@ -133,9 +129,7 @@ See [Configuration reference](/configuration) for the full `plugins.*` schema.
   runtime just to inspect env names.
 - `providerAuthChoices` is the cheap metadata path for auth-choice pickers,
   `--auth-choice` resolution, preferred-provider mapping, and simple onboarding
-  CLI flag registration before provider runtime loads. For runtime wizard
-  metadata that requires provider code, see
-  [Provider runtime hooks](/tools/plugin#provider-runtime-hooks).
+  CLI flag registration before provider runtime loads.
 - Exclusive plugin kinds are selected through `plugins.slots.*`.
   - `kind: "memory"` is selected by `plugins.slots.memory`.
   - `kind: "context-engine"` is selected by `plugins.slots.contextEngine`

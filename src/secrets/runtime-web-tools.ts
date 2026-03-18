@@ -1,9 +1,5 @@
 import type { OpenClawConfig } from "../config/config.js";
 import { resolveSecretInputRef } from "../config/types.secrets.js";
-import type {
-  PluginWebSearchProviderEntry,
-  WebSearchCredentialResolutionSource,
-} from "../plugins/types.js";
 import { resolvePluginWebSearchProviders } from "../plugins/web-search-providers.js";
 import { normalizeSecretInput } from "../utils/normalize-secret-input.js";
 import { secretRefKey } from "./ref-contract.js";
@@ -22,8 +18,14 @@ import type {
   RuntimeWebToolsMetadata,
 } from "./runtime-web-tools.types.js";
 
+const PERPLEXITY_DIRECT_BASE_URL = "https://api.perplexity.ai";
+const DEFAULT_PERPLEXITY_BASE_URL = "https://openrouter.ai/api/v1";
+const PERPLEXITY_KEY_PREFIXES = ["pplx-"];
+const OPENROUTER_KEY_PREFIXES = ["sk-or-"];
+
 type WebSearchProvider = string;
 
+type SecretResolutionSource = "config" | "secretRef" | "env" | "missing"; // pragma: allowlist secret
 export type {
   RuntimeWebDiagnostic,
   RuntimeWebDiagnosticCode,
@@ -40,7 +42,7 @@ type FetchConfig = NonNullable<OpenClawConfig["tools"]>["web"] extends infer Web
 
 type SecretResolutionResult = {
   value?: string;
-  source: WebSearchCredentialResolutionSource;
+  source: SecretResolutionSource;
   secretRefConfigured: boolean;
   unresolvedRefReason?: string;
   fallbackEnvVar?: string;
@@ -196,6 +198,60 @@ async function resolveSecretInputWithEnvFallback(params: {
   };
 }
 
+function inferPerplexityBaseUrlFromApiKey(apiKey?: string): "direct" | "openrouter" | undefined {
+  if (!apiKey) {
+    return undefined;
+  }
+  const normalized = apiKey.toLowerCase();
+  if (PERPLEXITY_KEY_PREFIXES.some((prefix) => normalized.startsWith(prefix))) {
+    return "direct";
+  }
+  if (OPENROUTER_KEY_PREFIXES.some((prefix) => normalized.startsWith(prefix))) {
+    return "openrouter";
+  }
+  return undefined;
+}
+
+function resolvePerplexityRuntimeTransport(params: {
+  keyValue?: string;
+  keySource: SecretResolutionSource;
+  fallbackEnvVar?: string;
+  configValue: unknown;
+}): "search_api" | "chat_completions" | undefined {
+  const config = isRecord(params.configValue) ? params.configValue : undefined;
+  const configuredBaseUrl = typeof config?.baseUrl === "string" ? config.baseUrl.trim() : "";
+  const configuredModel = typeof config?.model === "string" ? config.model.trim() : "";
+
+  const baseUrl = (() => {
+    if (configuredBaseUrl) {
+      return configuredBaseUrl;
+    }
+    if (params.keySource === "env") {
+      if (params.fallbackEnvVar === "PERPLEXITY_API_KEY") {
+        return PERPLEXITY_DIRECT_BASE_URL;
+      }
+      if (params.fallbackEnvVar === "OPENROUTER_API_KEY") {
+        return DEFAULT_PERPLEXITY_BASE_URL;
+      }
+    }
+    if ((params.keySource === "config" || params.keySource === "secretRef") && params.keyValue) {
+      const inferred = inferPerplexityBaseUrlFromApiKey(params.keyValue);
+      return inferred === "openrouter" ? DEFAULT_PERPLEXITY_BASE_URL : PERPLEXITY_DIRECT_BASE_URL;
+    }
+    return DEFAULT_PERPLEXITY_BASE_URL;
+  })();
+
+  const hasLegacyOverride = Boolean(configuredBaseUrl || configuredModel);
+  const direct = (() => {
+    try {
+      return new URL(baseUrl).hostname.toLowerCase() === "api.perplexity.ai";
+    } catch {
+      return false;
+    }
+  })();
+  return hasLegacyOverride || !direct ? "chat_completions" : "search_api";
+}
+
 function ensureObject(target: Record<string, unknown>, key: string): Record<string, unknown> {
   const current = target[key];
   if (isRecord(current)) {
@@ -221,9 +277,6 @@ function setResolvedWebSearchApiKey(params: {
     env: params.env,
     bundledAllowlistCompat: true,
   }).find((entry) => entry.id === params.provider);
-  if (provider?.setConfiguredCredentialValue) {
-    provider.setConfiguredCredentialValue(params.resolvedConfig, params.value);
-  }
   provider?.setCredentialValue(search, params.value);
 }
 
@@ -238,14 +291,8 @@ function setResolvedFirecrawlApiKey(params: {
   firecrawl.apiKey = params.value;
 }
 
-function keyPathForProvider(provider: PluginWebSearchProviderEntry): string {
-  return provider.credentialPath;
-}
-
-function inactivePathsForProvider(provider: PluginWebSearchProviderEntry): string[] {
-  return provider.inactiveSecretPaths?.length
-    ? provider.inactiveSecretPaths
-    : [provider.credentialPath];
+function keyPathForProvider(provider: WebSearchProvider): string {
+  return provider === "brave" ? "tools.web.search.apiKey" : `tools.web.search.${provider}.apiKey`;
 }
 
 function hasConfiguredSecretRef(value: unknown, defaults: SecretDefaults | undefined): boolean {
@@ -320,10 +367,8 @@ export async function resolveRuntimeWebTools(params: {
     let selectedResolution: SecretResolutionResult | undefined;
 
     for (const provider of candidates) {
-      const path = keyPathForProvider(provider);
-      const value =
-        provider.getConfiguredCredentialValue?.(params.sourceConfig) ??
-        provider.getCredentialValue(search);
+      const path = keyPathForProvider(provider.id);
+      const value = provider.getCredentialValue(search);
       const resolution = await resolveSecretInputWithEnvFallback({
         sourceConfig: params.sourceConfig,
         context: params.context,
@@ -430,23 +475,13 @@ export async function resolveRuntimeWebTools(params: {
       if (!configuredProvider) {
         searchMetadata.providerSource = "auto-detect";
       }
-      const provider = providers.find((entry) => entry.id === selectedProvider);
-      if (provider?.resolveRuntimeMetadata) {
-        Object.assign(
-          searchMetadata,
-          await provider.resolveRuntimeMetadata({
-            config: params.sourceConfig,
-            searchConfig: search,
-            runtimeMetadata: searchMetadata,
-            resolvedCredential: selectedResolution
-              ? {
-                  value: selectedResolution.value,
-                  source: selectedResolution.source,
-                  fallbackEnvVar: selectedResolution.fallbackEnvVar,
-                }
-              : undefined,
-          }),
-        );
+      if (selectedProvider === "perplexity") {
+        searchMetadata.perplexityTransport = resolvePerplexityRuntimeTransport({
+          keyValue: selectedResolution?.value,
+          keySource: selectedResolution?.source ?? "missing",
+          fallbackEnvVar: selectedResolution?.fallbackEnvVar,
+          configValue: search.perplexity,
+        });
       }
     }
   }
@@ -456,35 +491,29 @@ export async function resolveRuntimeWebTools(params: {
       if (provider.id === searchMetadata.selectedProvider) {
         continue;
       }
-      const value =
-        provider.getConfiguredCredentialValue?.(params.sourceConfig) ??
-        provider.getCredentialValue(search);
+      const path = keyPathForProvider(provider.id);
+      const value = provider.getCredentialValue(search);
       if (!hasConfiguredSecretRef(value, defaults)) {
         continue;
       }
-      for (const path of inactivePathsForProvider(provider)) {
-        pushInactiveSurfaceWarning({
-          context: params.context,
-          path,
-          details: `tools.web.search auto-detected provider is "${searchMetadata.selectedProvider}".`,
-        });
-      }
+      pushInactiveSurfaceWarning({
+        context: params.context,
+        path,
+        details: `tools.web.search auto-detected provider is "${searchMetadata.selectedProvider}".`,
+      });
     }
   } else if (search && !searchEnabled) {
     for (const provider of providers) {
-      const value =
-        provider.getConfiguredCredentialValue?.(params.sourceConfig) ??
-        provider.getCredentialValue(search);
+      const path = keyPathForProvider(provider.id);
+      const value = provider.getCredentialValue(search);
       if (!hasConfiguredSecretRef(value, defaults)) {
         continue;
       }
-      for (const path of inactivePathsForProvider(provider)) {
-        pushInactiveSurfaceWarning({
-          context: params.context,
-          path,
-          details: "tools.web.search is disabled.",
-        });
-      }
+      pushInactiveSurfaceWarning({
+        context: params.context,
+        path,
+        details: "tools.web.search is disabled.",
+      });
     }
   }
 
@@ -493,19 +522,16 @@ export async function resolveRuntimeWebTools(params: {
       if (provider.id === configuredProvider) {
         continue;
       }
-      const value =
-        provider.getConfiguredCredentialValue?.(params.sourceConfig) ??
-        provider.getCredentialValue(search);
+      const path = keyPathForProvider(provider.id);
+      const value = provider.getCredentialValue(search);
       if (!hasConfiguredSecretRef(value, defaults)) {
         continue;
       }
-      for (const path of inactivePathsForProvider(provider)) {
-        pushInactiveSurfaceWarning({
-          context: params.context,
-          path,
-          details: `tools.web.search.provider is "${configuredProvider}".`,
-        });
-      }
+      pushInactiveSurfaceWarning({
+        context: params.context,
+        path,
+        details: `tools.web.search.provider is "${configuredProvider}".`,
+      });
     }
   }
 

@@ -256,7 +256,6 @@ async function runResponsesAgentCommand(params: {
       bestEffortDeliver: false,
       // HTTP API callers are authenticated operator clients for this gateway context.
       senderIsOwner: true,
-      allowModelOverride: true,
     },
     defaultRuntime,
     params.deps,

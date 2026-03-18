@@ -17,10 +17,6 @@ import {
   withMockedGlobalFetch,
 } from "./mattermost/reactions.test-helpers.js";
 
-function getDescribedActions(cfg: OpenClawConfig): string[] {
-  return [...(mattermostPlugin.actions?.describeMessageTool?.({ cfg })?.actions ?? [])];
-}
-
 describe("mattermostPlugin", () => {
   beforeEach(() => {
     sendMessageMattermostMock.mockReset();
@@ -136,7 +132,7 @@ describe("mattermostPlugin", () => {
         },
       };
 
-      const actions = getDescribedActions(cfg);
+      const actions = mattermostPlugin.actions?.listActions?.({ cfg }) ?? [];
       expect(actions).toContain("react");
       expect(actions).toContain("send");
       expect(mattermostPlugin.actions?.supportsAction?.({ action: "react" })).toBe(true);
@@ -152,7 +148,7 @@ describe("mattermostPlugin", () => {
         },
       };
 
-      const actions = getDescribedActions(cfg);
+      const actions = mattermostPlugin.actions?.listActions?.({ cfg }) ?? [];
       expect(actions).toEqual([]);
     });
 
@@ -168,12 +164,12 @@ describe("mattermostPlugin", () => {
         },
       };
 
-      const actions = getDescribedActions(cfg);
+      const actions = mattermostPlugin.actions?.listActions?.({ cfg }) ?? [];
       expect(actions).not.toContain("react");
       expect(actions).toContain("send");
     });
 
-    it("respects per-account actions.reactions in message discovery", () => {
+    it("respects per-account actions.reactions in listActions", () => {
       const cfg: OpenClawConfig = {
         channels: {
           mattermost: {
@@ -191,7 +187,7 @@ describe("mattermostPlugin", () => {
         },
       };
 
-      const actions = getDescribedActions(cfg);
+      const actions = mattermostPlugin.actions?.listActions?.({ cfg }) ?? [];
       expect(actions).toContain("react");
     });
 

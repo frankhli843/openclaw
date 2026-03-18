@@ -1,16 +1,16 @@
 import {
+  addWildcardAllowFrom,
   buildSingleChannelSecretPromptState,
-  createNestedChannelDmPolicy,
-  createTopLevelChannelGroupPolicySetter,
   DEFAULT_ACCOUNT_ID,
   formatDocsLink,
   formatResolvedUnresolvedNote,
   hasConfiguredSecretInput,
   mergeAllowFromEntries,
-  patchNestedChannelConfigSection,
   promptSingleChannelSecretInput,
+  setTopLevelChannelGroupPolicy,
   type ChannelSetupDmPolicy,
   type ChannelSetupWizard,
+  type DmPolicy,
   type OpenClawConfig,
   type SecretInput,
   type WizardPrompter,
@@ -23,10 +23,25 @@ import { buildMatrixConfigUpdate, matrixSetupAdapter } from "./setup-core.js";
 import type { CoreConfig } from "./types.js";
 
 const channel = "matrix" as const;
-const setMatrixGroupPolicy = createTopLevelChannelGroupPolicySetter({
-  channel,
-  enabled: true,
-});
+
+function setMatrixDmPolicy(cfg: CoreConfig, policy: DmPolicy) {
+  const allowFrom =
+    policy === "open" ? addWildcardAllowFrom(cfg.channels?.matrix?.dm?.allowFrom) : undefined;
+  return {
+    ...cfg,
+    channels: {
+      ...cfg.channels,
+      matrix: {
+        ...cfg.channels?.matrix,
+        dm: {
+          ...cfg.channels?.matrix?.dm,
+          policy,
+          ...(allowFrom ? { allowFrom } : {}),
+        },
+      },
+    },
+  };
+}
 
 async function noteMatrixAuthHelp(prompter: WizardPrompter): Promise<void> {
   await prompter.note(
@@ -113,17 +128,31 @@ async function promptMatrixAllowFrom(params: {
     }
 
     const unique = mergeAllowFromEntries(existingAllowFrom, resolvedIds);
-    return patchNestedChannelConfigSection({
-      cfg,
-      channel,
-      section: "dm",
-      enabled: true,
-      patch: {
-        policy: "allowlist",
-        allowFrom: unique,
+    return {
+      ...cfg,
+      channels: {
+        ...cfg.channels,
+        matrix: {
+          ...cfg.channels?.matrix,
+          enabled: true,
+          dm: {
+            ...cfg.channels?.matrix?.dm,
+            policy: "allowlist",
+            allowFrom: unique,
+          },
+        },
       },
-    }) as CoreConfig;
+    };
   }
+}
+
+function setMatrixGroupPolicy(cfg: CoreConfig, groupPolicy: "open" | "allowlist" | "disabled") {
+  return setTopLevelChannelGroupPolicy({
+    cfg,
+    channel: "matrix",
+    groupPolicy,
+    enabled: true,
+  }) as CoreConfig;
 }
 
 function setMatrixGroupRooms(cfg: CoreConfig, roomKeys: string[]) {
@@ -213,16 +242,15 @@ const matrixGroupAccess: NonNullable<ChannelSetupWizard["groupAccess"]> = {
     setMatrixGroupRooms(cfg as CoreConfig, resolved as string[]),
 };
 
-const matrixDmPolicy: ChannelSetupDmPolicy = createNestedChannelDmPolicy({
+const matrixDmPolicy: ChannelSetupDmPolicy = {
   label: "Matrix",
   channel,
-  section: "dm",
   policyKey: "channels.matrix.dm.policy",
   allowFromKey: "channels.matrix.dm.allowFrom",
   getCurrent: (cfg) => (cfg as CoreConfig).channels?.matrix?.dm?.policy ?? "pairing",
+  setPolicy: (cfg, policy) => setMatrixDmPolicy(cfg as CoreConfig, policy),
   promptAllowFrom: promptMatrixAllowFrom,
-  enabled: true,
-});
+};
 
 export { matrixSetupAdapter } from "./setup-core.js";
 

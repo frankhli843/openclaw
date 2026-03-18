@@ -1,4 +1,8 @@
-import { definePluginEntry, type OpenClawConfig, type OpenClawPluginApi } from "./api.js";
+import {
+  definePluginEntry,
+  type OpenClawConfig,
+  type OpenClawPluginApi,
+} from "openclaw/plugin-sdk/thread-ownership";
 
 type ThreadOwnershipConfig = {
   forwarderUrl?: string;

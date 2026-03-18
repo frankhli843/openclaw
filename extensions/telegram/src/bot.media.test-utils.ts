@@ -1,5 +1,6 @@
 import * as ssrf from "openclaw/plugin-sdk/infra-runtime";
 import { afterEach, beforeAll, beforeEach, expect, vi, type Mock } from "vitest";
+import { onSpy, sendChatActionSpy } from "./bot.media.e2e-harness.js";
 
 type StickerSpy = Mock<(...args: unknown[]) => unknown>;
 
@@ -20,20 +21,6 @@ const TELEGRAM_BOT_IMPORT_TIMEOUT_MS = process.platform === "win32" ? 180_000 : 
 
 let createTelegramBotRef: typeof import("./bot.js").createTelegramBot;
 let replySpyRef: ReturnType<typeof vi.fn>;
-let onSpyRef: Mock;
-let sendChatActionSpyRef: Mock;
-let fetchRemoteMediaSpyRef: Mock;
-let resetFetchRemoteMediaMockRef: () => void;
-
-type FetchMockHandle = Mock & { mockRestore: () => void };
-
-function createFetchMockHandle(): FetchMockHandle {
-  return Object.assign(fetchRemoteMediaSpyRef, {
-    mockRestore: () => {
-      resetFetchRemoteMediaMockRef();
-    },
-  }) as FetchMockHandle;
-}
 
 export async function createBotHandler(): Promise<{
   handler: (ctx: Record<string, unknown>) => Promise<void>;
@@ -52,9 +39,9 @@ export async function createBotHandlerWithOptions(options: {
   replySpy: ReturnType<typeof vi.fn>;
   runtimeError: ReturnType<typeof vi.fn>;
 }> {
-  onSpyRef.mockClear();
+  onSpy.mockClear();
   replySpyRef.mockClear();
-  sendChatActionSpyRef.mockClear();
+  sendChatActionSpy.mockClear();
 
   const runtimeError = options.runtimeError ?? vi.fn();
   const runtimeLog = options.runtimeLog ?? vi.fn();
@@ -70,7 +57,7 @@ export async function createBotHandlerWithOptions(options: {
       },
     },
   });
-  const handler = onSpyRef.mock.calls.find((call) => call[0] === "message")?.[1] as (
+  const handler = onSpy.mock.calls.find((call) => call[0] === "message")?.[1] as (
     ctx: Record<string, unknown>,
   ) => Promise<void>;
   expect(handler).toBeDefined();
@@ -80,26 +67,24 @@ export async function createBotHandlerWithOptions(options: {
 export function mockTelegramFileDownload(params: {
   contentType: string;
   bytes: Uint8Array;
-}): FetchMockHandle {
-  fetchRemoteMediaSpyRef.mockResolvedValueOnce({
-    buffer: Buffer.from(params.bytes),
-    contentType: params.contentType,
-    fileName: "mock-file",
-  });
-  return createFetchMockHandle();
+}): ReturnType<typeof vi.spyOn> {
+  return vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
+    ok: true,
+    status: 200,
+    statusText: "OK",
+    headers: { get: () => params.contentType },
+    arrayBuffer: async () => params.bytes.buffer,
+  } as unknown as Response);
 }
 
-export function mockTelegramPngDownload(): FetchMockHandle {
-  fetchRemoteMediaSpyRef.mockResolvedValue({
-    buffer: Buffer.from(new Uint8Array([0x89, 0x50, 0x4e, 0x47])),
-    contentType: "image/png",
-    fileName: "mock-file.png",
-  });
-  return createFetchMockHandle();
-}
-
-export function watchTelegramFetch(): FetchMockHandle {
-  return createFetchMockHandle();
+export function mockTelegramPngDownload(): ReturnType<typeof vi.spyOn> {
+  return vi.spyOn(globalThis, "fetch").mockResolvedValue({
+    ok: true,
+    status: 200,
+    statusText: "OK",
+    headers: { get: () => "image/png" },
+    arrayBuffer: async () => new Uint8Array([0x89, 0x50, 0x4e, 0x47]).buffer,
+  } as unknown as Response);
 }
 
 beforeEach(() => {
@@ -117,32 +102,13 @@ afterEach(() => {
 });
 
 beforeAll(async () => {
-  const harness = await import("./bot.media.e2e-harness.js");
-  onSpyRef = harness.onSpy;
-  sendChatActionSpyRef = harness.sendChatActionSpy;
-  fetchRemoteMediaSpyRef = harness.fetchRemoteMediaSpy;
-  resetFetchRemoteMediaMockRef = harness.resetFetchRemoteMediaMock;
-  const botModule = await import("./bot.js");
-  botModule.setTelegramBotRuntimeForTest(
-    harness.telegramBotRuntimeForTest as unknown as Parameters<
-      typeof botModule.setTelegramBotRuntimeForTest
-    >[0],
-  );
-  createTelegramBotRef = (opts) =>
-    botModule.createTelegramBot({
-      ...opts,
-      telegramDeps: harness.telegramBotDepsForTest,
-    });
+  ({ createTelegramBot: createTelegramBotRef } = await import("./bot.js"));
   const replyModule = await import("openclaw/plugin-sdk/reply-runtime");
   replySpyRef = (replyModule as unknown as { __replySpy: ReturnType<typeof vi.fn> }).__replySpy;
 }, TELEGRAM_BOT_IMPORT_TIMEOUT_MS);
 
-vi.mock("./sticker-cache.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("./sticker-cache.js")>();
-  return {
-    ...actual,
-    cacheSticker: (...args: unknown[]) => cacheStickerSpy(...args),
-    getCachedSticker: (...args: unknown[]) => getCachedStickerSpy(...args),
-    describeStickerImage: (...args: unknown[]) => describeStickerImageSpy(...args),
-  };
-});
+vi.mock("./sticker-cache.js", () => ({
+  cacheSticker: (...args: unknown[]) => cacheStickerSpy(...args),
+  getCachedSticker: (...args: unknown[]) => getCachedStickerSpy(...args),
+  describeStickerImage: (...args: unknown[]) => describeStickerImageSpy(...args),
+}));

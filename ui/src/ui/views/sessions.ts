@@ -43,7 +43,6 @@ export type SessionsProps = {
     },
   ) => void;
   onDelete: (key: string) => void;
-  onNavigateToChat?: (sessionKey: string) => void;
 };
 
 const THINK_LEVELS = ["", "off", "minimal", "low", "medium", "high", "xhigh"] as const;
@@ -338,7 +337,6 @@ export function renderSessions(props: SessionsProps) {
                         props.onActionsOpenChange,
                         props.actionsOpenKey,
                         props.loading,
-                        props.onNavigateToChat,
                       ),
                     )
               }
@@ -393,7 +391,6 @@ function renderRow(
   onActionsOpenChange: (key: string | null) => void,
   actionsOpenKey: string | null,
   disabled: boolean,
-  onNavigateToChat?: (sessionKey: string) => void,
 ) {
   const updated = row.updatedAt ? formatRelativeTimestamp(row.updatedAt) : "n/a";
   const rawThinking = row.thinkingLevel ?? "";
@@ -433,30 +430,7 @@ function renderRow(
     <tr>
       <td>
         <div class="mono session-key-cell">
-          ${
-            canLink
-              ? html`<a
-                  href=${chatUrl}
-                  class="session-link"
-                  @click=${(e: MouseEvent) => {
-                    if (
-                      e.defaultPrevented ||
-                      e.button !== 0 ||
-                      e.metaKey ||
-                      e.ctrlKey ||
-                      e.shiftKey ||
-                      e.altKey
-                    ) {
-                      return;
-                    }
-                    if (onNavigateToChat) {
-                      e.preventDefault();
-                      onNavigateToChat(row.key);
-                    }
-                  }}
-                >${row.key}</a>`
-              : row.key
-          }
+          ${canLink ? html`<a href=${chatUrl} class="session-link">${row.key}</a>` : row.key}
           ${
             showDisplayName
               ? html`<span class="muted session-key-display-name">${displayName}</span>`
@@ -574,23 +548,7 @@ function renderRow(
                             <a
                               href=${chatUrl}
                               style="display: block; padding: 8px 12px; font-size: 13px; text-decoration: none; color: var(--text); border-radius: var(--radius-sm);"
-                              @click=${(e: MouseEvent) => {
-                                onActionsOpenChange(null);
-                                if (
-                                  e.defaultPrevented ||
-                                  e.button !== 0 ||
-                                  e.metaKey ||
-                                  e.ctrlKey ||
-                                  e.shiftKey ||
-                                  e.altKey
-                                ) {
-                                  return;
-                                }
-                                if (onNavigateToChat) {
-                                  e.preventDefault();
-                                  onNavigateToChat(row.key);
-                                }
-                              }}
+                              @click=${() => onActionsOpenChange(null)}
                             >
                               Open in Chat
                             </a>

@@ -2,25 +2,16 @@ import type { AgentSession } from "@mariozechner/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 import { applySystemPromptOverrideToSession, createSystemPromptOverride } from "./system-prompt.js";
 
-type MutableSession = {
+type MutableSystemPromptFields = {
   _baseSystemPrompt?: string;
   _rebuildSystemPrompt?: (toolNames: string[]) => string;
 };
 
-type MockSession = MutableSession & {
-  agent: {
-    setSystemPrompt: ReturnType<typeof vi.fn>;
-  };
-};
-
-function createMockSession(): {
-  session: MockSession;
-  setSystemPrompt: ReturnType<typeof vi.fn>;
-} {
-  const setSystemPrompt = vi.fn<(prompt: string) => void>();
+function createMockSession() {
+  const setSystemPrompt = vi.fn();
   const session = {
     agent: { setSystemPrompt },
-  } as MockSession;
+  } as unknown as AgentSession;
   return { session, setSystemPrompt };
 }
 
@@ -28,9 +19,9 @@ function applyAndGetMutableSession(
   prompt: Parameters<typeof applySystemPromptOverrideToSession>[1],
 ) {
   const { session, setSystemPrompt } = createMockSession();
-  applySystemPromptOverrideToSession(session as unknown as AgentSession, prompt);
+  applySystemPromptOverrideToSession(session, prompt);
   return {
-    mutable: session,
+    mutable: session as unknown as MutableSystemPromptFields,
     setSystemPrompt,
   };
 }

@@ -8,10 +8,6 @@ import { readBestEffortConfig } from "../config/config.js";
 import { callGateway } from "../gateway/call.js";
 import type { collectChannelStatusIssues as collectChannelStatusIssuesFn } from "../infra/channels-status-issues.js";
 import { resolveOsSummary } from "../infra/os-summary.js";
-import {
-  buildPluginCompatibilityNotices,
-  type PluginCompatibilityNotice,
-} from "../plugins/status.js";
 import { runExec } from "../process/exec.js";
 import type { RuntimeEnv } from "../runtime.js";
 import { createLazyRuntimeSurface } from "../shared/lazy-runtime.js";
@@ -111,7 +107,6 @@ export type StatusScanResult = {
   summary: Awaited<ReturnType<typeof getStatusSummary>>;
   memory: MemoryStatusSnapshot | null;
   memoryPlugin: MemoryPluginStatus;
-  pluginCompatibility: PluginCompatibilityNotice[];
 };
 
 async function resolveMemoryStatusSnapshot(params: {
@@ -197,7 +192,6 @@ async function scanStatusJsonFast(opts: {
   const memoryPlugin = resolveMemoryPluginStatus(cfg);
   const memoryPromise = resolveMemoryStatusSnapshot({ cfg, agentStatus, memoryPlugin });
   const memory = await memoryPromise;
-  const pluginCompatibility = buildPluginCompatibilityNotices({ config: cfg });
 
   return {
     cfg,
@@ -222,7 +216,6 @@ async function scanStatusJsonFast(opts: {
     summary,
     memory,
     memoryPlugin,
-    pluginCompatibility,
   };
 }
 
@@ -240,7 +233,7 @@ export async function scanStatus(
   return await withProgress(
     {
       label: "Scanning status…",
-      total: 11,
+      total: 10,
       enabled: true,
     },
     async (progress) => {
@@ -332,10 +325,6 @@ export async function scanStatus(
       const memory = await resolveMemoryStatusSnapshot({ cfg, agentStatus, memoryPlugin });
       progress.tick();
 
-      progress.setLabel("Checking plugins…");
-      const pluginCompatibility = buildPluginCompatibilityNotices({ config: cfg });
-      progress.tick();
-
       progress.setLabel("Reading sessions…");
       const summary = unwrapDeferredResult(await summaryPromise);
       progress.tick();
@@ -366,7 +355,6 @@ export async function scanStatus(
         summary,
         memory,
         memoryPlugin,
-        pluginCompatibility,
       };
     },
   );

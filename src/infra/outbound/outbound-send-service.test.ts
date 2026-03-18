@@ -10,7 +10,7 @@ const mocks = vi.hoisted(() => ({
   appendAssistantMessageToSessionTranscript: vi.fn(async () => ({ ok: true, sessionFile: "x" })),
 }));
 
-vi.mock("../../channels/plugins/message-action-dispatch.js", () => ({
+vi.mock("../../channels/plugins/message-actions.js", () => ({
   dispatchChannelMessageAction: mocks.dispatchChannelMessageAction,
 }));
 
@@ -143,41 +143,13 @@ describe("executeSendAction", () => {
         params: {},
         dryRun: false,
       },
-      resolveCorePoll: () => ({
-        to: "channel:123",
-        question: "Lunch?",
-        options: ["Pizza", "Sushi"],
-        maxSelections: 1,
-      }),
+      to: "channel:123",
+      question: "Lunch?",
+      options: ["Pizza", "Sushi"],
+      maxSelections: 1,
     });
 
     expect(result.handledBy).toBe("plugin");
-    expect(mocks.sendPoll).not.toHaveBeenCalled();
-  });
-
-  it("does not invoke shared poll parsing before plugin poll dispatch", async () => {
-    mocks.dispatchChannelMessageAction.mockResolvedValue(pluginActionResult("poll-plugin"));
-    const resolveCorePoll = vi.fn(() => {
-      throw new Error("shared poll fallback should not run");
-    });
-
-    const result = await executePollAction({
-      ctx: {
-        cfg: {},
-        channel: "discord",
-        params: {
-          pollQuestion: "Lunch?",
-          pollOption: ["Pizza", "Sushi"],
-          pollDurationSeconds: 90,
-          pollPublic: true,
-        },
-        dryRun: false,
-      },
-      resolveCorePoll,
-    });
-
-    expect(result.handledBy).toBe("plugin");
-    expect(resolveCorePoll).not.toHaveBeenCalled();
     expect(mocks.sendPoll).not.toHaveBeenCalled();
   });
 
@@ -298,15 +270,13 @@ describe("executeSendAction", () => {
         accountId: "acc-1",
         dryRun: false,
       },
-      resolveCorePoll: () => ({
-        to: "channel:123",
-        question: "Lunch?",
-        options: ["Pizza", "Sushi"],
-        maxSelections: 1,
-        durationSeconds: 300,
-        threadId: "thread-1",
-        isAnonymous: true,
-      }),
+      to: "channel:123",
+      question: "Lunch?",
+      options: ["Pizza", "Sushi"],
+      maxSelections: 1,
+      durationSeconds: 300,
+      threadId: "thread-1",
+      isAnonymous: true,
     });
 
     expect(mocks.sendPoll).toHaveBeenCalledWith(
@@ -351,13 +321,11 @@ describe("executeSendAction", () => {
           mode: GATEWAY_CLIENT_MODES.BACKEND,
         },
       },
-      resolveCorePoll: () => ({
-        to: "channel:123",
-        question: "Lunch?",
-        options: ["Pizza", "Sushi"],
-        maxSelections: 1,
-        durationHours: 6,
-      }),
+      to: "channel:123",
+      question: "Lunch?",
+      options: ["Pizza", "Sushi"],
+      maxSelections: 1,
+      durationHours: 6,
     });
 
     expect(mocks.dispatchChannelMessageAction).not.toHaveBeenCalled();

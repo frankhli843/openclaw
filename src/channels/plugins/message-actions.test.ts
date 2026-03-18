@@ -1,4 +1,3 @@
-import { Type } from "@sinclair/typebox";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../../config/config.js";
 import { setActivePluginRegistry } from "../../plugins/runtime.js";
@@ -14,8 +13,7 @@ import {
   listChannelMessageActions,
   listChannelMessageCapabilities,
   listChannelMessageCapabilitiesForChannel,
-  resolveChannelMessageToolSchemaProperties,
-} from "./message-action-discovery.js";
+} from "./message-actions.js";
 import type { ChannelMessageCapability } from "./message-capabilities.js";
 import type { ChannelPlugin } from "./types.js";
 
@@ -24,27 +22,19 @@ const emptyRegistry = createTestRegistry([]);
 function createMessageActionsPlugin(params: {
   id: "discord" | "telegram";
   capabilities: readonly ChannelMessageCapability[];
-  aliases?: string[];
 }): ChannelPlugin {
-  const base = createChannelTestPluginBase({
-    id: params.id,
-    label: params.id === "discord" ? "Discord" : "Telegram",
-    capabilities: { chatTypes: ["direct", "group"] },
-    config: {
-      listAccountIds: () => ["default"],
-    },
-  });
   return {
-    ...base,
-    meta: {
-      ...base.meta,
-      ...(params.aliases ? { aliases: params.aliases } : {}),
-    },
+    ...createChannelTestPluginBase({
+      id: params.id,
+      label: params.id === "discord" ? "Discord" : "Telegram",
+      capabilities: { chatTypes: ["direct", "group"] },
+      config: {
+        listAccountIds: () => ["default"],
+      },
+    }),
     actions: {
-      describeMessageTool: () => ({
-        actions: ["send"],
-        capabilities: params.capabilities,
-      }),
+      listActions: () => ["send"],
+      getCapabilities: () => params.capabilities,
     },
   };
 }
@@ -140,65 +130,6 @@ describe("message action capability checks", () => {
     );
   });
 
-  it("normalizes channel aliases for per-channel capability checks", () => {
-    setActivePluginRegistry(
-      createTestRegistry([
-        {
-          pluginId: "telegram",
-          source: "test",
-          plugin: createMessageActionsPlugin({
-            id: "telegram",
-            aliases: ["tg"],
-            capabilities: ["cards"],
-          }),
-        },
-      ]),
-    );
-
-    expect(
-      listChannelMessageCapabilitiesForChannel({
-        cfg: {} as OpenClawConfig,
-        channel: "tg",
-      }),
-    ).toEqual(["cards"]);
-  });
-
-  it("uses unified message tool discovery for actions, capabilities, and schema", () => {
-    const unifiedPlugin: ChannelPlugin = {
-      ...createChannelTestPluginBase({
-        id: "discord",
-        label: "Discord",
-        capabilities: { chatTypes: ["direct", "group"] },
-        config: {
-          listAccountIds: () => ["default"],
-        },
-      }),
-      actions: {
-        describeMessageTool: () => ({
-          actions: ["react"],
-          capabilities: ["interactive"],
-          schema: {
-            properties: {
-              components: Type.Array(Type.String()),
-            },
-          },
-        }),
-      },
-    };
-    setActivePluginRegistry(
-      createTestRegistry([{ pluginId: "discord", source: "test", plugin: unifiedPlugin }]),
-    );
-
-    expect(listChannelMessageActions({} as OpenClawConfig)).toEqual(["send", "broadcast", "react"]);
-    expect(listChannelMessageCapabilities({} as OpenClawConfig)).toEqual(["interactive"]);
-    expect(
-      resolveChannelMessageToolSchemaProperties({
-        cfg: {} as OpenClawConfig,
-        channel: "discord",
-      }),
-    ).toHaveProperty("components");
-  });
-
   it("skips crashing action/capability discovery paths and logs once", () => {
     const crashingPlugin: ChannelPlugin = {
       ...createChannelTestPluginBase({
@@ -210,7 +141,10 @@ describe("message action capability checks", () => {
         },
       }),
       actions: {
-        describeMessageTool: () => {
+        listActions: () => {
+          throw new Error("boom");
+        },
+        getCapabilities: () => {
           throw new Error("boom");
         },
       },
@@ -221,10 +155,10 @@ describe("message action capability checks", () => {
 
     expect(listChannelMessageActions({} as OpenClawConfig)).toEqual(["send", "broadcast"]);
     expect(listChannelMessageCapabilities({} as OpenClawConfig)).toEqual([]);
-    expect(errorSpy).toHaveBeenCalledTimes(1);
+    expect(errorSpy).toHaveBeenCalledTimes(2);
 
     expect(listChannelMessageActions({} as OpenClawConfig)).toEqual(["send", "broadcast"]);
     expect(listChannelMessageCapabilities({} as OpenClawConfig)).toEqual([]);
-    expect(errorSpy).toHaveBeenCalledTimes(1);
+    expect(errorSpy).toHaveBeenCalledTimes(2);
   });
 });

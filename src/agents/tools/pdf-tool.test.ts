@@ -10,24 +10,15 @@ import {
   providerSupportsNativePdf,
   resolvePdfToolMaxTokens,
 } from "./pdf-tool.helpers.js";
+import { createPdfTool, resolvePdfModelConfigForTool } from "./pdf-tool.js";
 
-const completeMock = vi.hoisted(() => vi.fn());
-
-type PdfToolModule = typeof import("./pdf-tool.js");
-let createPdfTool: PdfToolModule["createPdfTool"];
-let resolvePdfModelConfigForTool: PdfToolModule["resolvePdfModelConfigForTool"];
-
-async function importPdfToolModule(): Promise<PdfToolModule> {
-  vi.resetModules();
-  vi.doMock("@mariozechner/pi-ai", async (importOriginal) => {
-    const actual = await importOriginal<typeof import("@mariozechner/pi-ai")>();
-    return {
-      ...actual,
-      complete: completeMock,
-    };
-  });
-  return import("./pdf-tool.js");
-}
+vi.mock("@mariozechner/pi-ai", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@mariozechner/pi-ai")>();
+  return {
+    ...actual,
+    complete: vi.fn(),
+  };
+});
 
 async function withTempAgentDir<T>(run: (agentDir: string) => Promise<T>): Promise<T> {
   const agentDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-pdf-"));
@@ -251,10 +242,8 @@ describe("providerSupportsNativePdf", () => {
 describe("resolvePdfModelConfigForTool", () => {
   const priorFetch = global.fetch;
 
-  beforeEach(async () => {
+  beforeEach(() => {
     resetAuthEnv();
-    completeMock.mockReset();
-    ({ resolvePdfModelConfigForTool } = await importPdfToolModule());
   });
 
   afterEach(() => {
@@ -332,10 +321,8 @@ describe("resolvePdfModelConfigForTool", () => {
 describe("createPdfTool", () => {
   const priorFetch = global.fetch;
 
-  beforeEach(async () => {
+  beforeEach(() => {
     resetAuthEnv();
-    completeMock.mockReset();
-    ({ createPdfTool } = await importPdfToolModule());
   });
 
   afterEach(() => {
@@ -497,7 +484,8 @@ describe("createPdfTool", () => {
         images: [],
       });
 
-      completeMock.mockResolvedValue({
+      const piAi = await import("@mariozechner/pi-ai");
+      vi.mocked(piAi.complete).mockResolvedValue({
         role: "assistant",
         stopReason: "stop",
         content: [{ type: "text", text: "fallback summary" }],

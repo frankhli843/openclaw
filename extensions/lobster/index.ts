@@ -1,5 +1,9 @@
-import { definePluginEntry } from "openclaw/plugin-sdk/core";
-import type { AnyAgentTool, OpenClawPluginApi, OpenClawPluginToolFactory } from "./runtime-api.js";
+import {
+  definePluginEntry,
+  type AnyAgentTool,
+  type OpenClawPluginApi,
+  type OpenClawPluginToolFactory,
+} from "openclaw/plugin-sdk/lobster";
 import { createLobsterTool } from "./src/lobster-tool.js";
 
 export default definePluginEntry({

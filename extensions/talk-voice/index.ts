@@ -1,6 +1,6 @@
 import { resolveActiveTalkProviderConfig } from "openclaw/plugin-sdk/config-runtime";
 import type { SpeechVoiceOption } from "openclaw/plugin-sdk/speech";
-import { definePluginEntry, type OpenClawPluginApi } from "./api.js";
+import { definePluginEntry, type OpenClawPluginApi } from "openclaw/plugin-sdk/talk-voice";
 
 function mask(s: string, keep: number = 6): string {
   const trimmed = s.trim();

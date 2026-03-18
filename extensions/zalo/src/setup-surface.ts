@@ -1,6 +1,5 @@
 import {
   buildSingleChannelSecretPromptState,
-  createTopLevelChannelDmPolicy,
   DEFAULT_ACCOUNT_ID,
   formatDocsLink,
   hasConfiguredSecretInput,
@@ -8,6 +7,7 @@ import {
   normalizeAccountId,
   promptSingleChannelSecretInput,
   runSingleChannelSecretStep,
+  setTopLevelChannelDmPolicyWithAllowFrom,
   type ChannelSetupDmPolicy,
   type ChannelSetupWizard,
   type OpenClawConfig,
@@ -19,6 +19,17 @@ import { zaloSetupAdapter } from "./setup-core.js";
 const channel = "zalo" as const;
 
 type UpdateMode = "polling" | "webhook";
+
+function setZaloDmPolicy(
+  cfg: OpenClawConfig,
+  dmPolicy: "pairing" | "allowlist" | "open" | "disabled",
+) {
+  return setTopLevelChannelDmPolicyWithAllowFrom({
+    cfg,
+    channel,
+    dmPolicy,
+  }) as OpenClawConfig;
+}
 
 function setZaloUpdateMode(
   cfg: OpenClawConfig,
@@ -172,12 +183,13 @@ async function promptZaloAllowFrom(params: {
   } as OpenClawConfig;
 }
 
-const zaloDmPolicy: ChannelSetupDmPolicy = createTopLevelChannelDmPolicy({
+const zaloDmPolicy: ChannelSetupDmPolicy = {
   label: "Zalo",
   channel,
   policyKey: "channels.zalo.dmPolicy",
   allowFromKey: "channels.zalo.allowFrom",
   getCurrent: (cfg) => (cfg.channels?.zalo?.dmPolicy ?? "pairing") as "pairing",
+  setPolicy: (cfg, policy) => setZaloDmPolicy(cfg as OpenClawConfig, policy),
   promptAllowFrom: async ({ cfg, prompter, accountId }) => {
     const id =
       accountId && normalizeAccountId(accountId)
@@ -189,7 +201,7 @@ const zaloDmPolicy: ChannelSetupDmPolicy = createTopLevelChannelDmPolicy({
       accountId: id,
     });
   },
-});
+};
 
 export { zaloSetupAdapter } from "./setup-core.js";
 

@@ -5,6 +5,11 @@ import {
   createMoonshotThinkingWrapper,
   resolveMoonshotThinkingType,
 } from "openclaw/plugin-sdk/provider-stream";
+import {
+  createPluginBackedWebSearchProvider,
+  getScopedCredentialValue,
+  setScopedCredentialValue,
+} from "openclaw/plugin-sdk/provider-web-search";
 import { moonshotMediaUnderstandingProvider } from "./media-understanding-provider.js";
 import {
   applyMoonshotConfig,
@@ -12,7 +17,6 @@ import {
   MOONSHOT_DEFAULT_MODEL_REF,
 } from "./onboard.js";
 import { buildMoonshotProvider } from "./provider-catalog.js";
-import { createKimiWebSearchProvider } from "./src/kimi-web-search-provider.js";
 
 const PROVIDER_ID = "moonshot";
 
@@ -87,6 +91,20 @@ export default definePluginEntry({
       },
     });
     api.registerMediaUnderstandingProvider(moonshotMediaUnderstandingProvider);
-    api.registerWebSearchProvider(createKimiWebSearchProvider());
+    api.registerWebSearchProvider(
+      createPluginBackedWebSearchProvider({
+        id: "kimi",
+        label: "Kimi (Moonshot)",
+        hint: "Moonshot web search",
+        envVars: ["KIMI_API_KEY", "MOONSHOT_API_KEY"],
+        placeholder: "sk-...",
+        signupUrl: "https://platform.moonshot.cn/",
+        docsUrl: "https://docs.openclaw.ai/tools/web",
+        autoDetectOrder: 40,
+        getCredentialValue: (searchConfig) => getScopedCredentialValue(searchConfig, "kimi"),
+        setCredentialValue: (searchConfigTarget, value) =>
+          setScopedCredentialValue(searchConfigTarget, "kimi", value),
+      }),
+    );
   },
 });

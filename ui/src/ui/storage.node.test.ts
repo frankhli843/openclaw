@@ -25,10 +25,13 @@ function createStorageMock(): Storage {
 }
 
 function setTestLocation(params: { protocol: string; host: string; pathname: string }) {
+  if (typeof window !== "undefined" && window.history?.replaceState) {
+    window.history.replaceState({}, "", params.pathname);
+    return;
+  }
   vi.stubGlobal("location", {
     protocol: params.protocol,
     host: params.host,
-    hostname: params.host.replace(/:\d+$/, ""),
     pathname: params.pathname,
   } as Location);
 }
@@ -121,8 +124,7 @@ describe("loadSettings default gateway URL derivation", () => {
       token: "",
       sessionKey: "agent",
     });
-    const scopedKey = "openclaw.control.settings.v1:wss://gateway.example:8443/openclaw";
-    expect(JSON.parse(localStorage.getItem(scopedKey) ?? "{}")).toEqual({
+    expect(JSON.parse(localStorage.getItem("openclaw.control.settings.v1") ?? "{}")).toEqual({
       gatewayUrl: "wss://gateway.example:8443/openclaw",
       theme: "claw",
       themeMode: "system",
@@ -133,7 +135,6 @@ describe("loadSettings default gateway URL derivation", () => {
       navCollapsed: false,
       navWidth: 220,
       navGroupsCollapsed: {},
-      borderRadius: 50,
       sessionsByGateway: {
         "wss://gateway.example:8443/openclaw": {
           sessionKey: "agent",
@@ -151,10 +152,9 @@ describe("loadSettings default gateway URL derivation", () => {
       pathname: "/",
     });
 
-    const gwUrl = expectedGatewayUrl("");
     const { loadSettings, saveSettings } = await import("./storage.ts");
     saveSettings({
-      gatewayUrl: gwUrl,
+      gatewayUrl: "wss://gateway.example:8443/openclaw",
       token: "session-token",
       sessionKey: "main",
       lastActiveSessionKey: "main",
@@ -167,11 +167,10 @@ describe("loadSettings default gateway URL derivation", () => {
       navCollapsed: false,
       navWidth: 220,
       navGroupsCollapsed: {},
-      borderRadius: 50,
     });
 
     expect(loadSettings()).toMatchObject({
-      gatewayUrl: gwUrl,
+      gatewayUrl: "wss://gateway.example:8443/openclaw",
       token: "session-token",
     });
   });
@@ -183,11 +182,9 @@ describe("loadSettings default gateway URL derivation", () => {
       pathname: "/",
     });
 
-    const gwUrl = expectedGatewayUrl("");
-    const otherUrl = "wss://other-gateway.example:8443";
     const { loadSettings, saveSettings } = await import("./storage.ts");
     saveSettings({
-      gatewayUrl: gwUrl,
+      gatewayUrl: "wss://gateway.example:8443/openclaw",
       token: "gateway-a-token",
       sessionKey: "main",
       lastActiveSessionKey: "main",
@@ -200,29 +197,29 @@ describe("loadSettings default gateway URL derivation", () => {
       navCollapsed: false,
       navWidth: 220,
       navGroupsCollapsed: {},
-      borderRadius: 50,
     });
 
-    saveSettings({
-      gatewayUrl: otherUrl,
-      token: "",
-      sessionKey: "main",
-      lastActiveSessionKey: "main",
-      theme: "claw",
-      themeMode: "system",
-      chatFocusMode: false,
-      chatShowThinking: true,
-      chatShowToolCalls: true,
-      splitRatio: 0.6,
-      navCollapsed: false,
-      navWidth: 220,
-      navGroupsCollapsed: {},
-      borderRadius: 50,
-    });
+    localStorage.setItem(
+      "openclaw.control.settings.v1",
+      JSON.stringify({
+        gatewayUrl: "wss://other-gateway.example:8443/openclaw",
+        sessionKey: "main",
+        lastActiveSessionKey: "main",
+        theme: "claw",
+        themeMode: "system",
+        chatFocusMode: false,
+        chatShowThinking: true,
+        chatShowToolCalls: true,
+        splitRatio: 0.6,
+        navCollapsed: false,
+        navWidth: 220,
+        navGroupsCollapsed: {},
+      }),
+    );
 
     expect(loadSettings()).toMatchObject({
-      gatewayUrl: gwUrl,
-      token: "gateway-a-token",
+      gatewayUrl: "wss://other-gateway.example:8443/openclaw",
+      token: "",
     });
   });
 
@@ -233,10 +230,9 @@ describe("loadSettings default gateway URL derivation", () => {
       pathname: "/",
     });
 
-    const gwUrl = expectedGatewayUrl("");
     const { loadSettings, saveSettings } = await import("./storage.ts");
     saveSettings({
-      gatewayUrl: gwUrl,
+      gatewayUrl: "wss://gateway.example:8443/openclaw",
       token: "memory-only-token",
       sessionKey: "main",
       lastActiveSessionKey: "main",
@@ -249,16 +245,14 @@ describe("loadSettings default gateway URL derivation", () => {
       navCollapsed: false,
       navWidth: 220,
       navGroupsCollapsed: {},
-      borderRadius: 50,
     });
     expect(loadSettings()).toMatchObject({
-      gatewayUrl: gwUrl,
+      gatewayUrl: "wss://gateway.example:8443/openclaw",
       token: "memory-only-token",
     });
 
-    const scopedKey = `openclaw.control.settings.v1:${gwUrl}`;
-    expect(JSON.parse(localStorage.getItem(scopedKey) ?? "{}")).toEqual({
-      gatewayUrl: gwUrl,
+    expect(JSON.parse(localStorage.getItem("openclaw.control.settings.v1") ?? "{}")).toEqual({
+      gatewayUrl: "wss://gateway.example:8443/openclaw",
       theme: "claw",
       themeMode: "system",
       chatFocusMode: false,
@@ -268,9 +262,8 @@ describe("loadSettings default gateway URL derivation", () => {
       navCollapsed: false,
       navWidth: 220,
       navGroupsCollapsed: {},
-      borderRadius: 50,
       sessionsByGateway: {
-        [gwUrl]: {
+        "wss://gateway.example:8443/openclaw": {
           sessionKey: "main",
           lastActiveSessionKey: "main",
         },
@@ -286,10 +279,9 @@ describe("loadSettings default gateway URL derivation", () => {
       pathname: "/",
     });
 
-    const gwUrl = expectedGatewayUrl("");
     const { loadSettings, saveSettings } = await import("./storage.ts");
     saveSettings({
-      gatewayUrl: gwUrl,
+      gatewayUrl: "wss://gateway.example:8443/openclaw",
       token: "stale-token",
       sessionKey: "main",
       lastActiveSessionKey: "main",
@@ -302,10 +294,9 @@ describe("loadSettings default gateway URL derivation", () => {
       navCollapsed: false,
       navWidth: 220,
       navGroupsCollapsed: {},
-      borderRadius: 50,
     });
     saveSettings({
-      gatewayUrl: gwUrl,
+      gatewayUrl: "wss://gateway.example:8443/openclaw",
       token: "",
       sessionKey: "main",
       lastActiveSessionKey: "main",
@@ -318,7 +309,6 @@ describe("loadSettings default gateway URL derivation", () => {
       navCollapsed: false,
       navWidth: 220,
       navGroupsCollapsed: {},
-      borderRadius: 50,
     });
 
     expect(loadSettings().token).toBe("");
@@ -332,10 +322,9 @@ describe("loadSettings default gateway URL derivation", () => {
       pathname: "/",
     });
 
-    const gwUrl = expectedGatewayUrl("");
     const { saveSettings } = await import("./storage.ts");
     saveSettings({
-      gatewayUrl: gwUrl,
+      gatewayUrl: "wss://gateway.example:8443/openclaw",
       token: "",
       sessionKey: "main",
       lastActiveSessionKey: "main",
@@ -348,11 +337,9 @@ describe("loadSettings default gateway URL derivation", () => {
       navCollapsed: false,
       navWidth: 320,
       navGroupsCollapsed: {},
-      borderRadius: 50,
     });
 
-    const scopedKey = `openclaw.control.settings.v1:${gwUrl}`;
-    expect(JSON.parse(localStorage.getItem(scopedKey) ?? "{}")).toMatchObject({
+    expect(JSON.parse(localStorage.getItem("openclaw.control.settings.v1") ?? "{}")).toMatchObject({
       theme: "dash",
       themeMode: "light",
       navWidth: 320,
@@ -362,15 +349,14 @@ describe("loadSettings default gateway URL derivation", () => {
   it("scopes persisted session selection per gateway", async () => {
     setTestLocation({
       protocol: "https:",
-      host: "gateway-a.example:8443",
+      host: "gateway.example:8443",
       pathname: "/",
     });
 
-    const gwUrl = expectedGatewayUrl("");
     const { loadSettings, saveSettings } = await import("./storage.ts");
 
     saveSettings({
-      gatewayUrl: gwUrl,
+      gatewayUrl: "wss://gateway-a.example:8443/openclaw",
       token: "",
       sessionKey: "agent:test_old:main",
       lastActiveSessionKey: "agent:test_old:main",
@@ -383,13 +369,50 @@ describe("loadSettings default gateway URL derivation", () => {
       navCollapsed: false,
       navWidth: 220,
       navGroupsCollapsed: {},
-      borderRadius: 50,
     });
 
+    saveSettings({
+      gatewayUrl: "wss://gateway-b.example:8443/openclaw",
+      token: "",
+      sessionKey: "agent:test_new:main",
+      lastActiveSessionKey: "agent:test_new:main",
+      theme: "claw",
+      themeMode: "system",
+      chatFocusMode: false,
+      chatShowThinking: true,
+      chatShowToolCalls: true,
+      splitRatio: 0.6,
+      navCollapsed: false,
+      navWidth: 220,
+      navGroupsCollapsed: {},
+    });
+
+    localStorage.setItem(
+      "openclaw.control.settings.v1",
+      JSON.stringify({
+        ...JSON.parse(localStorage.getItem("openclaw.control.settings.v1") ?? "{}"),
+        gatewayUrl: "wss://gateway-a.example:8443/openclaw",
+      }),
+    );
+
     expect(loadSettings()).toMatchObject({
-      gatewayUrl: gwUrl,
+      gatewayUrl: "wss://gateway-a.example:8443/openclaw",
       sessionKey: "agent:test_old:main",
       lastActiveSessionKey: "agent:test_old:main",
+    });
+
+    localStorage.setItem(
+      "openclaw.control.settings.v1",
+      JSON.stringify({
+        ...JSON.parse(localStorage.getItem("openclaw.control.settings.v1") ?? "{}"),
+        gatewayUrl: "wss://gateway-b.example:8443/openclaw",
+      }),
+    );
+
+    expect(loadSettings()).toMatchObject({
+      gatewayUrl: "wss://gateway-b.example:8443/openclaw",
+      sessionKey: "agent:test_new:main",
+      lastActiveSessionKey: "agent:test_new:main",
     });
   });
 
@@ -401,51 +424,31 @@ describe("loadSettings default gateway URL derivation", () => {
     });
 
     const { saveSettings } = await import("./storage.ts");
-    const gwUrl = expectedGatewayUrl("");
-    const scopedKey = `openclaw.control.settings.v1:wss://gateway.example:8443`;
 
-    // Pre-seed sessionsByGateway with 11 stale gateway entries so the next
-    // saveSettings call pushes the total to 12 and triggers the cap (10).
-    const staleEntries: Record<string, { sessionKey: string; lastActiveSessionKey: string }> = {};
-    for (let i = 0; i < 11; i += 1) {
-      staleEntries[`wss://stale-${i}.example:8443`] = {
-        sessionKey: `agent:stale_${i}:main`,
-        lastActiveSessionKey: `agent:stale_${i}:main`,
-      };
+    for (let i = 0; i < 12; i += 1) {
+      saveSettings({
+        gatewayUrl: `wss://gateway-${i}.example:8443/openclaw`,
+        token: "",
+        sessionKey: `agent:test_${i}:main`,
+        lastActiveSessionKey: `agent:test_${i}:main`,
+        theme: "claw",
+        themeMode: "system",
+        chatFocusMode: false,
+        chatShowThinking: true,
+        chatShowToolCalls: true,
+        splitRatio: 0.6,
+        navCollapsed: false,
+        navWidth: 220,
+        navGroupsCollapsed: {},
+      });
     }
-    localStorage.setItem(scopedKey, JSON.stringify({ sessionsByGateway: staleEntries }));
 
-    saveSettings({
-      gatewayUrl: gwUrl,
-      token: "",
-      sessionKey: "agent:current:main",
-      lastActiveSessionKey: "agent:current:main",
-      theme: "claw",
-      themeMode: "system",
-      chatFocusMode: false,
-      chatShowThinking: true,
-      chatShowToolCalls: true,
-      splitRatio: 0.6,
-      navCollapsed: false,
-      navWidth: 220,
-      navGroupsCollapsed: {},
-      borderRadius: 50,
-    });
+    const persisted = JSON.parse(localStorage.getItem("openclaw.control.settings.v1") ?? "{}");
+    const scopes = Object.keys(persisted.sessionsByGateway ?? {});
 
-    const persisted = JSON.parse(localStorage.getItem(scopedKey) ?? "{}");
-
-    expect(persisted.sessionsByGateway).toBeDefined();
-    const scopes = Object.keys(persisted.sessionsByGateway);
     expect(scopes).toHaveLength(10);
-    // oldest stale entries should be evicted
-    expect(scopes).not.toContain("wss://stale-0.example:8443");
-    expect(scopes).not.toContain("wss://stale-1.example:8443");
-    // newest stale entries and the current gateway should be retained
-    expect(scopes).toContain("wss://stale-10.example:8443");
-    expect(scopes).toContain("wss://gateway.example:8443");
-    expect(persisted.sessionsByGateway["wss://gateway.example:8443"]).toEqual({
-      sessionKey: "agent:current:main",
-      lastActiveSessionKey: "agent:current:main",
-    });
+    expect(scopes).not.toContain("wss://gateway-0.example:8443/openclaw");
+    expect(scopes).not.toContain("wss://gateway-1.example:8443/openclaw");
+    expect(scopes).toContain("wss://gateway-11.example:8443/openclaw");
   });
 });

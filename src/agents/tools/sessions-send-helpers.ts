@@ -51,17 +51,21 @@ export function resolveAnnounceTargetFromKey(sessionKey: string): AnnounceTarget
   }
   const normalizedChannel = normalizeAnyChannelId(channelRaw) ?? normalizeChatChannelId(channelRaw);
   const channel = normalizedChannel ?? channelRaw.toLowerCase();
-  const plugin = normalizedChannel ? getChannelPlugin(normalizedChannel) : null;
-  const genericTarget = kind === "channel" ? `channel:${id}` : `group:${id}`;
-  const normalized =
-    plugin?.messaging?.resolveSessionTarget?.({
-      kind,
-      id,
-      threadId,
-    }) ?? plugin?.messaging?.normalizeTarget?.(genericTarget);
+  const kindTarget = (() => {
+    if (!normalizedChannel) {
+      return id;
+    }
+    if (normalizedChannel === "discord" || normalizedChannel === "slack") {
+      return `channel:${id}`;
+    }
+    return kind === "channel" ? `channel:${id}` : `group:${id}`;
+  })();
+  const normalized = normalizedChannel
+    ? getChannelPlugin(normalizedChannel)?.messaging?.normalizeTarget?.(kindTarget)
+    : undefined;
   return {
     channel,
-    to: normalized ?? (normalizedChannel ? genericTarget : id),
+    to: normalized ?? kindTarget,
     threadId,
   };
 }

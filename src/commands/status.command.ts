@@ -13,10 +13,6 @@ import {
   resolveMemoryVectorState,
   type Tone,
 } from "../memory/status-format.js";
-import {
-  formatPluginCompatibilityNotice,
-  summarizePluginCompatibility,
-} from "../plugins/status.js";
 import type { RuntimeEnv } from "../runtime.js";
 import { getTerminalTableWidth, renderTable } from "../terminal/table.js";
 import { theme } from "../terminal/theme.js";
@@ -141,7 +137,6 @@ export async function statusCommand(
     secretDiagnostics,
     memory,
     memoryPlugin,
-    pluginCompatibility,
   } = scan;
 
   const usage = opts.usage
@@ -222,10 +217,6 @@ export async function statusCommand(
           agents: agentStatus,
           securityAudit,
           secretDiagnostics,
-          pluginCompatibility: {
-            count: pluginCompatibility.length,
-            warnings: pluginCompatibility,
-          },
           ...(health || usage || lastHeartbeat ? { health, usage, lastHeartbeat } : {}),
         },
         null,
@@ -425,13 +416,6 @@ export async function statusCommand(
   const updateLine = formatUpdateOneLiner(update).replace(/^Update:\s*/i, "");
   const channelLabel = channelInfo.label;
   const gitLabel = formatGitInstallLabel(update);
-  const pluginCompatibilitySummary = summarizePluginCompatibility(pluginCompatibility);
-  const pluginCompatibilityValue =
-    pluginCompatibilitySummary.noticeCount === 0
-      ? ok("none")
-      : warn(
-          `${pluginCompatibilitySummary.noticeCount} notice${pluginCompatibilitySummary.noticeCount === 1 ? "" : "s"} · ${pluginCompatibilitySummary.pluginCount} plugin${pluginCompatibilitySummary.pluginCount === 1 ? "" : "s"}`,
-        );
 
   const overviewRows = [
     { Item: "Dashboard", Value: dashboard },
@@ -459,7 +443,6 @@ export async function statusCommand(
     { Item: "Node service", Value: nodeDaemonValue },
     { Item: "Agents", Value: agentsValue },
     { Item: "Memory", Value: memoryValue },
-    { Item: "Plugin compatibility", Value: pluginCompatibilityValue },
     { Item: "Probes", Value: probesValue },
     { Item: "Events", Value: eventsValue },
     { Item: "Heartbeat", Value: heartbeatValue },
@@ -483,18 +466,6 @@ export async function statusCommand(
       rows: overviewRows,
     }).trimEnd(),
   );
-
-  if (pluginCompatibility.length > 0) {
-    runtime.log("");
-    runtime.log(theme.heading("Plugin compatibility"));
-    for (const notice of pluginCompatibility.slice(0, 8)) {
-      const label = notice.severity === "warn" ? theme.warn("WARN") : theme.muted("INFO");
-      runtime.log(`  ${label} ${formatPluginCompatibilityNotice(notice)}`);
-    }
-    if (pluginCompatibility.length > 8) {
-      runtime.log(theme.muted(`  … +${pluginCompatibility.length - 8} more`));
-    }
-  }
 
   if (pairingRecovery) {
     runtime.log("");

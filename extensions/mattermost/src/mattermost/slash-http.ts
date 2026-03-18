@@ -6,7 +6,6 @@
  */
 
 import type { IncomingMessage, ServerResponse } from "node:http";
-import type { ResolvedMattermostAccount } from "../mattermost/accounts.js";
 import {
   buildModelsProviderData,
   createReplyPrefixOptions,
@@ -17,7 +16,8 @@ import {
   type OpenClawConfig,
   type ReplyPayload,
   type RuntimeEnv,
-} from "../runtime-api.js";
+} from "openclaw/plugin-sdk/mattermost";
+import type { ResolvedMattermostAccount } from "../mattermost/accounts.js";
 import { getMattermostRuntime } from "../runtime.js";
 import {
   createMattermostClient,

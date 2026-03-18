@@ -1,9 +1,5 @@
 import { resolveChannelDefaultAccountId } from "../../channels/plugins/helpers.js";
 import { getChannelPlugin, listChannelPlugins } from "../../channels/plugins/index.js";
-import {
-  createMessageActionDiscoveryContext,
-  resolveMessageActionDiscoveryForPlugin,
-} from "../../channels/plugins/message-action-discovery.js";
 import type {
   ChannelCapabilities,
   ChannelCapabilitiesDiagnostics,
@@ -137,6 +133,10 @@ async function resolveChannelReports(params: {
           : [resolveChannelDefaultAccountId({ plugin, cfg, accountIds: ids })];
       })();
   const reports: ChannelCapabilitiesReport[] = [];
+  const listedActions = plugin.actions?.listActions?.({ cfg }) ?? [];
+  const actions = Array.from(
+    new Set<string>(["send", "broadcast", ...listedActions.map((action) => String(action))]),
+  );
 
   for (const accountId of accountIds) {
     const resolvedAccount = plugin.config.resolveAccount(cfg, accountId);
@@ -169,18 +169,6 @@ async function resolveChannelReports(params: {
             target: params.target,
           })
         : undefined;
-    const discoveredActions = resolveMessageActionDiscoveryForPlugin({
-      pluginId: plugin.id,
-      actions: plugin.actions,
-      context: createMessageActionDiscoveryContext({
-        cfg,
-        accountId,
-      }),
-      includeActions: true,
-    }).actions;
-    const actions = Array.from(
-      new Set<string>(["send", "broadcast", ...discoveredActions.map((action) => String(action))]),
-    );
 
     reports.push({
       channel: plugin.id,

@@ -7,7 +7,6 @@ import {
   describeStickerImageSpy,
   getCachedStickerSpy,
   mockTelegramFileDownload,
-  watchTelegramFetch,
 } from "./bot.media.test-utils.js";
 
 describe("telegram stickers", () => {
@@ -35,7 +34,6 @@ describe("telegram stickers", () => {
         message: {
           message_id: 100,
           chat: { id: 1234, type: "private" },
-          from: { id: 777, is_bot: false, first_name: "Ada" },
           sticker: {
             file_id: "sticker_file_id_123",
             file_unique_id: "sticker_unique_123",
@@ -55,10 +53,8 @@ describe("telegram stickers", () => {
 
       expect(runtimeError).not.toHaveBeenCalled();
       expect(fetchSpy).toHaveBeenCalledWith(
-        expect.objectContaining({
-          url: "https://api.telegram.org/file/bottok/stickers/sticker.webp",
-          filePathHint: "stickers/sticker.webp",
-        }),
+        "https://api.telegram.org/file/bottok/stickers/sticker.webp",
+        expect.objectContaining({ redirect: "manual" }),
       );
       expect(replySpy).toHaveBeenCalledTimes(1);
       const payload = replySpy.mock.calls[0][0];
@@ -86,16 +82,18 @@ describe("telegram stickers", () => {
         cachedAt: "2026-01-20T10:00:00.000Z",
       });
 
-      const fetchSpy = mockTelegramFileDownload({
-        contentType: "image/webp",
-        bytes: new Uint8Array([0x52, 0x49, 0x46, 0x46]),
-      });
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        headers: { get: () => "image/webp" },
+        arrayBuffer: async () => new Uint8Array([0x52, 0x49, 0x46, 0x46]).buffer,
+      } as unknown as Response);
 
       await handler({
         message: {
           message_id: 103,
           chat: { id: 1234, type: "private" },
-          from: { id: 777, is_bot: false, first_name: "Ada" },
           sticker: {
             file_id: "new_file_id",
             file_unique_id: "sticker_unique_456",
@@ -169,13 +167,12 @@ describe("telegram stickers", () => {
       ]) {
         replySpy.mockClear();
         runtimeError.mockClear();
-        const fetchSpy = watchTelegramFetch();
+        const fetchSpy = vi.spyOn(globalThis, "fetch");
 
         await handler({
           message: {
             message_id: scenario.messageId,
             chat: { id: 1234, type: "private" },
-            from: { id: 777, is_bot: false, first_name: "Ada" },
             sticker: scenario.sticker,
             date: 1736380800,
           },
@@ -205,44 +202,43 @@ describe("telegram text fragments", () => {
     "buffers near-limit text and processes sequential parts as one message",
     async () => {
       const { handler, replySpy } = await createBotHandlerWithOptions({});
-      const part1 = "A".repeat(4050);
-      const part2 = "B".repeat(50);
+      vi.useFakeTimers();
+      try {
+        const part1 = "A".repeat(4050);
+        const part2 = "B".repeat(50);
 
-      await handler({
-        message: {
-          chat: { id: 42, type: "private" },
-          from: { id: 777, is_bot: false, first_name: "Ada" },
-          message_id: 10,
-          date: 1736380800,
-          text: part1,
-        },
-        me: { username: "openclaw_bot" },
-        getFile: async () => ({}),
-      });
+        await handler({
+          message: {
+            chat: { id: 42, type: "private" },
+            message_id: 10,
+            date: 1736380800,
+            text: part1,
+          },
+          me: { username: "openclaw_bot" },
+          getFile: async () => ({}),
+        });
 
-      await handler({
-        message: {
-          chat: { id: 42, type: "private" },
-          from: { id: 777, is_bot: false, first_name: "Ada" },
-          message_id: 11,
-          date: 1736380801,
-          text: part2,
-        },
-        me: { username: "openclaw_bot" },
-        getFile: async () => ({}),
-      });
+        await handler({
+          message: {
+            chat: { id: 42, type: "private" },
+            message_id: 11,
+            date: 1736380801,
+            text: part2,
+          },
+          me: { username: "openclaw_bot" },
+          getFile: async () => ({}),
+        });
 
-      expect(replySpy).not.toHaveBeenCalled();
-      await vi.waitFor(
-        () => {
-          expect(replySpy).toHaveBeenCalledTimes(1);
-        },
-        { timeout: TEXT_FRAGMENT_FLUSH_MS * 6, interval: 5 },
-      );
+        expect(replySpy).not.toHaveBeenCalled();
+        await vi.advanceTimersByTimeAsync(TEXT_FRAGMENT_FLUSH_MS * 2);
+        expect(replySpy).toHaveBeenCalledTimes(1);
 
-      const payload = replySpy.mock.calls[0][0] as { RawBody?: string };
-      expect(payload.RawBody).toContain(part1.slice(0, 32));
-      expect(payload.RawBody).toContain(part2.slice(0, 32));
+        const payload = replySpy.mock.calls[0][0] as { RawBody?: string };
+        expect(payload.RawBody).toContain(part1.slice(0, 32));
+        expect(payload.RawBody).toContain(part2.slice(0, 32));
+      } finally {
+        vi.useRealTimers();
+      }
     },
     TEXT_FRAGMENT_TEST_TIMEOUT_MS,
   );

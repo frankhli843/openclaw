@@ -36,7 +36,7 @@ vi.mock("./group-members.js", () => ({
 
 import { resolveWebGroupGateModeCheck } from "./group-gating.frankclaw.js";
 
-function makeParams(conversationId: string, overrides: Partial<any> = {}): any {
+function makeParams(conversationId: string, overrides: Partial<any> = {}) {
   return {
     cfg: {
       agents: { defaults: { mentionKeywords: ["doraemon", "doreamon"] } },

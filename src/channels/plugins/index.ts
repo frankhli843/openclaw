@@ -1,5 +1,15 @@
 export { getChannelPlugin, listChannelPlugins, normalizeChannelId } from "./registry.js";
 export {
+  listDiscordDirectoryGroupsFromConfig,
+  listDiscordDirectoryPeersFromConfig,
+  listSlackDirectoryGroupsFromConfig,
+  listSlackDirectoryPeersFromConfig,
+  listTelegramDirectoryGroupsFromConfig,
+  listTelegramDirectoryPeersFromConfig,
+  listWhatsAppDirectoryGroupsFromConfig,
+  listWhatsAppDirectoryPeersFromConfig,
+} from "./directory-config.js";
+export {
   applyChannelMatchMeta,
   buildChannelKeyCandidates,
   normalizeChannelSlug,

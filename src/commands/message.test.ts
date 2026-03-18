@@ -18,54 +18,43 @@ vi.mock("../config/config.js", async (importOriginal) => {
   };
 });
 
-const { resolveCommandSecretRefsViaGateway, callGatewayMock } = vi.hoisted(() => ({
-  resolveCommandSecretRefsViaGateway: vi.fn(async ({ config }: { config: unknown }) => ({
-    resolvedConfig: config,
-    diagnostics: [] as string[],
-  })),
-  callGatewayMock: vi.fn(),
+const resolveCommandSecretRefsViaGateway = vi.fn(async ({ config }: { config: unknown }) => ({
+  resolvedConfig: config,
+  diagnostics: [] as string[],
 }));
-
 vi.mock("../cli/command-secret-gateway.js", () => ({
   resolveCommandSecretRefsViaGateway,
 }));
 
+const callGatewayMock = vi.fn();
 vi.mock("../gateway/call.js", () => ({
   callGateway: callGatewayMock,
   callGatewayLeastPrivilege: callGatewayMock,
   randomIdempotencyKey: () => "idem-1",
 }));
 
-const webAuthExists = vi.hoisted(() => vi.fn(async () => false));
+const webAuthExists = vi.fn(async () => false);
 vi.mock("../../extensions/whatsapp/src/session.js", () => ({
   webAuthExists,
 }));
 
-const handleDiscordAction = vi.hoisted(() =>
-  vi.fn(async (..._args: unknown[]) => ({ details: { ok: true } })),
-);
-vi.mock("../../extensions/discord/src/actions/runtime.js", () => ({
+const handleDiscordAction = vi.fn(async (..._args: unknown[]) => ({ details: { ok: true } }));
+vi.mock("../agents/tools/discord-actions.js", () => ({
   handleDiscordAction,
 }));
 
-const handleSlackAction = vi.hoisted(() =>
-  vi.fn(async (..._args: unknown[]) => ({ details: { ok: true } })),
-);
-vi.mock("../../extensions/slack/runtime-api.js", () => ({
+const handleSlackAction = vi.fn(async (..._args: unknown[]) => ({ details: { ok: true } }));
+vi.mock("../agents/tools/slack-actions.js", () => ({
   handleSlackAction,
 }));
 
-const handleTelegramAction = vi.hoisted(() =>
-  vi.fn(async (..._args: unknown[]) => ({ details: { ok: true } })),
-);
-vi.mock("../../extensions/telegram/src/action-runtime.js", () => ({
+const handleTelegramAction = vi.fn(async (..._args: unknown[]) => ({ details: { ok: true } }));
+vi.mock("../agents/tools/telegram-actions.js", () => ({
   handleTelegramAction,
 }));
 
-const handleWhatsAppAction = vi.hoisted(() =>
-  vi.fn(async (..._args: unknown[]) => ({ details: { ok: true } })),
-);
-vi.mock("../../extensions/whatsapp/runtime-api.js", () => ({
+const handleWhatsAppAction = vi.fn(async (..._args: unknown[]) => ({ details: { ok: true } }));
+vi.mock("../agents/tools/whatsapp-actions.js", () => ({
   handleWhatsAppAction,
 }));
 
@@ -77,12 +66,10 @@ const setRegistry = async (registry: ReturnType<typeof createTestRegistry>) => {
 };
 
 beforeEach(async () => {
-  vi.resetModules();
   envSnapshot = captureEnv(["TELEGRAM_BOT_TOKEN", "DISCORD_BOT_TOKEN"]);
   process.env.TELEGRAM_BOT_TOKEN = "";
   process.env.DISCORD_BOT_TOKEN = "";
   testConfig = {};
-  ({ messageCommand } = await import("./message.js"));
   await setRegistry(createTestRegistry([]));
   callGatewayMock.mockClear();
   webAuthExists.mockClear().mockResolvedValue(false);
@@ -150,7 +137,7 @@ const createDiscordPollPluginRegistration = () => ({
     id: "discord",
     label: "Discord",
     actions: {
-      describeMessageTool: () => ({ actions: ["poll"] }),
+      listActions: () => ["poll"],
       handleAction: (async ({ action, params, cfg, accountId }: ChannelActionParams) => {
         return await handleDiscordAction(
           { action, to: params.to, accountId: accountId ?? undefined },
@@ -168,7 +155,7 @@ const createTelegramSendPluginRegistration = () => ({
     id: "telegram",
     label: "Telegram",
     actions: {
-      describeMessageTool: () => ({ actions: ["send"] }),
+      listActions: () => ["send"],
       handleAction: (async ({ action, params, cfg, accountId }: ChannelActionParams) => {
         return await handleTelegramAction(
           { action, to: params.to, accountId: accountId ?? undefined },
@@ -186,7 +173,7 @@ const createTelegramPollPluginRegistration = () => ({
     id: "telegram",
     label: "Telegram",
     actions: {
-      describeMessageTool: () => ({ actions: ["poll"] }),
+      listActions: () => ["poll"],
       handleAction: (async ({ action, params, cfg, accountId }: ChannelActionParams) => {
         return await handleTelegramAction(
           { action, to: params.to, accountId: accountId ?? undefined },
@@ -197,7 +184,7 @@ const createTelegramPollPluginRegistration = () => ({
   }),
 });
 
-let messageCommand: typeof import("./message.js").messageCommand;
+const { messageCommand } = await import("./message.js");
 
 function createTelegramSecretRawConfig() {
   return {

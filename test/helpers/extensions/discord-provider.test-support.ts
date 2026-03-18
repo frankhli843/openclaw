@@ -248,16 +248,14 @@ export const baseConfig = (): OpenClawConfig =>
     channels: {
       discord: {
         accounts: {
-          default: {
-            token: "MTIz.abc.def",
-          },
+          default: {},
         },
       },
     },
   }) as OpenClawConfig;
 
-vi.mock("@buape/carbon", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@buape/carbon")>();
+vi.mock("@buape/carbon", () => {
+  class ReadyListener {}
   class RateLimitError extends Error {
     status = 429;
     discordCode?: number;
@@ -294,7 +292,7 @@ vi.mock("@buape/carbon", async (importOriginal) => {
       return clientGetPluginMock(name);
     }
   }
-  return { ...actual, Client, RateLimitError };
+  return { Client, RateLimitError, ReadyListener };
 });
 
 vi.mock("@buape/carbon/gateway", () => ({
@@ -379,23 +377,23 @@ vi.mock("openclaw/plugin-sdk/infra-runtime", async () => {
   };
 });
 
-vi.mock("../../../extensions/discord/src/accounts.js", () => ({
+vi.mock("../discord/src/accounts.js", () => ({
   resolveDiscordAccount: resolveDiscordAccountMock,
 }));
 
-vi.mock("../../../extensions/discord/src/probe.js", () => ({
+vi.mock("../discord/src/probe.js", () => ({
   fetchDiscordApplicationId: async () => "app-1",
 }));
 
-vi.mock("../../../extensions/discord/src/token.js", () => ({
+vi.mock("../discord/src/token.js", () => ({
   normalizeDiscordToken: (value?: string) => value,
 }));
 
-vi.mock("../../../extensions/discord/src/voice/command.js", () => ({
+vi.mock("../discord/src/voice/command.js", () => ({
   createDiscordVoiceCommand: () => ({ name: "voice-command" }),
 }));
 
-vi.mock("../../../extensions/discord/src/monitor/agent-components.js", () => ({
+vi.mock("../discord/src/monitor/agent-components.js", () => ({
   createAgentComponentButton: () => ({ id: "btn" }),
   createAgentSelectMenu: () => ({ id: "menu" }),
   createDiscordComponentButton: () => ({ id: "btn2" }),
@@ -407,15 +405,15 @@ vi.mock("../../../extensions/discord/src/monitor/agent-components.js", () => ({
   createDiscordComponentUserSelect: () => ({ id: "user" }),
 }));
 
-vi.mock("../../../extensions/discord/src/monitor/auto-presence.js", () => ({
+vi.mock("../discord/src/monitor/auto-presence.js", () => ({
   createDiscordAutoPresenceController: createDiscordAutoPresenceControllerMock,
 }));
 
-vi.mock("../../../extensions/discord/src/monitor/commands.js", () => ({
+vi.mock("../discord/src/monitor/commands.js", () => ({
   resolveDiscordSlashCommandConfig: () => ({ ephemeral: false }),
 }));
 
-vi.mock("../../../extensions/discord/src/monitor/exec-approvals.js", () => ({
+vi.mock("../discord/src/monitor/exec-approvals.js", () => ({
   createExecApprovalButton: () => ({ id: "exec-approval" }),
   DiscordExecApprovalHandler: class DiscordExecApprovalHandler {
     async start() {
@@ -427,11 +425,11 @@ vi.mock("../../../extensions/discord/src/monitor/exec-approvals.js", () => ({
   },
 }));
 
-vi.mock("../../../extensions/discord/src/monitor/gateway-plugin.js", () => ({
+vi.mock("../discord/src/monitor/gateway-plugin.js", () => ({
   createDiscordGatewayPlugin: () => ({ id: "gateway-plugin" }),
 }));
 
-vi.mock("../../../extensions/discord/src/monitor/listeners.js", () => ({
+vi.mock("../discord/src/monitor/listeners.js", () => ({
   DiscordMessageListener: class DiscordMessageListener {},
   DiscordPresenceListener: class DiscordPresenceListener {},
   DiscordReactionListener: class DiscordReactionListener {},
@@ -440,36 +438,34 @@ vi.mock("../../../extensions/discord/src/monitor/listeners.js", () => ({
   registerDiscordListener: vi.fn(),
 }));
 
-vi.mock("../../../extensions/discord/src/monitor/message-handler.js", () => ({
+vi.mock("../discord/src/monitor/message-handler.js", () => ({
   createDiscordMessageHandler: createDiscordMessageHandlerMock,
 }));
 
-vi.mock("../../../extensions/discord/src/monitor/native-command.js", () => ({
+vi.mock("../discord/src/monitor/native-command.js", () => ({
   createDiscordCommandArgFallbackButton: () => ({ id: "arg-fallback" }),
   createDiscordModelPickerFallbackButton: () => ({ id: "model-fallback-btn" }),
   createDiscordModelPickerFallbackSelect: () => ({ id: "model-fallback-select" }),
   createDiscordNativeCommand: createDiscordNativeCommandMock,
 }));
 
-vi.mock("../../../extensions/discord/src/monitor/presence.js", () => ({
+vi.mock("../discord/src/monitor/presence.js", () => ({
   resolveDiscordPresenceUpdate: () => undefined,
 }));
 
-vi.mock("../../../extensions/discord/src/monitor/provider.allowlist.js", () => ({
+vi.mock("../discord/src/monitor/provider.allowlist.js", () => ({
   resolveDiscordAllowlistConfig: resolveDiscordAllowlistConfigMock,
 }));
 
-vi.mock("../../../extensions/discord/src/monitor/provider.lifecycle.js", () => ({
+vi.mock("../discord/src/monitor/provider.lifecycle.js", () => ({
   runDiscordGatewayLifecycle: monitorLifecycleMock,
 }));
 
-vi.mock("../../../extensions/discord/src/monitor/rest-fetch.js", () => ({
-  resolveDiscordRestFetch: () => async () => {
-    throw new Error("offline");
-  },
+vi.mock("../discord/src/monitor/rest-fetch.js", () => ({
+  resolveDiscordRestFetch: () => async () => undefined,
 }));
 
-vi.mock("../../../extensions/discord/src/monitor/thread-bindings.js", () => ({
+vi.mock("../discord/src/monitor/thread-bindings.js", () => ({
   createNoopThreadBindingManager: createNoopThreadBindingManagerMock,
   createThreadBindingManager: createThreadBindingManagerMock,
   reconcileAcpThreadBindingsOnStartup: reconcileAcpThreadBindingsOnStartupMock,

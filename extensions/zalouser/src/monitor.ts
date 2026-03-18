@@ -10,13 +10,12 @@ import {
   clearHistoryEntriesIfEnabled,
   recordPendingHistoryEntryIfEnabled,
 } from "openclaw/plugin-sdk/reply-history";
-import { createDeferred } from "../../shared/deferred.js";
 import type {
   MarkdownTableMode,
   OpenClawConfig,
   OutboundReplyPayload,
   RuntimeEnv,
-} from "../runtime-api.js";
+} from "openclaw/plugin-sdk/zalouser";
 import {
   createTypingCallbacks,
   createScopedPairingAccess,
@@ -34,7 +33,8 @@ import {
   sendMediaWithLeadingCaption,
   summarizeMapping,
   warnMissingProviderGroupPolicyFallbackOnce,
-} from "../runtime-api.js";
+} from "openclaw/plugin-sdk/zalouser";
+import { createDeferred } from "../../shared/deferred.js";
 import {
   buildZalouserGroupCandidates,
   findZalouserGroupEntry,

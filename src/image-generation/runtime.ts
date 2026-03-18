@@ -25,7 +25,6 @@ export type GenerateImageParams = {
   modelOverride?: string;
   count?: number;
   size?: string;
-  aspectRatio?: string;
   resolution?: ImageGenerationResolution;
   inputImages?: ImageGenerationSourceImage[];
 };
@@ -143,7 +142,6 @@ export async function generateImage(
         authStore: params.authStore,
         count: params.count,
         size: params.size,
-        aspectRatio: params.aspectRatio,
         resolution: params.resolution,
         inputImages: params.inputImages,
       });

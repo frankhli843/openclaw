@@ -67,7 +67,7 @@ function makeSlackHttpSummaryPlugin(): ChannelPlugin {
       isEnabled: () => true,
     },
     actions: {
-      describeMessageTool: () => ({ actions: ["send"] }),
+      listActions: () => ["send"],
     },
   };
 }
@@ -125,7 +125,7 @@ function makeTelegramSummaryPlugin(params: {
       }),
     },
     actions: {
-      describeMessageTool: () => ({ actions: ["send"] }),
+      listActions: () => ["send"],
     },
   };
 }
@@ -170,7 +170,7 @@ function makeSignalSummaryPlugin(params: { enabled: boolean; configured: boolean
       isEnabled: (account) => Boolean((account as { enabled?: boolean }).enabled),
     },
     actions: {
-      describeMessageTool: () => ({ actions: ["send"] }),
+      listActions: () => ["send"],
     },
   };
 }
@@ -208,7 +208,7 @@ function makeFallbackSummaryPlugin(params: {
       isEnabled: (account) => Boolean((account as { enabled?: boolean }).enabled),
     },
     actions: {
-      describeMessageTool: () => ({ actions: ["send"] }),
+      listActions: () => ["send"],
     },
   };
 }

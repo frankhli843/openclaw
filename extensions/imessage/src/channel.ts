@@ -1,37 +1,34 @@
 import { buildAccountScopedAllowlistConfigEditor } from "openclaw/plugin-sdk/allowlist-config-edit";
+import {
+  buildAccountScopedDmSecurityPolicy,
+  collectAllowlistProviderRestrictSendersWarnings,
+} from "openclaw/plugin-sdk/channel-config-helpers";
 import { resolveOutboundSendDep } from "openclaw/plugin-sdk/channel-runtime";
 import { buildOutboundBaseSessionKey } from "openclaw/plugin-sdk/core";
-import { createLazyRuntimeModule } from "openclaw/plugin-sdk/lazy-runtime";
-import { type RoutePeer } from "openclaw/plugin-sdk/routing";
-import { buildPassiveProbedChannelStatusSummary } from "../../shared/channel-status-summary.js";
 import {
   collectStatusIssuesFromLastError,
   DEFAULT_ACCOUNT_ID,
   formatTrimmedAllowFromEntries,
+  looksLikeIMessageTargetId,
   normalizeIMessageMessagingTarget,
-  type ChannelPlugin,
-} from "../runtime-api.js";
-import { resolveIMessageAccount, type ResolvedIMessageAccount } from "./accounts.js";
-import {
   resolveIMessageGroupRequireMention,
   resolveIMessageGroupToolPolicy,
-} from "./group-policy.js";
+  type ChannelPlugin,
+} from "openclaw/plugin-sdk/imessage";
+import { type RoutePeer } from "openclaw/plugin-sdk/routing";
+import { buildPassiveProbedChannelStatusSummary } from "../../shared/channel-status-summary.js";
+import { resolveIMessageAccount, type ResolvedIMessageAccount } from "./accounts.js";
 import { getIMessageRuntime } from "./runtime.js";
 import { imessageSetupAdapter } from "./setup-core.js";
-import {
-  collectIMessageSecurityWarnings,
-  createIMessagePluginBase,
-  imessageResolveDmPolicy,
-  imessageSetupWizard,
-} from "./shared.js";
-import {
-  inferIMessageTargetChatType,
-  looksLikeIMessageExplicitTargetId,
-  normalizeIMessageHandle,
-  parseIMessageTarget,
-} from "./targets.js";
+import { createIMessagePluginBase, imessageSetupWizard } from "./shared.js";
+import { normalizeIMessageHandle, parseIMessageTarget } from "./targets.js";
 
-const loadIMessageChannelRuntime = createLazyRuntimeModule(() => import("./channel.runtime.js"));
+let imessageChannelRuntimePromise: Promise<typeof import("./channel.runtime.js")> | null = null;
+
+async function loadIMessageChannelRuntime() {
+  imessageChannelRuntimePromise ??= import("./channel.runtime.js");
+  return imessageChannelRuntimePromise;
+}
 
 function buildIMessageBaseSessionKey(params: {
   cfg: Parameters<typeof resolveIMessageAccount>[0]["cfg"];
@@ -134,8 +131,29 @@ export const imessagePlugin: ChannelPlugin<ResolvedIMessageAccount> = {
     }),
   },
   security: {
-    resolveDmPolicy: imessageResolveDmPolicy,
-    collectWarnings: collectIMessageSecurityWarnings,
+    resolveDmPolicy: ({ cfg, accountId, account }) => {
+      return buildAccountScopedDmSecurityPolicy({
+        cfg,
+        channelKey: "imessage",
+        accountId,
+        fallbackAccountId: account.accountId ?? DEFAULT_ACCOUNT_ID,
+        policy: account.config.dmPolicy,
+        allowFrom: account.config.allowFrom ?? [],
+        policyPathSuffix: "dmPolicy",
+      });
+    },
+    collectWarnings: ({ account, cfg }) => {
+      return collectAllowlistProviderRestrictSendersWarnings({
+        cfg,
+        providerConfigPresent: cfg.channels?.imessage !== undefined,
+        configuredGroupPolicy: account.config.groupPolicy,
+        surface: "iMessage groups",
+        openScope: "any member",
+        groupPolicyPath: "channels.imessage.groupPolicy",
+        groupAllowFromPath: "channels.imessage.groupAllowFrom",
+        mentionGated: false,
+      });
+    },
   },
   groups: {
     resolveRequireMention: resolveIMessageGroupRequireMention,
@@ -143,26 +161,10 @@ export const imessagePlugin: ChannelPlugin<ResolvedIMessageAccount> = {
   },
   messaging: {
     normalizeTarget: normalizeIMessageMessagingTarget,
-    inferTargetChatType: ({ to }) => inferIMessageTargetChatType(to),
     resolveOutboundSessionRoute: (params) => resolveIMessageOutboundSessionRoute(params),
     targetResolver: {
-      looksLikeId: looksLikeIMessageExplicitTargetId,
+      looksLikeId: looksLikeIMessageTargetId,
       hint: "<handle|chat_id:ID>",
-      resolveTarget: async ({ normalized }) => {
-        const to = normalized?.trim();
-        if (!to) {
-          return null;
-        }
-        const chatType = inferIMessageTargetChatType(to);
-        if (!chatType) {
-          return null;
-        }
-        return {
-          to,
-          kind: chatType === "direct" ? "user" : "group",
-          source: "normalized" as const,
-        };
-      },
     },
   },
   outbound: {

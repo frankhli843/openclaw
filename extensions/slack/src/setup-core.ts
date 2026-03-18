@@ -1,14 +1,16 @@
 import {
   createAllowlistSetupWizardProxy,
-  createAccountScopedAllowFromSection,
-  createAccountScopedGroupAccessSection,
-  createLegacyCompatChannelDmPolicy,
   DEFAULT_ACCOUNT_ID,
   createEnvPatchedAccountSetupAdapter,
+  formatDocsLink,
   hasConfiguredSecretInput,
   type OpenClawConfig,
+  noteChannelLookupFailure,
+  noteChannelLookupSummary,
   parseMentionOrPrefixedId,
   patchChannelConfigForAccount,
+  setAccountGroupPolicyForChannel,
+  setLegacyChannelDmPolicyWithAllowFrom,
   setSetupChannelEnabled,
 } from "openclaw/plugin-sdk/setup";
 import {
@@ -17,7 +19,6 @@ import {
   type ChannelSetupWizard,
   type ChannelSetupWizardAllowFromEntry,
 } from "openclaw/plugin-sdk/setup";
-import { formatDocsLink } from "openclaw/plugin-sdk/setup-tools";
 import { inspectSlackAccount } from "./account-inspect.js";
 import { listSlackAccountIds, resolveSlackAccount, type ResolvedSlackAccount } from "./accounts.js";
 import {
@@ -111,11 +112,21 @@ export function createSlackSetupWizardBase(handlers: {
     NonNullable<NonNullable<ChannelSetupWizard["groupAccess"]>["resolveAllowlist"]>
   >;
 }) {
-  const slackDmPolicy: ChannelSetupDmPolicy = createLegacyCompatChannelDmPolicy({
+  const slackDmPolicy: ChannelSetupDmPolicy = {
     label: "Slack",
     channel,
+    policyKey: "channels.slack.dmPolicy",
+    allowFromKey: "channels.slack.allowFrom",
+    getCurrent: (cfg: OpenClawConfig) =>
+      cfg.channels?.slack?.dmPolicy ?? cfg.channels?.slack?.dm?.policy ?? "pairing",
+    setPolicy: (cfg: OpenClawConfig, policy) =>
+      setLegacyChannelDmPolicyWithAllowFrom({
+        cfg,
+        channel,
+        dmPolicy: policy,
+      }),
     promptAllowFrom: handlers.promptAllowFrom,
-  });
+  };
 
   return {
     channel,
@@ -167,9 +178,7 @@ export function createSlackSetupWizardBase(handlers: {
       }),
     ],
     dmPolicy: slackDmPolicy,
-    allowFrom: createAccountScopedAllowFromSection({
-      channel,
-      credentialInputKey: "botToken",
+    allowFrom: {
       helpTitle: "Slack allowlist",
       helpLines: [
         "Allowlist Slack DMs by username (we resolve to user ids).",
@@ -179,6 +188,7 @@ export function createSlackSetupWizardBase(handlers: {
         "Multiple entries: comma-separated.",
         `Docs: ${formatDocsLink("/slack", "slack")}`,
       ],
+      credentialInputKey: "botToken",
       message: "Slack allowFrom (usernames or ids)",
       placeholder: "@alice, U12345678",
       invalidWithoutCredentialNote: "Slack token missing; use user ids (or mention form) only.",
@@ -190,10 +200,34 @@ export function createSlackSetupWizardBase(handlers: {
           idPattern: /^[A-Z][A-Z0-9]+$/i,
           normalizeId: (id) => id.toUpperCase(),
         }),
-      resolveEntries: handlers.resolveAllowFromEntries,
-    }),
-    groupAccess: createAccountScopedGroupAccessSection({
-      channel,
+      resolveEntries: async ({
+        cfg,
+        accountId,
+        credentialValues,
+        entries,
+      }: {
+        cfg: OpenClawConfig;
+        accountId: string;
+        credentialValues: { botToken?: string };
+        entries: string[];
+      }) => await handlers.resolveAllowFromEntries({ cfg, accountId, credentialValues, entries }),
+      apply: ({
+        cfg,
+        accountId,
+        allowFrom,
+      }: {
+        cfg: OpenClawConfig;
+        accountId: string;
+        allowFrom: string[];
+      }) =>
+        patchChannelConfigForAccount({
+          cfg,
+          channel,
+          accountId,
+          patch: { dmPolicy: "allowlist", allowFrom },
+        }),
+    },
+    groupAccess: {
       label: "Slack channels",
       placeholder: "#general, #private, C123",
       currentPolicy: ({ cfg, accountId }: { cfg: OpenClawConfig; accountId: string }) =>
@@ -204,8 +238,57 @@ export function createSlackSetupWizardBase(handlers: {
           .map(([key]) => key),
       updatePrompt: ({ cfg, accountId }: { cfg: OpenClawConfig; accountId: string }) =>
         Boolean(resolveSlackAccount({ cfg, accountId }).config.channels),
-      resolveAllowlist: handlers.resolveGroupAllowlist,
-      fallbackResolved: (entries) => entries,
+      setPolicy: ({
+        cfg,
+        accountId,
+        policy,
+      }: {
+        cfg: OpenClawConfig;
+        accountId: string;
+        policy: "open" | "allowlist" | "disabled";
+      }) =>
+        setAccountGroupPolicyForChannel({
+          cfg,
+          channel,
+          accountId,
+          groupPolicy: policy,
+        }),
+      resolveAllowlist: async ({
+        cfg,
+        accountId,
+        credentialValues,
+        entries,
+        prompter,
+      }: {
+        cfg: OpenClawConfig;
+        accountId: string;
+        credentialValues: { botToken?: string };
+        entries: string[];
+        prompter: { note: (message: string, title?: string) => Promise<void> };
+      }) => {
+        try {
+          return await handlers.resolveGroupAllowlist({
+            cfg,
+            accountId,
+            credentialValues,
+            entries,
+            prompter,
+          });
+        } catch (error) {
+          await noteChannelLookupFailure({
+            prompter,
+            label: "Slack channels",
+            error,
+          });
+          await noteChannelLookupSummary({
+            prompter,
+            label: "Slack channels",
+            resolvedSections: [],
+            unresolved: entries,
+          });
+          return entries;
+        }
+      },
       applyAllowlist: ({
         cfg,
         accountId,
@@ -215,7 +298,7 @@ export function createSlackSetupWizardBase(handlers: {
         accountId: string;
         resolved: unknown;
       }) => setSlackChannelAllowlist(cfg, accountId, resolved as string[]),
-    }),
+    },
     disable: (cfg: OpenClawConfig) => setSetupChannelEnabled(cfg, channel, false),
   } satisfies ChannelSetupWizard;
 }

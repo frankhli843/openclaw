@@ -4,7 +4,6 @@ import { formatErrorMessage } from "openclaw/plugin-sdk/infra-runtime";
 import { formatDurationPrecise } from "openclaw/plugin-sdk/infra-runtime";
 import { withTelegramApiErrorLogging } from "./api-logging.js";
 import { createTelegramBot } from "./bot.js";
-import { type TelegramTransport } from "./fetch.js";
 import { isRecoverableTelegramNetworkError } from "./network-errors.js";
 
 const TELEGRAM_POLL_RESTART_POLICY = {
@@ -48,8 +47,6 @@ type TelegramPollingSessionOpts = {
   getLastUpdateId: () => number | null;
   persistUpdateId: (updateId: number) => Promise<void>;
   log: (line: string) => void;
-  /** Pre-resolved Telegram transport to reuse across bot instances */
-  telegramTransport?: TelegramTransport;
 };
 
 export class TelegramPollingSession {
@@ -138,7 +135,6 @@ export class TelegramPollingSession {
           lastUpdateId: this.opts.getLastUpdateId(),
           onUpdateId: this.opts.persistUpdateId,
         },
-        telegramTransport: this.opts.telegramTransport,
       });
     } catch (err) {
       await this.#waitBeforeRetryOnRecoverableSetupError(err, "Telegram setup network error");
