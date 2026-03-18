@@ -42,8 +42,6 @@ describe("config view", () => {
     themeMode: "system" as ThemeMode,
     setTheme: vi.fn(),
     setThemeMode: vi.fn(),
-    borderRadius: 50,
-    setBorderRadius: vi.fn(),
     gatewayUrl: "",
     assistantName: "OpenClaw",
   });

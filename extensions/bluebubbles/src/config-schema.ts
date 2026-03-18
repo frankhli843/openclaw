@@ -1,3 +1,4 @@
+import { MarkdownConfigSchema, ToolPolicySchema } from "openclaw/plugin-sdk/bluebubbles";
 import {
   AllowFromListSchema,
   buildCatchallMultiAccountChannelSchema,
@@ -5,7 +6,6 @@ import {
   GroupPolicySchema,
 } from "openclaw/plugin-sdk/channel-config-schema";
 import { z } from "zod";
-import { MarkdownConfigSchema, ToolPolicySchema } from "./runtime-api.js";
 import { buildSecretInputSchema, hasConfiguredSecretInput } from "./secret-input.js";
 
 const bluebubblesActionSchema = z

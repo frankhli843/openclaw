@@ -2,7 +2,6 @@ import fs from "node:fs/promises";
 import type { OAuthCredentials } from "@mariozechner/pi-ai";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import anthropicPlugin from "../../extensions/anthropic/index.js";
-import chutesPlugin from "../../extensions/chutes/index.js";
 import cloudflareAiGatewayPlugin from "../../extensions/cloudflare-ai-gateway/index.js";
 import googlePlugin from "../../extensions/google/index.js";
 import huggingfacePlugin from "../../extensions/huggingface/index.js";
@@ -85,7 +84,6 @@ type StoredAuthProfile = {
 function createDefaultProviderPlugins() {
   return registerProviderPlugins(
     anthropicPlugin,
-    chutesPlugin,
     cloudflareAiGatewayPlugin,
     googlePlugin,
     huggingfacePlugin,
@@ -1347,7 +1345,7 @@ describe("applyAuthChoice", () => {
 
     const runtime = createExitThrowingRuntime();
     const text: WizardPrompter["text"] = vi.fn(async (params) => {
-      if (params.message.startsWith("Paste the redirect URL")) {
+      if (params.message === "Paste the redirect URL") {
         const runtimeLog = runtime.log as ReturnType<typeof vi.fn>;
         const lastLog = runtimeLog.mock.calls.at(-1)?.[0];
         const urlLine = typeof lastLog === "string" ? lastLog : String(lastLog ?? "");
@@ -1372,7 +1370,7 @@ describe("applyAuthChoice", () => {
 
     expect(text).toHaveBeenCalledWith(
       expect.objectContaining({
-        message: expect.stringContaining("Paste the redirect URL"),
+        message: "Paste the redirect URL",
       }),
     );
     expect(result.config.auth?.profiles?.["chutes:remote-user"]).toMatchObject({

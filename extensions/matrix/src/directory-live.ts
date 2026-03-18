@@ -1,4 +1,4 @@
-import type { ChannelDirectoryEntry } from "../runtime-api.js";
+import type { ChannelDirectoryEntry } from "openclaw/plugin-sdk/matrix";
 import { resolveMatrixAuth } from "./matrix/client.js";
 
 type MatrixUserResult = {

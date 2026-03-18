@@ -6,9 +6,6 @@ import { defineChannelPluginEntry } from "openclaw/plugin-sdk/core";
 import { tlonPlugin } from "./src/channel.js";
 import { setTlonRuntime } from "./src/runtime.js";
 
-export { tlonPlugin } from "./src/channel.js";
-export { setTlonRuntime } from "./src/runtime.js";
-
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const ALLOWED_TLON_COMMANDS = new Set([

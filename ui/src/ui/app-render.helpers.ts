@@ -487,7 +487,7 @@ export function renderChatMobileToggle(state: AppViewState) {
   `;
 }
 
-export function switchChatSession(state: AppViewState, nextSessionKey: string) {
+function switchChatSession(state: AppViewState, nextSessionKey: string) {
   state.sessionKey = nextSessionKey;
   state.chatMessage = "";
   state.chatStream = null;

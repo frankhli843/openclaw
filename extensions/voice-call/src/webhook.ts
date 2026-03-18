@@ -4,7 +4,7 @@ import {
   isRequestBodyLimitError,
   readRequestBodyWithLimit,
   requestBodyErrorToText,
-} from "../api.js";
+} from "openclaw/plugin-sdk/voice-call";
 import { normalizeVoiceCallConfig, type VoiceCallConfig } from "./config.js";
 import type { CoreAgentDeps, CoreConfig } from "./core-bridge.js";
 import type { CallManager } from "./manager.js";

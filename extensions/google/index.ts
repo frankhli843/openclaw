@@ -5,11 +5,14 @@ import {
   GOOGLE_GEMINI_DEFAULT_MODEL,
   applyGoogleGeminiModelDefault,
 } from "openclaw/plugin-sdk/provider-models";
-import { createGoogleThinkingPayloadWrapper } from "openclaw/plugin-sdk/provider-stream";
+import {
+  createPluginBackedWebSearchProvider,
+  getScopedCredentialValue,
+  setScopedCredentialValue,
+} from "openclaw/plugin-sdk/provider-web-search";
 import { registerGoogleGeminiCliProvider } from "./gemini-cli-provider.js";
 import { googleMediaUnderstandingProvider } from "./media-understanding-provider.js";
 import { isModernGoogleModel, resolveGoogle31ForwardCompatModel } from "./provider-models.js";
-import { createGeminiWebSearchProvider } from "./src/gemini-web-search-provider.js";
 
 export default definePluginEntry({
   id: "google",
@@ -45,12 +48,25 @@ export default definePluginEntry({
       ],
       resolveDynamicModel: (ctx) =>
         resolveGoogle31ForwardCompatModel({ providerId: "google", ctx }),
-      wrapStreamFn: (ctx) => createGoogleThinkingPayloadWrapper(ctx.streamFn, ctx.thinkingLevel),
       isModernModelRef: ({ modelId }) => isModernGoogleModel(modelId),
     });
     registerGoogleGeminiCliProvider(api);
     api.registerImageGenerationProvider(buildGoogleImageGenerationProvider());
     api.registerMediaUnderstandingProvider(googleMediaUnderstandingProvider);
-    api.registerWebSearchProvider(createGeminiWebSearchProvider());
+    api.registerWebSearchProvider(
+      createPluginBackedWebSearchProvider({
+        id: "gemini",
+        label: "Gemini (Google Search)",
+        hint: "Google Search grounding · AI-synthesized",
+        envVars: ["GEMINI_API_KEY"],
+        placeholder: "AIza...",
+        signupUrl: "https://aistudio.google.com/apikey",
+        docsUrl: "https://docs.openclaw.ai/tools/web",
+        autoDetectOrder: 20,
+        getCredentialValue: (searchConfig) => getScopedCredentialValue(searchConfig, "gemini"),
+        setCredentialValue: (searchConfigTarget, value) =>
+          setScopedCredentialValue(searchConfigTarget, "gemini", value),
+      }),
+    );
   },
 });

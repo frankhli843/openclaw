@@ -1,17 +1,17 @@
 import {
+  formatDocsLink,
   noteChannelLookupFailure,
   noteChannelLookupSummary,
-  resolveEntriesWithOptionalToken,
   type OpenClawConfig,
   parseMentionOrPrefixedId,
-  promptLegacyChannelAllowFromForAccount,
+  promptLegacyChannelAllowFrom,
+  resolveSetupAccountId,
   type WizardPrompter,
 } from "openclaw/plugin-sdk/setup";
 import type {
   ChannelSetupWizard,
   ChannelSetupWizardAllowFromEntry,
 } from "openclaw/plugin-sdk/setup";
-import { formatDocsLink } from "openclaw/plugin-sdk/setup-tools";
 import { resolveDefaultSlackAccountId, resolveSlackAccount } from "./accounts.js";
 import { resolveSlackChannelAllowlist } from "./resolve-channels.js";
 import { resolveSlackUserAllowlist } from "./resolve-users.js";
@@ -22,26 +22,22 @@ async function resolveSlackAllowFromEntries(params: {
   token?: string;
   entries: string[];
 }): Promise<ChannelSetupWizardAllowFromEntry[]> {
-  return await resolveEntriesWithOptionalToken({
-    token: params.token,
-    entries: params.entries,
-    buildWithoutToken: (input) => ({
+  if (!params.token?.trim()) {
+    return params.entries.map((input) => ({
       input,
       resolved: false,
       id: null,
-    }),
-    resolveEntries: async ({ token, entries }) =>
-      (
-        await resolveSlackUserAllowlist({
-          token,
-          entries,
-        })
-      ).map((entry) => ({
-        input: entry.input,
-        resolved: entry.resolved,
-        id: entry.id ?? null,
-      })),
+    }));
+  }
+  const resolved = await resolveSlackUserAllowlist({
+    token: params.token,
+    entries: params.entries,
   });
+  return resolved.map((entry) => ({
+    input: entry.input,
+    resolved: entry.resolved,
+    id: entry.id ?? null,
+  }));
 }
 
 async function promptSlackAllowFrom(params: {
@@ -49,6 +45,14 @@ async function promptSlackAllowFrom(params: {
   prompter: WizardPrompter;
   accountId?: string;
 }): Promise<OpenClawConfig> {
+  const accountId = resolveSetupAccountId({
+    accountId: params.accountId,
+    defaultAccountId: resolveDefaultSlackAccountId(params.cfg),
+  });
+  const resolved = resolveSlackAccount({ cfg: params.cfg, accountId });
+  const token = resolved.userToken ?? resolved.botToken ?? "";
+  const existing =
+    params.cfg.channels?.slack?.allowFrom ?? params.cfg.channels?.slack?.dm?.allowFrom ?? [];
   const parseId = (value: string) =>
     parseMentionOrPrefixedId({
       value,
@@ -58,16 +62,12 @@ async function promptSlackAllowFrom(params: {
       normalizeId: (id) => id.toUpperCase(),
     });
 
-  return await promptLegacyChannelAllowFromForAccount({
+  return promptLegacyChannelAllowFrom({
     cfg: params.cfg,
     channel,
     prompter: params.prompter,
-    accountId: params.accountId,
-    defaultAccountId: resolveDefaultSlackAccountId(params.cfg),
-    resolveAccount: (cfg, accountId) => resolveSlackAccount({ cfg, accountId }),
-    resolveExisting: (_account, cfg) =>
-      cfg.channels?.slack?.allowFrom ?? cfg.channels?.slack?.dm?.allowFrom ?? [],
-    resolveToken: (account) => account.userToken ?? account.botToken ?? "",
+    existing,
+    token,
     noteTitle: "Slack allowlist",
     noteLines: [
       "Allowlist Slack DMs by username (we resolve to user ids).",
@@ -81,17 +81,11 @@ async function promptSlackAllowFrom(params: {
     placeholder: "@alice, U12345678",
     parseId,
     invalidWithoutTokenNote: "Slack token missing; use user ids (or mention form) only.",
-    resolveEntries: async ({ token, entries }) =>
-      (
-        await resolveSlackUserAllowlist({
-          token,
-          entries,
-        })
-      ).map((entry) => ({
-        input: entry.input,
-        resolved: entry.resolved,
-        id: entry.id ?? null,
-      })),
+    resolveEntries: ({ token, entries }) =>
+      resolveSlackUserAllowlist({
+        token,
+        entries,
+      }),
   });
 }
 
@@ -108,21 +102,11 @@ async function resolveSlackGroupAllowlist(params: {
     accountId: params.accountId,
   });
   const activeBotToken = accountWithTokens.botToken || params.credentialValues.botToken || "";
-  if (params.entries.length > 0) {
+  if (activeBotToken && params.entries.length > 0) {
     try {
-      const resolved = await resolveEntriesWithOptionalToken<{
-        input: string;
-        resolved: boolean;
-        id?: string;
-      }>({
+      const resolved = await resolveSlackChannelAllowlist({
         token: activeBotToken,
         entries: params.entries,
-        buildWithoutToken: (input) => ({ input, resolved: false, id: undefined }),
-        resolveEntries: async ({ token, entries }) =>
-          await resolveSlackChannelAllowlist({
-            token,
-            entries,
-          }),
       });
       const resolvedKeys = resolved
         .filter((entry) => entry.resolved && entry.id)

@@ -117,7 +117,6 @@ function buildAgentCommandInput(params: {
     bestEffortDeliver: false as const,
     // HTTP API callers are authenticated operator clients for this gateway context.
     senderIsOwner: true as const,
-    allowModelOverride: true as const,
   };
 }
 

@@ -1,5 +1,5 @@
-// Public Voice Call plugin helpers.
-// Keep this surface narrow and limited to the voice-call feature contract.
+// Narrow plugin-sdk surface for the bundled voice-call plugin.
+// Keep this list additive and scoped to symbols used under extensions/voice-call.
 
 export { definePluginEntry } from "./core.js";
 export {

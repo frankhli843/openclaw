@@ -1,4 +1,4 @@
-import { resolveOpenAITtsInstructions } from "../../api.js";
+import { resolveOpenAITtsInstructions } from "openclaw/plugin-sdk/voice-call";
 import { pcmToMulaw } from "../telephony-audio.js";
 
 /**

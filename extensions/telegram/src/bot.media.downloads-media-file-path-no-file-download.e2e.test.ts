@@ -6,7 +6,6 @@ import {
   createBotHandlerWithOptions,
   mockTelegramFileDownload,
   mockTelegramPngDownload,
-  watchTelegramFetch,
 } from "./bot.media.test-utils.js";
 
 describe("telegram inbound media", () => {
@@ -40,10 +39,8 @@ describe("telegram inbound media", () => {
           }) => {
             expect(params.runtimeError).not.toHaveBeenCalled();
             expect(params.fetchSpy).toHaveBeenCalledWith(
-              expect.objectContaining({
-                url: "https://api.telegram.org/file/bottok/photos/1.jpg",
-                filePathHint: "photos/1.jpg",
-              }),
+              "https://api.telegram.org/file/bottok/photos/1.jpg",
+              expect.objectContaining({ redirect: "manual" }),
             );
             expect(params.replySpy).toHaveBeenCalledTimes(1);
             const payload = params.replySpy.mock.calls[0][0];
@@ -54,7 +51,7 @@ describe("telegram inbound media", () => {
           name: "skips when file_path is missing",
           messageId: 2,
           getFile: async () => ({}),
-          setupFetch: () => watchTelegramFetch(),
+          setupFetch: () => vi.spyOn(globalThis, "fetch"),
           assert: (params: {
             fetchSpy: ReturnType<typeof vi.spyOn>;
             replySpy: ReturnType<typeof vi.fn>;
@@ -74,7 +71,6 @@ describe("telegram inbound media", () => {
           message: {
             message_id: scenario.messageId,
             chat: { id: 1234, type: "private" },
-            from: { id: 777, is_bot: false, first_name: "Ada" },
             photo: [{ file_id: "fid" }],
             date: 1736380800, // 2025-01-09T00:00:00Z
           },
@@ -110,7 +106,6 @@ describe("telegram inbound media", () => {
           message: {
             message_id: 1001,
             chat: { id: 1234, type: "private" },
-            from: { id: 777, is_bot: false, first_name: "Ada" },
             photo: [{ file_id: "fid" }],
             date: 1736380800,
           },
@@ -250,7 +245,6 @@ describe("telegram media groups", () => {
             messages: [
               {
                 chat: { id: 42, type: "private" as const },
-                from: { id: 777, is_bot: false, first_name: "Ada" },
                 message_id: 1,
                 caption: "Here are my photos",
                 date: 1736380800,
@@ -260,7 +254,6 @@ describe("telegram media groups", () => {
               },
               {
                 chat: { id: 42, type: "private" as const },
-                from: { id: 777, is_bot: false, first_name: "Ada" },
                 message_id: 2,
                 date: 1736380801,
                 media_group_id: "album123",
@@ -279,7 +272,6 @@ describe("telegram media groups", () => {
             messages: [
               {
                 chat: { id: 42, type: "private" as const },
-                from: { id: 777, is_bot: false, first_name: "Ada" },
                 message_id: 11,
                 caption: "Album A",
                 date: 1736380800,
@@ -289,7 +281,6 @@ describe("telegram media groups", () => {
               },
               {
                 chat: { id: 42, type: "private" as const },
-                from: { id: 777, is_bot: false, first_name: "Ada" },
                 message_id: 12,
                 caption: "Album B",
                 date: 1736380801,
@@ -348,6 +339,7 @@ describe("telegram forwarded bursts", () => {
       const runtimeError = vi.fn();
       const { handler, replySpy } = await createBotHandlerWithOptions({ runtimeError });
       const fetchSpy = mockTelegramPngDownload();
+      vi.useFakeTimers();
 
       try {
         await handler({
@@ -376,9 +368,8 @@ describe("telegram forwarded bursts", () => {
           getFile: async () => ({ file_path: "photos/fwd1.jpg" }),
         });
 
-        await vi.waitFor(() => {
-          expect(replySpy).toHaveBeenCalledTimes(1);
-        });
+        await vi.runAllTimersAsync();
+        expect(replySpy).toHaveBeenCalledTimes(1);
 
         expect(runtimeError).not.toHaveBeenCalled();
         const payload = replySpy.mock.calls[0][0];
@@ -386,6 +377,7 @@ describe("telegram forwarded bursts", () => {
         expect(payload.MediaPaths).toHaveLength(1);
       } finally {
         fetchSpy.mockRestore();
+        vi.useRealTimers();
       }
     },
     FORWARD_BURST_TEST_TIMEOUT_MS,

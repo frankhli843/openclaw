@@ -11,25 +11,7 @@ import type { ImageGenerationProviderPlugin } from "../../plugins/types.js";
 const DEFAULT_GOOGLE_IMAGE_BASE_URL = "https://generativelanguage.googleapis.com/v1beta";
 const DEFAULT_GOOGLE_IMAGE_MODEL = "gemini-3.1-flash-image-preview";
 const DEFAULT_OUTPUT_MIME = "image/png";
-const GOOGLE_SUPPORTED_SIZES = [
-  "1024x1024",
-  "1024x1536",
-  "1536x1024",
-  "1024x1792",
-  "1792x1024",
-] as const;
-const GOOGLE_SUPPORTED_ASPECT_RATIOS = [
-  "1:1",
-  "2:3",
-  "3:2",
-  "3:4",
-  "4:3",
-  "4:5",
-  "5:4",
-  "9:16",
-  "16:9",
-  "21:9",
-] as const;
+const DEFAULT_ASPECT_RATIO = "1:1";
 
 type GoogleInlineDataPart = {
   mimeType?: string;
@@ -64,7 +46,7 @@ function mapSizeToImageConfig(
 ): { aspectRatio?: string; imageSize?: "2K" | "4K" } | undefined {
   const trimmed = size?.trim();
   if (!trimmed) {
-    return undefined;
+    return { aspectRatio: DEFAULT_ASPECT_RATIO };
   }
 
   const normalized = trimmed.toLowerCase();
@@ -99,27 +81,8 @@ export function buildGoogleImageGenerationProvider(): ImageGenerationProviderPlu
     label: "Google",
     defaultModel: DEFAULT_GOOGLE_IMAGE_MODEL,
     models: [DEFAULT_GOOGLE_IMAGE_MODEL, "gemini-3-pro-image-preview"],
-    capabilities: {
-      generate: {
-        maxCount: 4,
-        supportsSize: true,
-        supportsAspectRatio: true,
-        supportsResolution: true,
-      },
-      edit: {
-        enabled: true,
-        maxCount: 4,
-        maxInputImages: 5,
-        supportsSize: true,
-        supportsAspectRatio: true,
-        supportsResolution: true,
-      },
-      geometry: {
-        sizes: [...GOOGLE_SUPPORTED_SIZES],
-        aspectRatios: [...GOOGLE_SUPPORTED_ASPECT_RATIOS],
-        resolutions: ["1K", "2K", "4K"],
-      },
-    },
+    supportedResolutions: ["1K", "2K", "4K"],
+    supportsImageEditing: true,
     async generateImage(req) {
       const auth = await resolveApiKeyForProvider({
         provider: "google",
@@ -148,7 +111,6 @@ export function buildGoogleImageGenerationProvider(): ImageGenerationProviderPlu
       }));
       const resolvedImageConfig = {
         ...imageConfig,
-        ...(req.aspectRatio?.trim() ? { aspectRatio: req.aspectRatio.trim() } : {}),
         ...(req.resolution ? { imageSize: req.resolution } : {}),
       };
 

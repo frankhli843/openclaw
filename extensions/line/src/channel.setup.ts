@@ -2,9 +2,14 @@ import {
   buildChannelConfigSchema,
   LineConfigSchema,
   type ChannelPlugin,
+  type OpenClawConfig,
   type ResolvedLineAccount,
-} from "../api.js";
-import { lineConfigAdapter } from "./config-adapter.js";
+} from "openclaw/plugin-sdk/line";
+import {
+  listLineAccountIds,
+  resolveDefaultLineAccountId,
+  resolveLineAccount,
+} from "openclaw/plugin-sdk/line";
 import { lineSetupAdapter } from "./setup-core.js";
 import { lineSetupWizard } from "./setup-surface.js";
 
@@ -18,6 +23,8 @@ const meta = {
   blurb: "LINE Messaging API bot for Japan/Taiwan/Thailand markets.",
   systemImage: "message.fill",
 } as const;
+
+const normalizeLineAllowFrom = (entry: string) => entry.replace(/^line:(?:user:)?/i, "");
 
 export const lineSetupPlugin: ChannelPlugin<ResolvedLineAccount> = {
   id: "line",
@@ -36,7 +43,10 @@ export const lineSetupPlugin: ChannelPlugin<ResolvedLineAccount> = {
   reload: { configPrefixes: ["channels.line"] },
   configSchema: buildChannelConfigSchema(LineConfigSchema),
   config: {
-    ...lineConfigAdapter,
+    listAccountIds: (cfg: OpenClawConfig) => listLineAccountIds(cfg),
+    resolveAccount: (cfg: OpenClawConfig, accountId?: string | null) =>
+      resolveLineAccount({ cfg, accountId: accountId ?? undefined }),
+    defaultAccountId: (cfg: OpenClawConfig) => resolveDefaultLineAccountId(cfg),
     isConfigured: (account) =>
       Boolean(account.channelAccessToken?.trim() && account.channelSecret?.trim()),
     describeAccount: (account) => ({
@@ -46,6 +56,13 @@ export const lineSetupPlugin: ChannelPlugin<ResolvedLineAccount> = {
       configured: Boolean(account.channelAccessToken?.trim() && account.channelSecret?.trim()),
       tokenSource: account.tokenSource ?? undefined,
     }),
+    resolveAllowFrom: ({ cfg, accountId }) =>
+      resolveLineAccount({ cfg, accountId: accountId ?? undefined }).config.allowFrom,
+    formatAllowFrom: ({ allowFrom }) =>
+      allowFrom
+        .map((entry) => String(entry).trim())
+        .filter(Boolean)
+        .map((entry) => normalizeLineAllowFrom(entry)),
   },
   setupWizard: lineSetupWizard,
   setup: lineSetupAdapter,

@@ -64,32 +64,14 @@ export function buildWebSearchProviderConfig(params: {
   if (params.enabled !== undefined) {
     search.enabled = params.enabled;
   }
-  const pluginId =
-    params.provider === "gemini"
-      ? "google"
-      : params.provider === "grok"
-        ? "xai"
-        : params.provider === "kimi"
-          ? "moonshot"
-          : params.provider;
+  if (params.providerConfig) {
+    search[params.provider] = params.providerConfig;
+  }
   return {
     tools: {
       web: {
         search,
       },
     },
-    ...(params.providerConfig
-      ? {
-          plugins: {
-            entries: {
-              [pluginId]: {
-                config: {
-                  webSearch: params.providerConfig,
-                },
-              },
-            },
-          },
-        }
-      : {}),
   };
 }

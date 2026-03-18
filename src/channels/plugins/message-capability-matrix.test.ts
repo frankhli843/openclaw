@@ -1,16 +1,15 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../../config/config.js";
-import type { ChannelMessageActionAdapter, ChannelPlugin } from "./types.js";
 
-const telegramDescribeMessageToolMock = vi.fn();
-const discordDescribeMessageToolMock = vi.fn();
+const telegramGetCapabilitiesMock = vi.fn();
+const discordGetCapabilitiesMock = vi.fn();
 
 vi.mock("../../../extensions/telegram/src/runtime.js", () => ({
   getTelegramRuntime: () => ({
     channel: {
       telegram: {
         messageActions: {
-          describeMessageTool: telegramDescribeMessageToolMock,
+          getCapabilities: telegramGetCapabilitiesMock,
         },
       },
     },
@@ -22,7 +21,7 @@ vi.mock("../../../extensions/discord/src/runtime.js", () => ({
     channel: {
       discord: {
         messageActions: {
-          describeMessageTool: discordDescribeMessageToolMock,
+          getCapabilities: discordGetCapabilitiesMock,
         },
       },
     },
@@ -39,15 +38,9 @@ const { zaloPlugin } = await import("../../../extensions/zalo/src/channel.js");
 
 describe("channel action capability matrix", () => {
   afterEach(() => {
-    telegramDescribeMessageToolMock.mockReset();
-    discordDescribeMessageToolMock.mockReset();
+    telegramGetCapabilitiesMock.mockReset();
+    discordGetCapabilitiesMock.mockReset();
   });
-
-  function getCapabilities(plugin: Pick<ChannelPlugin, "actions">, cfg: OpenClawConfig) {
-    const describeMessageTool: ChannelMessageActionAdapter["describeMessageTool"] | undefined =
-      plugin.actions?.describeMessageTool;
-    return [...(describeMessageTool?.({ cfg })?.capabilities ?? [])];
-  }
 
   it("exposes Slack blocks by default and interactive when enabled", () => {
     const baseCfg = {
@@ -68,30 +61,32 @@ describe("channel action capability matrix", () => {
       },
     } as OpenClawConfig;
 
-    expect(getCapabilities(slackPlugin, baseCfg)).toEqual(["blocks"]);
-    expect(getCapabilities(slackPlugin, interactiveCfg)).toEqual(["blocks", "interactive"]);
+    expect(slackPlugin.actions?.getCapabilities?.({ cfg: baseCfg })).toEqual(["blocks"]);
+    expect(slackPlugin.actions?.getCapabilities?.({ cfg: interactiveCfg })).toEqual([
+      "blocks",
+      "interactive",
+    ]);
   });
 
   it("forwards Telegram action capabilities through the channel wrapper", () => {
-    telegramDescribeMessageToolMock.mockReturnValue({
-      capabilities: ["interactive", "buttons"],
-    });
+    telegramGetCapabilitiesMock.mockReturnValue(["interactive", "buttons"]);
 
-    const result = getCapabilities(telegramPlugin, {} as OpenClawConfig);
+    const result = telegramPlugin.actions?.getCapabilities?.({ cfg: {} as OpenClawConfig });
 
     expect(result).toEqual(["interactive", "buttons"]);
-    expect(telegramDescribeMessageToolMock).toHaveBeenCalledWith({ cfg: {} });
-    discordDescribeMessageToolMock.mockReturnValue({
-      capabilities: ["interactive", "components"],
-    });
-
-    const discordResult = getCapabilities(discordPlugin, {} as OpenClawConfig);
-
-    expect(discordResult).toEqual(["interactive", "components"]);
-    expect(discordDescribeMessageToolMock).toHaveBeenCalledWith({ cfg: {} });
+    expect(telegramGetCapabilitiesMock).toHaveBeenCalledWith({ cfg: {} });
   });
 
-  it("exposes configured channel capabilities only when required credentials are present", () => {
+  it("forwards Discord action capabilities through the channel wrapper", () => {
+    discordGetCapabilitiesMock.mockReturnValue(["interactive", "components"]);
+
+    const result = discordPlugin.actions?.getCapabilities?.({ cfg: {} as OpenClawConfig });
+
+    expect(result).toEqual(["interactive", "components"]);
+    expect(discordGetCapabilitiesMock).toHaveBeenCalledWith({ cfg: {} });
+  });
+
+  it("exposes Mattermost buttons only when an account is configured", () => {
     const configuredCfg = {
       channels: {
         mattermost: {
@@ -108,7 +103,15 @@ describe("channel action capability matrix", () => {
         },
       },
     } as OpenClawConfig;
-    const configuredFeishuCfg = {
+
+    expect(mattermostPlugin.actions?.getCapabilities?.({ cfg: configuredCfg })).toEqual([
+      "buttons",
+    ]);
+    expect(mattermostPlugin.actions?.getCapabilities?.({ cfg: unconfiguredCfg })).toEqual([]);
+  });
+
+  it("exposes Feishu cards only when credentials are configured", () => {
+    const configuredCfg = {
       channels: {
         feishu: {
           enabled: true,
@@ -117,7 +120,7 @@ describe("channel action capability matrix", () => {
         },
       },
     } as OpenClawConfig;
-    const disabledFeishuCfg = {
+    const disabledCfg = {
       channels: {
         feishu: {
           enabled: false,
@@ -126,7 +129,13 @@ describe("channel action capability matrix", () => {
         },
       },
     } as OpenClawConfig;
-    const configuredMsteamsCfg = {
+
+    expect(feishuPlugin.actions?.getCapabilities?.({ cfg: configuredCfg })).toEqual(["cards"]);
+    expect(feishuPlugin.actions?.getCapabilities?.({ cfg: disabledCfg })).toEqual([]);
+  });
+
+  it("exposes MSTeams cards only when credentials are configured", () => {
+    const configuredCfg = {
       channels: {
         msteams: {
           enabled: true,
@@ -136,7 +145,7 @@ describe("channel action capability matrix", () => {
         },
       },
     } as OpenClawConfig;
-    const disabledMsteamsCfg = {
+    const disabledCfg = {
       channels: {
         msteams: {
           enabled: false,
@@ -147,12 +156,8 @@ describe("channel action capability matrix", () => {
       },
     } as OpenClawConfig;
 
-    expect(getCapabilities(mattermostPlugin, configuredCfg)).toEqual(["buttons"]);
-    expect(getCapabilities(mattermostPlugin, unconfiguredCfg)).toEqual([]);
-    expect(getCapabilities(feishuPlugin, configuredFeishuCfg)).toEqual(["cards"]);
-    expect(getCapabilities(feishuPlugin, disabledFeishuCfg)).toEqual([]);
-    expect(getCapabilities(msteamsPlugin, configuredMsteamsCfg)).toEqual(["cards"]);
-    expect(getCapabilities(msteamsPlugin, disabledMsteamsCfg)).toEqual([]);
+    expect(msteamsPlugin.actions?.getCapabilities?.({ cfg: configuredCfg })).toEqual(["cards"]);
+    expect(msteamsPlugin.actions?.getCapabilities?.({ cfg: disabledCfg })).toEqual([]);
   });
 
   it("keeps Zalo actions on the empty capability set", () => {
@@ -165,6 +170,6 @@ describe("channel action capability matrix", () => {
       },
     } as OpenClawConfig;
 
-    expect(getCapabilities(zaloPlugin, cfg)).toEqual([]);
+    expect(zaloPlugin.actions?.getCapabilities?.({ cfg })).toEqual([]);
   });
 });

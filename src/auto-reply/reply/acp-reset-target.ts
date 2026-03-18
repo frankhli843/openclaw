@@ -1,4 +1,4 @@
-import { resolveConfiguredBindingRecord } from "../../channels/plugins/binding-registry.js";
+import { resolveConfiguredAcpBindingRecord } from "../../acp/persistent-bindings.js";
 import type { OpenClawConfig } from "../../config/config.js";
 import { getSessionBindingService } from "../../infra/outbound/session-binding-service.js";
 import { DEFAULT_ACCOUNT_ID, isAcpSessionKey } from "../../routing/session-key.js";
@@ -51,7 +51,7 @@ export function resolveEffectiveResetTargetSessionKey(params: {
     return undefined;
   }
 
-  const configuredBinding = resolveConfiguredBindingRecord({
+  const configuredBinding = resolveConfiguredAcpBindingRecord({
     cfg: params.cfg,
     channel,
     accountId,

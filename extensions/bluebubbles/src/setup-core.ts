@@ -1,8 +1,8 @@
 import {
-  createTopLevelChannelDmPolicySetter,
   normalizeAccountId,
   patchScopedAccountConfig,
   prepareScopedSetupConfig,
+  setTopLevelChannelDmPolicyWithAllowFrom,
   type ChannelSetupAdapter,
   type DmPolicy,
   type OpenClawConfig,
@@ -10,12 +10,13 @@ import {
 import { applyBlueBubblesConnectionConfig } from "./config-apply.js";
 
 const channel = "bluebubbles" as const;
-const setBlueBubblesTopLevelDmPolicy = createTopLevelChannelDmPolicySetter({
-  channel,
-});
 
 export function setBlueBubblesDmPolicy(cfg: OpenClawConfig, dmPolicy: DmPolicy): OpenClawConfig {
-  return setBlueBubblesTopLevelDmPolicy(cfg, dmPolicy);
+  return setTopLevelChannelDmPolicyWithAllowFrom({
+    cfg,
+    channel,
+    dmPolicy,
+  });
 }
 
 export function setBlueBubblesAllowFrom(

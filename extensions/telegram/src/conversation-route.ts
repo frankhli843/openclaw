@@ -1,8 +1,5 @@
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-runtime";
-import {
-  resolveConfiguredBindingRoute,
-  type ConfiguredBindingRouteResult,
-} from "openclaw/plugin-sdk/conversation-runtime";
+import { resolveConfiguredAcpRoute } from "openclaw/plugin-sdk/conversation-runtime";
 import { getSessionBindingService } from "openclaw/plugin-sdk/conversation-runtime";
 import { isPluginOwnedSessionBindingRecord } from "openclaw/plugin-sdk/conversation-runtime";
 import {
@@ -34,7 +31,7 @@ export function resolveTelegramConversationRoute(params: {
   topicAgentId?: string | null;
 }): {
   route: ReturnType<typeof resolveAgentRoute>;
-  configuredBinding: ConfiguredBindingRouteResult["bindingResolution"];
+  configuredBinding: ReturnType<typeof resolveConfiguredAcpRoute>["configuredBinding"];
   configuredBindingSessionKey: string;
 } {
   const peerId = params.isGroup
@@ -97,17 +94,15 @@ export function resolveTelegramConversationRoute(params: {
     );
   }
 
-  const configuredRoute = resolveConfiguredBindingRoute({
+  const configuredRoute = resolveConfiguredAcpRoute({
     cfg: params.cfg,
     route,
-    conversation: {
-      channel: "telegram",
-      accountId: params.accountId,
-      conversationId: peerId,
-      parentConversationId: params.isGroup ? String(params.chatId) : undefined,
-    },
+    channel: "telegram",
+    accountId: params.accountId,
+    conversationId: peerId,
+    parentConversationId: params.isGroup ? String(params.chatId) : undefined,
   });
-  let configuredBinding = configuredRoute.bindingResolution;
+  let configuredBinding = configuredRoute.configuredBinding;
   let configuredBindingSessionKey = configuredRoute.boundSessionKey ?? "";
   route = configuredRoute.route;
 

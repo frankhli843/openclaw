@@ -2,12 +2,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { discordPlugin } from "../../extensions/discord/src/channel.js";
 import { feishuPlugin } from "../../extensions/feishu/src/channel.js";
 import { telegramPlugin } from "../../extensions/telegram/src/channel.js";
-import { importFreshModule } from "../../test/helpers/import-fresh.js";
-import { resolveAgentWorkspaceDir } from "../agents/agent-scope.js";
 import type { OpenClawConfig } from "../config/config.js";
 import { setActivePluginRegistry } from "../plugins/runtime.js";
 import { createTestRegistry } from "../test-utils/channel-plugins.js";
-import { buildConfiguredAcpSessionKey } from "./persistent-bindings.types.js";
 const managerMocks = vi.hoisted(() => ({
   resolveSession: vi.fn(),
   closeSession: vi.fn(),
@@ -30,24 +27,17 @@ vi.mock("./runtime/session-meta.js", () => ({
   readAcpSessionEntry: sessionMetaMocks.readAcpSessionEntry,
 }));
 
-type PersistentBindingsModule = Pick<
-  typeof import("./persistent-bindings.resolve.js"),
-  "resolveConfiguredAcpBindingRecord" | "resolveConfiguredAcpBindingSpecBySessionKey"
-> &
-  Pick<
-    typeof import("./persistent-bindings.lifecycle.js"),
-    "ensureConfiguredAcpBindingSession" | "resetAcpSessionInPlace"
-  >;
-let persistentBindings: PersistentBindingsModule;
-let persistentBindingsImportScope = 0;
+type PersistentBindingsModule = typeof import("./persistent-bindings.js");
+
+let buildConfiguredAcpSessionKey: PersistentBindingsModule["buildConfiguredAcpSessionKey"];
+let ensureConfiguredAcpBindingSession: PersistentBindingsModule["ensureConfiguredAcpBindingSession"];
+let resetAcpSessionInPlace: PersistentBindingsModule["resetAcpSessionInPlace"];
+let resolveConfiguredAcpBindingRecord: PersistentBindingsModule["resolveConfiguredAcpBindingRecord"];
+let resolveConfiguredAcpBindingSpecBySessionKey: PersistentBindingsModule["resolveConfiguredAcpBindingSpecBySessionKey"];
 
 type ConfiguredBinding = NonNullable<OpenClawConfig["bindings"]>[number];
-type BindingRecordInput = Parameters<
-  PersistentBindingsModule["resolveConfiguredAcpBindingRecord"]
->[0];
-type BindingSpec = Parameters<
-  PersistentBindingsModule["ensureConfiguredAcpBindingSession"]
->[0]["spec"];
+type BindingRecordInput = Parameters<typeof resolveConfiguredAcpBindingRecord>[0];
+type BindingSpec = Parameters<typeof ensureConfiguredAcpBindingSession>[0]["spec"];
 
 const baseCfg = {
   session: { mainKey: "main", scope: "per-sender" },
@@ -127,7 +117,7 @@ function createFeishuBinding(params: {
 }
 
 function resolveBindingRecord(cfg: OpenClawConfig, overrides: Partial<BindingRecordInput> = {}) {
-  return persistentBindings.resolveConfiguredAcpBindingRecord({
+  return resolveConfiguredAcpBindingRecord({
     cfg,
     channel: "discord",
     accountId: defaultDiscordAccountId,
@@ -141,7 +131,7 @@ function resolveDiscordBindingSpecBySession(
   conversationId = defaultDiscordConversationId,
 ) {
   const resolved = resolveBindingRecord(cfg, { conversationId });
-  return persistentBindings.resolveConfiguredAcpBindingSpecBySessionKey({
+  return resolveConfiguredAcpBindingSpecBySessionKey({
     cfg,
     sessionKey: resolved?.record.targetSessionKey ?? "",
   });
@@ -158,11 +148,7 @@ function createDiscordPersistentSpec(overrides: Partial<BindingSpec> = {}): Bind
   } as BindingSpec;
 }
 
-function mockReadySession(params: {
-  spec: BindingSpec;
-  cwd: string;
-  state?: "idle" | "running" | "error";
-}) {
+function mockReadySession(params: { spec: BindingSpec; cwd: string }) {
   const sessionKey = buildConfiguredAcpSessionKey(params.spec);
   managerMocks.resolveSession.mockReturnValue({
     kind: "ready",
@@ -173,33 +159,14 @@ function mockReadySession(params: {
       runtimeSessionName: "existing",
       mode: params.spec.mode,
       runtimeOptions: { cwd: params.cwd },
-      state: params.state ?? "idle",
+      state: "idle",
       lastActivityAt: Date.now(),
     },
   });
   return sessionKey;
 }
 
-beforeEach(async () => {
-  vi.resetModules();
-  persistentBindingsImportScope += 1;
-  const [resolveModule, lifecycleModule] = await Promise.all([
-    importFreshModule<typeof import("./persistent-bindings.resolve.js")>(
-      import.meta.url,
-      `./persistent-bindings.resolve.js?scope=${persistentBindingsImportScope}`,
-    ),
-    importFreshModule<typeof import("./persistent-bindings.lifecycle.js")>(
-      import.meta.url,
-      `./persistent-bindings.lifecycle.js?scope=${persistentBindingsImportScope}`,
-    ),
-  ]);
-  persistentBindings = {
-    resolveConfiguredAcpBindingRecord: resolveModule.resolveConfiguredAcpBindingRecord,
-    resolveConfiguredAcpBindingSpecBySessionKey:
-      resolveModule.resolveConfiguredAcpBindingSpecBySessionKey,
-    ensureConfiguredAcpBindingSession: lifecycleModule.ensureConfiguredAcpBindingSession,
-    resetAcpSessionInPlace: lifecycleModule.resetAcpSessionInPlace,
-  };
+beforeEach(() => {
   setActivePluginRegistry(
     createTestRegistry([
       { pluginId: "discord", plugin: discordPlugin, source: "test" },
@@ -215,6 +182,17 @@ beforeEach(async () => {
   managerMocks.initializeSession.mockReset().mockResolvedValue(undefined);
   managerMocks.updateSessionRuntimeOptions.mockReset().mockResolvedValue(undefined);
   sessionMetaMocks.readAcpSessionEntry.mockReset().mockReturnValue(undefined);
+});
+
+beforeEach(async () => {
+  vi.resetModules();
+  ({
+    buildConfiguredAcpSessionKey,
+    ensureConfiguredAcpBindingSession,
+    resetAcpSessionInPlace,
+    resolveConfiguredAcpBindingRecord,
+    resolveConfiguredAcpBindingSpecBySessionKey,
+  } = await import("./persistent-bindings.js"));
 });
 
 describe("resolveConfiguredAcpBindingRecord", () => {
@@ -285,7 +263,7 @@ describe("resolveConfiguredAcpBindingRecord", () => {
       }),
     ]);
 
-    const resolved = persistentBindings.resolveConfiguredAcpBindingRecord({
+    const resolved = resolveConfiguredAcpBindingRecord({
       cfg,
       channel: "feishu",
       accountId: "work",
@@ -340,13 +318,13 @@ describe("resolveConfiguredAcpBindingRecord", () => {
       }),
     ]);
 
-    const canonical = persistentBindings.resolveConfiguredAcpBindingRecord({
+    const canonical = resolveConfiguredAcpBindingRecord({
       cfg,
       channel: "telegram",
       accountId: "default",
       conversationId: "-1001234567890:topic:42",
     });
-    const splitIds = persistentBindings.resolveConfiguredAcpBindingRecord({
+    const splitIds = resolveConfiguredAcpBindingRecord({
       cfg,
       channel: "telegram",
       accountId: "default",
@@ -369,7 +347,7 @@ describe("resolveConfiguredAcpBindingRecord", () => {
       }),
     ]);
 
-    const resolved = persistentBindings.resolveConfiguredAcpBindingRecord({
+    const resolved = resolveConfiguredAcpBindingRecord({
       cfg,
       channel: "telegram",
       accountId: "default",
@@ -386,7 +364,7 @@ describe("resolveConfiguredAcpBindingRecord", () => {
       }),
     ]);
 
-    const resolved = persistentBindings.resolveConfiguredAcpBindingRecord({
+    const resolved = resolveConfiguredAcpBindingRecord({
       cfg,
       channel: "feishu",
       accountId: "default",
@@ -406,7 +384,7 @@ describe("resolveConfiguredAcpBindingRecord", () => {
       }),
     ]);
 
-    const resolved = persistentBindings.resolveConfiguredAcpBindingRecord({
+    const resolved = resolveConfiguredAcpBindingRecord({
       cfg,
       channel: "feishu",
       accountId: "default",
@@ -427,7 +405,7 @@ describe("resolveConfiguredAcpBindingRecord", () => {
       }),
     ]);
 
-    const resolved = persistentBindings.resolveConfiguredAcpBindingRecord({
+    const resolved = resolveConfiguredAcpBindingRecord({
       cfg,
       channel: "feishu",
       accountId: "default",
@@ -449,7 +427,7 @@ describe("resolveConfiguredAcpBindingRecord", () => {
       }),
     ]);
 
-    const resolved = persistentBindings.resolveConfiguredAcpBindingRecord({
+    const resolved = resolveConfiguredAcpBindingRecord({
       cfg,
       channel: "feishu",
       accountId: "default",
@@ -471,7 +449,7 @@ describe("resolveConfiguredAcpBindingRecord", () => {
       }),
     ]);
 
-    const resolved = persistentBindings.resolveConfiguredAcpBindingRecord({
+    const resolved = resolveConfiguredAcpBindingRecord({
       cfg,
       channel: "feishu",
       accountId: "default",
@@ -490,7 +468,7 @@ describe("resolveConfiguredAcpBindingRecord", () => {
       }),
     ]);
 
-    const resolved = persistentBindings.resolveConfiguredAcpBindingRecord({
+    const resolved = resolveConfiguredAcpBindingRecord({
       cfg,
       channel: "feishu",
       accountId: "default",
@@ -536,25 +514,6 @@ describe("resolveConfiguredAcpBindingRecord", () => {
     expect(resolved?.spec.cwd).toBe("/workspace/repo-a");
     expect(resolved?.spec.backend).toBe("acpx");
   });
-
-  it("derives configured binding cwd from an explicit agent workspace", () => {
-    const cfg = createCfgWithBindings(
-      [
-        createDiscordBinding({
-          agentId: "codex",
-          conversationId: defaultDiscordConversationId,
-        }),
-      ],
-      {
-        agents: {
-          list: [{ id: "codex", workspace: "/workspace/openclaw" }, { id: "claude" }],
-        },
-      },
-    );
-    const resolved = resolveBindingRecord(cfg);
-
-    expect(resolved?.spec.cwd).toBe(resolveAgentWorkspaceDir(cfg, "codex"));
-  });
 });
 
 describe("resolveConfiguredAcpBindingSpecBySessionKey", () => {
@@ -575,7 +534,7 @@ describe("resolveConfiguredAcpBindingSpecBySessionKey", () => {
   });
 
   it("returns null for unknown session keys", () => {
-    const spec = persistentBindings.resolveConfiguredAcpBindingSpecBySessionKey({
+    const spec = resolveConfiguredAcpBindingSpecBySessionKey({
       cfg: baseCfg,
       sessionKey: "agent:main:acp:binding:discord:default:notfound",
     });
@@ -609,13 +568,13 @@ describe("resolveConfiguredAcpBindingSpecBySessionKey", () => {
         acp: { backend: "acpx" },
       }),
     ]);
-    const resolved = persistentBindings.resolveConfiguredAcpBindingRecord({
+    const resolved = resolveConfiguredAcpBindingRecord({
       cfg,
       channel: "feishu",
       accountId: "default",
       conversationId: "user_123",
     });
-    const spec = persistentBindings.resolveConfiguredAcpBindingSpecBySessionKey({
+    const spec = resolveConfiguredAcpBindingSpecBySessionKey({
       cfg,
       sessionKey: resolved?.record.targetSessionKey ?? "",
     });
@@ -655,7 +614,7 @@ describe("ensureConfiguredAcpBindingSession", () => {
       cwd: "/workspace/openclaw",
     });
 
-    const ensured = await persistentBindings.ensureConfiguredAcpBindingSession({
+    const ensured = await ensureConfiguredAcpBindingSession({
       cfg: baseCfg,
       spec,
     });
@@ -674,7 +633,7 @@ describe("ensureConfiguredAcpBindingSession", () => {
       cwd: "/workspace/other-repo",
     });
 
-    const ensured = await persistentBindings.ensureConfiguredAcpBindingSession({
+    const ensured = await ensureConfiguredAcpBindingSession({
       cfg: baseCfg,
       spec,
     });
@@ -690,26 +649,6 @@ describe("ensureConfiguredAcpBindingSession", () => {
     expect(managerMocks.initializeSession).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps a matching ready session even when the stored ACP session is in error state", async () => {
-    const spec = createDiscordPersistentSpec({
-      cwd: "/home/bob/clawd",
-    });
-    const sessionKey = mockReadySession({
-      spec,
-      cwd: "/home/bob/clawd",
-      state: "error",
-    });
-
-    const ensured = await persistentBindings.ensureConfiguredAcpBindingSession({
-      cfg: baseCfg,
-      spec,
-    });
-
-    expect(ensured).toEqual({ ok: true, sessionKey });
-    expect(managerMocks.closeSession).not.toHaveBeenCalled();
-    expect(managerMocks.initializeSession).not.toHaveBeenCalled();
-  });
-
   it("initializes ACP session with runtime agent override when provided", async () => {
     const spec = createDiscordPersistentSpec({
       agentId: "coding",
@@ -717,7 +656,7 @@ describe("ensureConfiguredAcpBindingSession", () => {
     });
     managerMocks.resolveSession.mockReturnValue({ kind: "none" });
 
-    const ensured = await persistentBindings.ensureConfiguredAcpBindingSession({
+    const ensured = await ensureConfiguredAcpBindingSession({
       cfg: baseCfg,
       spec,
     });
@@ -753,7 +692,7 @@ describe("resetAcpSessionInPlace", () => {
     });
     managerMocks.resolveSession.mockReturnValue({ kind: "none" });
 
-    const result = await persistentBindings.resetAcpSessionInPlace({
+    const result = await resetAcpSessionInPlace({
       cfg,
       sessionKey,
       reason: "new",
@@ -782,7 +721,7 @@ describe("resetAcpSessionInPlace", () => {
     });
     managerMocks.initializeSession.mockRejectedValueOnce(new Error("backend unavailable"));
 
-    const result = await persistentBindings.resetAcpSessionInPlace({
+    const result = await resetAcpSessionInPlace({
       cfg: baseCfg,
       sessionKey,
       reason: "reset",
@@ -813,7 +752,7 @@ describe("resetAcpSessionInPlace", () => {
       },
     });
 
-    const result = await persistentBindings.resetAcpSessionInPlace({
+    const result = await resetAcpSessionInPlace({
       cfg,
       sessionKey,
       reason: "reset",
@@ -824,66 +763,6 @@ describe("resetAcpSessionInPlace", () => {
       expect.objectContaining({
         sessionKey,
         agent: "codex",
-      }),
-    );
-  });
-
-  it("preserves configured ACP agent overrides during in-place reset when metadata omits the agent", async () => {
-    const cfg = createCfgWithBindings(
-      [
-        createDiscordBinding({
-          agentId: "coding",
-          conversationId: "1478844424791396446",
-        }),
-      ],
-      {
-        agents: {
-          list: [
-            { id: "main" },
-            {
-              id: "coding",
-              runtime: {
-                type: "acp",
-                acp: {
-                  agent: "codex",
-                  backend: "acpx",
-                  mode: "persistent",
-                },
-              },
-            },
-            { id: "claude" },
-          ],
-        },
-      },
-    );
-    const sessionKey = buildConfiguredAcpSessionKey({
-      channel: "discord",
-      accountId: "default",
-      conversationId: "1478844424791396446",
-      agentId: "coding",
-      acpAgentId: "codex",
-      mode: "persistent",
-      backend: "acpx",
-    });
-    sessionMetaMocks.readAcpSessionEntry.mockReturnValue({
-      acp: {
-        mode: "persistent",
-        backend: "acpx",
-      },
-    });
-
-    const result = await persistentBindings.resetAcpSessionInPlace({
-      cfg,
-      sessionKey,
-      reason: "reset",
-    });
-
-    expect(result).toEqual({ ok: true });
-    expect(managerMocks.initializeSession).toHaveBeenCalledWith(
-      expect.objectContaining({
-        sessionKey,
-        agent: "codex",
-        backendId: "acpx",
       }),
     );
   });

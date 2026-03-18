@@ -22,7 +22,7 @@ vi.mock("undici", () => ({
 }));
 
 let resolveTelegramTransport: typeof import("../../extensions/telegram/src/fetch.js").resolveTelegramTransport;
-let shouldRetryTelegramTransportFallback: typeof import("../../extensions/telegram/src/fetch.js").shouldRetryTelegramTransportFallback;
+let shouldRetryTelegramIpv4Fallback: typeof import("../../extensions/telegram/src/fetch.js").shouldRetryTelegramIpv4Fallback;
 let fetchRemoteMedia: typeof import("./fetch.js").fetchRemoteMedia;
 
 describe("fetchRemoteMedia telegram network policy", () => {
@@ -30,7 +30,7 @@ describe("fetchRemoteMedia telegram network policy", () => {
 
   beforeEach(async () => {
     vi.resetModules();
-    ({ resolveTelegramTransport, shouldRetryTelegramTransportFallback } =
+    ({ resolveTelegramTransport, shouldRetryTelegramIpv4Fallback } =
       await import("../../extensions/telegram/src/fetch.js"));
     ({ fetchRemoteMedia } = await import("./fetch.js"));
   });
@@ -70,7 +70,7 @@ describe("fetchRemoteMedia telegram network policy", () => {
     await fetchRemoteMedia({
       url: "https://api.telegram.org/file/bottok/photos/1.jpg",
       fetchImpl: telegramTransport.sourceFetch,
-      dispatcherAttempts: telegramTransport.dispatcherAttempts,
+      dispatcherPolicy: telegramTransport.pinnedDispatcherPolicy,
       lookupFn,
       maxBytes: 1024,
       ssrfPolicy: {
@@ -120,7 +120,7 @@ describe("fetchRemoteMedia telegram network policy", () => {
     await fetchRemoteMedia({
       url: "https://api.telegram.org/file/bottok/files/1.pdf",
       fetchImpl: telegramTransport.sourceFetch,
-      dispatcherAttempts: telegramTransport.dispatcherAttempts,
+      dispatcherPolicy: telegramTransport.pinnedDispatcherPolicy,
       lookupFn,
       maxBytes: 1024,
       ssrfPolicy: {
@@ -167,8 +167,9 @@ describe("fetchRemoteMedia telegram network policy", () => {
     await fetchRemoteMedia({
       url: "https://api.telegram.org/file/bottok/photos/2.jpg",
       fetchImpl: telegramTransport.sourceFetch,
-      dispatcherAttempts: telegramTransport.dispatcherAttempts,
-      shouldRetryFetchError: shouldRetryTelegramTransportFallback,
+      dispatcherPolicy: telegramTransport.pinnedDispatcherPolicy,
+      fallbackDispatcherPolicy: telegramTransport.fallbackPinnedDispatcherPolicy,
+      shouldRetryFetchError: shouldRetryTelegramIpv4Fallback,
       lookupFn,
       maxBytes: 1024,
       ssrfPolicy: {
@@ -213,83 +214,14 @@ describe("fetchRemoteMedia telegram network policy", () => {
     );
   });
 
-  it("retries Telegram file downloads with pinned Telegram IP after IPv4 fallback fails", async () => {
-    const lookupFn = vi.fn(async () => [
-      { address: "149.154.167.221", family: 4 },
-      { address: "2001:67c:4e8:f004::9", family: 6 },
-    ]) as unknown as LookupFn;
-    undiciMocks.fetch
-      .mockRejectedValueOnce(createTelegramFetchFailedError("EHOSTUNREACH"))
-      .mockRejectedValueOnce(createTelegramFetchFailedError("ETIMEDOUT"))
-      .mockResolvedValueOnce(
-        new Response(new Uint8Array([0xff, 0xd8, 0xff, 0x00]), {
-          status: 200,
-          headers: { "content-type": "image/jpeg" },
-        }),
-      );
-
-    const telegramTransport = resolveTelegramTransport(undefined, {
-      network: {
-        autoSelectFamily: true,
-        dnsResultOrder: "ipv4first",
-      },
-    });
-
-    await fetchRemoteMedia({
-      url: "https://api.telegram.org/file/bottok/photos/3.jpg",
-      fetchImpl: telegramTransport.sourceFetch,
-      dispatcherAttempts: telegramTransport.dispatcherAttempts,
-      shouldRetryFetchError: shouldRetryTelegramTransportFallback,
-      lookupFn,
-      maxBytes: 1024,
-      ssrfPolicy: {
-        allowedHostnames: ["api.telegram.org"],
-        allowRfc2544BenchmarkRange: true,
-      },
-    });
-
-    const thirdInit = undiciMocks.fetch.mock.calls[2]?.[1] as
-      | (RequestInit & {
-          dispatcher?: {
-            options?: {
-              connect?: Record<string, unknown>;
-            };
-          };
-        })
-      | undefined;
-    const callback = vi.fn();
-    (
-      thirdInit?.dispatcher?.options?.connect?.lookup as
-        | ((
-            hostname: string,
-            callback: (err: null, address: string, family: number) => void,
-          ) => void)
-        | undefined
-    )?.("api.telegram.org", callback);
-
-    expect(undiciMocks.fetch).toHaveBeenCalledTimes(3);
-    expect(thirdInit?.dispatcher?.options?.connect).toEqual(
-      expect.objectContaining({
-        family: 4,
-        autoSelectFamily: false,
-        lookup: expect.any(Function),
-      }),
-    );
-    expect(callback).toHaveBeenCalledWith(null, "149.154.167.220", 4);
-  });
-
-  it("preserves both primary and final fallback errors when Telegram media retry chain fails", async () => {
+  it("preserves both primary and fallback errors when Telegram media retry fails twice", async () => {
     const lookupFn = vi.fn(async () => [
       { address: "149.154.167.220", family: 4 },
       { address: "2001:67c:4e8:f004::9", family: 6 },
     ]) as unknown as LookupFn;
     const primaryError = createTelegramFetchFailedError("EHOSTUNREACH");
-    const ipv4Error = createTelegramFetchFailedError("ETIMEDOUT");
     const fallbackError = createTelegramFetchFailedError("ETIMEDOUT");
-    undiciMocks.fetch
-      .mockRejectedValueOnce(primaryError)
-      .mockRejectedValueOnce(ipv4Error)
-      .mockRejectedValueOnce(fallbackError);
+    undiciMocks.fetch.mockRejectedValueOnce(primaryError).mockRejectedValueOnce(fallbackError);
 
     const telegramTransport = resolveTelegramTransport(undefined, {
       network: {
@@ -300,10 +232,11 @@ describe("fetchRemoteMedia telegram network policy", () => {
 
     await expect(
       fetchRemoteMedia({
-        url: "https://api.telegram.org/file/bottok/photos/4.jpg",
+        url: "https://api.telegram.org/file/bottok/photos/3.jpg",
         fetchImpl: telegramTransport.sourceFetch,
-        dispatcherAttempts: telegramTransport.dispatcherAttempts,
-        shouldRetryFetchError: shouldRetryTelegramTransportFallback,
+        dispatcherPolicy: telegramTransport.pinnedDispatcherPolicy,
+        fallbackDispatcherPolicy: telegramTransport.fallbackPinnedDispatcherPolicy,
+        shouldRetryFetchError: shouldRetryTelegramIpv4Fallback,
         lookupFn,
         maxBytes: 1024,
         ssrfPolicy: {
@@ -317,7 +250,6 @@ describe("fetchRemoteMedia telegram network policy", () => {
       cause: expect.objectContaining({
         name: "Error",
         cause: fallbackError,
-        attemptErrors: [primaryError, ipv4Error, fallbackError],
         primaryError,
       }),
     });

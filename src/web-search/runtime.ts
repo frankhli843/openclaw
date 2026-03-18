@@ -61,26 +61,22 @@ function readProviderEnvValue(envVars: string[]): string | undefined {
   return undefined;
 }
 
-function hasProviderCredential(
-  providerId: string,
-  config: OpenClawConfig | undefined,
-  search: WebSearchConfig | undefined,
-): boolean {
+function hasProviderCredential(providerId: string, search: WebSearchConfig | undefined): boolean {
   const providers = resolvePluginWebSearchProviders({
-    config,
     bundledAllowlistCompat: true,
   });
   const provider = providers.find((entry) => entry.id === providerId);
   if (!provider) {
     return false;
   }
-  const rawValue =
-    provider.getConfiguredCredentialValue?.(config) ??
-    provider.getCredentialValue(search as Record<string, unknown> | undefined);
+  const rawValue = provider.getCredentialValue(search as Record<string, unknown> | undefined);
   const fromConfig = normalizeSecretInput(
     normalizeResolvedSecretInputString({
       value: rawValue,
-      path: provider.credentialPath,
+      path:
+        providerId === "brave"
+          ? "tools.web.search.apiKey"
+          : `tools.web.search.${providerId}.apiKey`,
     }),
   );
   return Boolean(fromConfig || readProviderEnvValue(provider.envVars));
@@ -97,13 +93,11 @@ export function listWebSearchProviders(params?: {
 
 export function resolveWebSearchProviderId(params: {
   search?: WebSearchConfig;
-  config?: OpenClawConfig;
   providers?: PluginWebSearchProviderEntry[];
 }): string {
   const providers =
     params.providers ??
     resolvePluginWebSearchProviders({
-      config: params.config,
       bundledAllowlistCompat: true,
     });
   const raw =
@@ -120,7 +114,7 @@ export function resolveWebSearchProviderId(params: {
 
   if (!raw) {
     for (const provider of providers) {
-      if (!hasProviderCredential(provider.id, params.config, params.search)) {
+      if (!hasProviderCredential(provider.id, params.search)) {
         continue;
       }
       logVerbose(
@@ -130,7 +124,7 @@ export function resolveWebSearchProviderId(params: {
     }
   }
 
-  return providers[0]?.id ?? "";
+  return providers[0]?.id ?? "brave";
 }
 
 export function resolveWebSearchDefinition(
@@ -160,13 +154,10 @@ export function resolveWebSearchDefinition(
     options?.providerId ??
     options?.runtimeWebSearch?.selectedProvider ??
     options?.runtimeWebSearch?.providerConfigured ??
-    resolveWebSearchProviderId({ config: options?.config, search, providers });
+    resolveWebSearchProviderId({ search, providers });
   const provider =
     providers.find((entry) => entry.id === providerId) ??
-    providers.find(
-      (entry) =>
-        entry.id === resolveWebSearchProviderId({ config: options?.config, search, providers }),
-    ) ??
+    providers.find((entry) => entry.id === resolveWebSearchProviderId({ search, providers })) ??
     providers[0];
   if (!provider) {
     return null;
@@ -199,6 +190,5 @@ export async function runWebSearch(
 
 export const __testing = {
   resolveSearchConfig,
-  resolveSearchProvider: resolveWebSearchProviderId,
   resolveWebSearchProviderId,
 };

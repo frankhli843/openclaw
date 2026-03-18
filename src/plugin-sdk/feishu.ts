@@ -31,11 +31,6 @@ export type {
   ChannelMeta,
   ChannelOutboundAdapter,
 } from "../channels/plugins/types.js";
-export type {
-  ChannelConfiguredBindingProvider,
-  ChannelConfiguredBindingConversationRef,
-  ChannelConfiguredBindingMatch,
-} from "../channels/plugins/types.adapters.js";
 export type { ChannelPlugin } from "../channels/plugins/types.plugin.js";
 export { createReplyPrefixContext } from "../channels/reply-prefix.js";
 export { createTypingCallbacks } from "../channels/typing.js";
@@ -67,7 +62,8 @@ export type { RuntimeEnv } from "../runtime.js";
 export { formatDocsLink } from "../terminal/links.js";
 export { evaluateSenderGroupAccessForPolicy } from "./group-access.js";
 export type { WizardPrompter } from "../wizard/prompts.js";
-export { feishuSetupWizard, feishuSetupAdapter } from "../../extensions/feishu/setup-api.js";
+export { feishuSetupWizard } from "../../extensions/feishu/src/setup-surface.js";
+export { feishuSetupAdapter } from "../../extensions/feishu/src/setup-core.js";
 export { buildAgentMediaPayload } from "./agent-media-payload.js";
 export { readJsonFileWithFallback } from "./json-store.js";
 export { createScopedPairingAccess } from "./pairing-access.js";

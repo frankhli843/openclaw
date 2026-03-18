@@ -1,6 +1,8 @@
 import { formatAllowFromLowercase } from "openclaw/plugin-sdk/allow-from";
-import { createScopedChannelConfigAdapter } from "openclaw/plugin-sdk/channel-config-helpers";
-import { createChannelPluginBase } from "openclaw/plugin-sdk/core";
+import {
+  createScopedAccountConfigAccessors,
+  createScopedChannelConfigBase,
+} from "openclaw/plugin-sdk/channel-config-helpers";
 import {
   buildChannelConfigSchema,
   getChatChannelMeta,
@@ -8,7 +10,7 @@ import {
   TelegramConfigSchema,
   type ChannelPlugin,
   type OpenClawConfig,
-} from "../runtime-api.js";
+} from "openclaw/plugin-sdk/telegram";
 import { inspectTelegramAccount } from "./account-inspect.js";
 import {
   listTelegramAccountIds,
@@ -53,17 +55,21 @@ export function formatDuplicateTelegramTokenReason(params: {
   );
 }
 
-export const telegramConfigAdapter = createScopedChannelConfigAdapter<ResolvedTelegramAccount>({
+export const telegramConfigAccessors = createScopedAccountConfigAccessors({
+  resolveAccount: ({ cfg, accountId }) => resolveTelegramAccount({ cfg, accountId }),
+  resolveAllowFrom: (account: ResolvedTelegramAccount) => account.config.allowFrom,
+  formatAllowFrom: (allowFrom) =>
+    formatAllowFromLowercase({ allowFrom, stripPrefixRe: /^(telegram|tg):/i }),
+  resolveDefaultTo: (account: ResolvedTelegramAccount) => account.config.defaultTo,
+});
+
+export const telegramConfigBase = createScopedChannelConfigBase<ResolvedTelegramAccount>({
   sectionKey: TELEGRAM_CHANNEL,
   listAccountIds: listTelegramAccountIds,
   resolveAccount: (cfg, accountId) => resolveTelegramAccount({ cfg, accountId }),
   inspectAccount: (cfg, accountId) => inspectTelegramAccount({ cfg, accountId }),
   defaultAccountId: resolveDefaultTelegramAccountId,
   clearBaseFields: ["botToken", "tokenFile", "name"],
-  resolveAllowFrom: (account: ResolvedTelegramAccount) => account.config.allowFrom,
-  formatAllowFrom: (allowFrom) =>
-    formatAllowFromLowercase({ allowFrom, stripPrefixRe: /^(telegram|tg):/i }),
-  resolveDefaultTo: (account: ResolvedTelegramAccount) => account.config.defaultTo,
 });
 
 export function createTelegramPluginBase(params: {
@@ -73,7 +79,7 @@ export function createTelegramPluginBase(params: {
   ChannelPlugin<ResolvedTelegramAccount>,
   "id" | "meta" | "setupWizard" | "capabilities" | "reload" | "configSchema" | "config" | "setup"
 > {
-  return createChannelPluginBase({
+  return {
     id: TELEGRAM_CHANNEL,
     meta: {
       ...getChatChannelMeta(TELEGRAM_CHANNEL),
@@ -92,7 +98,7 @@ export function createTelegramPluginBase(params: {
     reload: { configPrefixes: ["channels.telegram"] },
     configSchema: buildChannelConfigSchema(TelegramConfigSchema),
     config: {
-      ...telegramConfigAdapter,
+      ...telegramConfigBase,
       isConfigured: (account, cfg) => {
         if (!account.token?.trim()) {
           return false;
@@ -124,10 +130,8 @@ export function createTelegramPluginBase(params: {
           !findTelegramTokenOwnerAccountId({ cfg, accountId: account.accountId }),
         tokenSource: account.tokenSource,
       }),
+      ...telegramConfigAccessors,
     },
     setup: params.setup,
-  }) as Pick<
-    ChannelPlugin<ResolvedTelegramAccount>,
-    "id" | "meta" | "setupWizard" | "capabilities" | "reload" | "configSchema" | "config" | "setup"
-  >;
+  };
 }

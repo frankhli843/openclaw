@@ -6,36 +6,31 @@ import type { TelegramContext } from "./types.js";
 const saveMediaBuffer = vi.fn();
 const fetchRemoteMedia = vi.fn();
 
-vi.mock("openclaw/plugin-sdk/media-runtime", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("openclaw/plugin-sdk/media-runtime")>();
+vi.mock("../../../../src/media/store.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../../src/media/store.js")>();
   return {
     ...actual,
     saveMediaBuffer: (...args: unknown[]) => saveMediaBuffer(...args),
-    fetchRemoteMedia: (...args: unknown[]) => fetchRemoteMedia(...args),
   };
 });
 
-vi.mock("openclaw/plugin-sdk/runtime-env", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("openclaw/plugin-sdk/runtime-env")>();
-  return {
-    ...actual,
-    logVerbose: () => {},
-    warn: (s: string) => s,
-    danger: (s: string) => s,
-  };
-});
+vi.mock("../../../../src/media/fetch.js", () => ({
+  fetchRemoteMedia: (...args: unknown[]) => fetchRemoteMedia(...args),
+}));
+
+vi.mock("../../../../src/globals.js", () => ({
+  danger: (s: string) => s,
+  warn: (s: string) => s,
+  logVerbose: () => {},
+}));
 
 vi.mock("../sticker-cache.js", () => ({
   cacheSticker: () => {},
   getCachedSticker: () => null,
-  getCacheStats: () => ({ count: 0 }),
-  searchStickers: () => [],
-  getAllCachedStickers: () => [],
-  describeStickerImage: async () => null,
 }));
 
-import { resolveMedia } from "./delivery.js";
-
+// eslint-disable-next-line @typescript-eslint/consistent-type-imports
+const { resolveMedia } = await import("./delivery.js");
 const MAX_MEDIA_BYTES = 10_000_000;
 const BOT_TOKEN = "tok123";
 
@@ -171,8 +166,8 @@ async function flushRetryTimers() {
 describe("resolveMedia getFile retry", () => {
   beforeEach(() => {
     vi.useFakeTimers();
-    fetchRemoteMedia.mockReset();
-    saveMediaBuffer.mockReset();
+    fetchRemoteMedia.mockClear();
+    saveMediaBuffer.mockClear();
   });
 
   afterEach(() => {

@@ -4,7 +4,7 @@ import { retryAsync } from "openclaw/plugin-sdk/infra-runtime";
 import { fetchRemoteMedia } from "openclaw/plugin-sdk/media-runtime";
 import { saveMediaBuffer } from "openclaw/plugin-sdk/media-runtime";
 import { logVerbose, warn } from "openclaw/plugin-sdk/runtime-env";
-import { shouldRetryTelegramTransportFallback, type TelegramTransport } from "../fetch.js";
+import { shouldRetryTelegramIpv4Fallback, type TelegramTransport } from "../fetch.js";
 import { cacheSticker, getCachedSticker } from "../sticker-cache.js";
 import { resolveTelegramMediaPlaceholder } from "./helpers.js";
 import type { StickerMetadata, TelegramContext } from "./types.js";
@@ -129,8 +129,9 @@ async function downloadAndSaveTelegramFile(params: {
   const fetched = await fetchRemoteMedia({
     url,
     fetchImpl: params.transport.sourceFetch,
-    dispatcherAttempts: params.transport.dispatcherAttempts,
-    shouldRetryFetchError: shouldRetryTelegramTransportFallback,
+    dispatcherPolicy: params.transport.pinnedDispatcherPolicy,
+    fallbackDispatcherPolicy: params.transport.fallbackPinnedDispatcherPolicy,
+    shouldRetryFetchError: shouldRetryTelegramIpv4Fallback,
     filePathHint: params.filePath,
     maxBytes: params.maxBytes,
     readIdleTimeoutMs: TELEGRAM_DOWNLOAD_IDLE_TIMEOUT_MS,

@@ -35,15 +35,50 @@ let registryLocked = false;
 const MAX_ARGS_LENGTH = 4096;
 
 /**
- * Reserved command names that plugins cannot override (built-in commands).
- *
- * Constructed lazily inside validateCommandName to avoid TDZ errors: the
- * bundler can place this module's body after call sites within the same
- * output chunk, so any module-level const/let would be uninitialized when
- * first accessed during plugin registration.
+ * Reserved command names that plugins cannot override.
+ * These are built-in commands from commands-registry.data.ts.
  */
-// eslint-disable-next-line no-var -- var avoids TDZ when bundler reorders module bodies in a chunk
-var reservedCommands: Set<string> | undefined;
+const RESERVED_COMMANDS = new Set([
+  // Core commands
+  "help",
+  "commands",
+  "status",
+  "whoami",
+  "context",
+  "btw",
+  // Session management
+  "stop",
+  "restart",
+  "reset",
+  "new",
+  "compact",
+  // Configuration
+  "config",
+  "debug",
+  "allowlist",
+  "activation",
+  // Agent control
+  "skill",
+  "subagents",
+  "kill",
+  "steer",
+  "tell",
+  "model",
+  "models",
+  "queue",
+  // Messaging
+  "send",
+  // Execution
+  "bash",
+  "exec",
+  // Mode toggles
+  "think",
+  "verbose",
+  "reasoning",
+  "elevated",
+  // Billing
+  "usage",
+]);
 
 /**
  * Validate a command name.
@@ -62,41 +97,8 @@ export function validateCommandName(name: string): string | null {
     return "Command name must start with a letter and contain only letters, numbers, hyphens, and underscores";
   }
 
-  reservedCommands ??= new Set([
-    "help",
-    "commands",
-    "status",
-    "whoami",
-    "context",
-    "btw",
-    "stop",
-    "restart",
-    "reset",
-    "new",
-    "compact",
-    "config",
-    "debug",
-    "allowlist",
-    "activation",
-    "skill",
-    "subagents",
-    "kill",
-    "steer",
-    "tell",
-    "model",
-    "models",
-    "queue",
-    "send",
-    "bash",
-    "exec",
-    "think",
-    "verbose",
-    "reasoning",
-    "elevated",
-    "usage",
-  ]);
-
-  if (reservedCommands.has(trimmed)) {
+  // Check reserved commands
+  if (RESERVED_COMMANDS.has(trimmed)) {
     return `Command name "${trimmed}" is reserved by a built-in command`;
   }
 

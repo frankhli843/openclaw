@@ -1,13 +1,13 @@
-import { type ChannelSetupWizard } from "openclaw/plugin-sdk/setup";
-import { formatDocsLink } from "openclaw/plugin-sdk/setup";
-import { listMattermostAccountIds } from "./mattermost/accounts.js";
-import { normalizeMattermostBaseUrl } from "./mattermost/client.js";
 import {
   applySetupAccountConfigPatch,
   DEFAULT_ACCOUNT_ID,
   hasConfiguredSecretInput,
   type OpenClawConfig,
-} from "./runtime-api.js";
+} from "openclaw/plugin-sdk/mattermost";
+import { type ChannelSetupWizard } from "openclaw/plugin-sdk/setup";
+import { formatDocsLink } from "openclaw/plugin-sdk/setup";
+import { listMattermostAccountIds } from "./mattermost/accounts.js";
+import { normalizeMattermostBaseUrl } from "./mattermost/client.js";
 import {
   isMattermostConfigured,
   mattermostSetupAdapter,

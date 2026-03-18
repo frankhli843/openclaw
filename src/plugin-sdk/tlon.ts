@@ -27,4 +27,5 @@ export type { RuntimeEnv } from "../runtime.js";
 export { formatDocsLink } from "../terminal/links.js";
 export type { WizardPrompter } from "../wizard/prompts.js";
 export { createLoggerBackedRuntime } from "./runtime.js";
-export { tlonSetupAdapter, tlonSetupWizard } from "../../extensions/tlon/setup-api.js";
+export { tlonSetupAdapter } from "../../extensions/tlon/src/setup-core.js";
+export { tlonSetupWizard } from "../../extensions/tlon/src/setup-surface.js";

@@ -1,12 +1,3 @@
-import type { ResolvedIrcAccount } from "./accounts.js";
-import { normalizeIrcAllowlist, resolveIrcAllowlistMatch } from "./normalize.js";
-import {
-  resolveIrcMentionGate,
-  resolveIrcGroupAccessGate,
-  resolveIrcGroupMatch,
-  resolveIrcGroupSenderAllowed,
-  resolveIrcRequireMention,
-} from "./policy.js";
 import {
   GROUP_POLICY_BLOCKED_LABEL,
   createScopedPairingAccess,
@@ -25,7 +16,16 @@ import {
   type OutboundReplyPayload,
   type OpenClawConfig,
   type RuntimeEnv,
-} from "./runtime-api.js";
+} from "openclaw/plugin-sdk/irc";
+import type { ResolvedIrcAccount } from "./accounts.js";
+import { normalizeIrcAllowlist, resolveIrcAllowlistMatch } from "./normalize.js";
+import {
+  resolveIrcMentionGate,
+  resolveIrcGroupAccessGate,
+  resolveIrcGroupMatch,
+  resolveIrcGroupSenderAllowed,
+  resolveIrcRequireMention,
+} from "./policy.js";
 import { getIrcRuntime } from "./runtime.js";
 import { sendMessageIrc } from "./send.js";
 import type { CoreConfig, IrcInboundMessage } from "./types.js";

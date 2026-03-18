@@ -2,7 +2,7 @@ import {
   detectZaiEndpoint as detectZaiEndpointCore,
   type ZaiDetectedEndpoint,
   type ZaiEndpointId,
-} from "./runtime-api.js";
+} from "openclaw/plugin-sdk/zai";
 
 type DetectZaiEndpointFn = typeof detectZaiEndpointCore;
 

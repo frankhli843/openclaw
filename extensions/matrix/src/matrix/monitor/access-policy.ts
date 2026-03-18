@@ -4,7 +4,7 @@ import {
   readStoreAllowFromForDmPolicy,
   resolveDmGroupAccessWithLists,
   resolveSenderScopedGroupPolicy,
-} from "../../../runtime-api.js";
+} from "openclaw/plugin-sdk/matrix";
 import {
   normalizeMatrixAllowList,
   resolveMatrixAllowListMatch,

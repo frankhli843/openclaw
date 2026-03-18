@@ -1,12 +1,22 @@
 import { formatNormalizedAllowFromEntries } from "openclaw/plugin-sdk/allow-from";
+import { createScopedAccountConfigAccessors } from "openclaw/plugin-sdk/channel-config-helpers";
 import {
-  createScopedChannelConfigAdapter,
-  createScopedDmSecurityResolver,
-} from "openclaw/plugin-sdk/channel-config-helpers";
-import {
+  buildAccountScopedDmSecurityPolicy,
   buildOpenGroupPolicyWarning,
   collectAllowlistProviderGroupPolicyWarnings,
 } from "openclaw/plugin-sdk/channel-policy";
+import {
+  buildBaseAccountStatusSnapshot,
+  buildBaseChannelStatusSummary,
+  buildChannelConfigSchema,
+  createAccountStatusSink,
+  DEFAULT_ACCOUNT_ID,
+  deleteAccountFromConfigSection,
+  getChatChannelMeta,
+  PAIRING_APPROVED_MESSAGE,
+  setAccountEnabledInConfigSection,
+  type ChannelPlugin,
+} from "openclaw/plugin-sdk/irc";
 import { runStoppablePassiveMonitor } from "../../shared/passive-monitor.js";
 import {
   listIrcAccountIds,
@@ -24,16 +34,6 @@ import {
 } from "./normalize.js";
 import { resolveIrcGroupMatch, resolveIrcRequireMention } from "./policy.js";
 import { probeIrc } from "./probe.js";
-import {
-  buildBaseAccountStatusSnapshot,
-  buildBaseChannelStatusSummary,
-  buildChannelConfigSchema,
-  createAccountStatusSink,
-  DEFAULT_ACCOUNT_ID,
-  getChatChannelMeta,
-  PAIRING_APPROVED_MESSAGE,
-  type ChannelPlugin,
-} from "./runtime-api.js";
 import { getIrcRuntime } from "./runtime.js";
 import { sendMessageIrc } from "./send.js";
 import { ircSetupAdapter } from "./setup-core.js";
@@ -50,27 +50,8 @@ function normalizePairingTarget(raw: string): string {
   return normalized.split(/[!@]/, 1)[0]?.trim() ?? "";
 }
 
-const ircConfigAdapter = createScopedChannelConfigAdapter<
-  ResolvedIrcAccount,
-  ResolvedIrcAccount,
-  CoreConfig
->({
-  sectionKey: "irc",
-  listAccountIds: listIrcAccountIds,
-  resolveAccount: (cfg, accountId) => resolveIrcAccount({ cfg, accountId }),
-  defaultAccountId: resolveDefaultIrcAccountId,
-  clearBaseFields: [
-    "name",
-    "host",
-    "port",
-    "tls",
-    "nick",
-    "username",
-    "realname",
-    "password",
-    "passwordFile",
-    "channels",
-  ],
+const ircConfigAccessors = createScopedAccountConfigAccessors({
+  resolveAccount: ({ cfg, accountId }) => resolveIrcAccount({ cfg: cfg as CoreConfig, accountId }),
   resolveAllowFrom: (account: ResolvedIrcAccount) => account.config.allowFrom,
   formatAllowFrom: (allowFrom) =>
     formatNormalizedAllowFromEntries({
@@ -78,14 +59,6 @@ const ircConfigAdapter = createScopedChannelConfigAdapter<
       normalizeEntry: normalizeIrcAllowEntry,
     }),
   resolveDefaultTo: (account: ResolvedIrcAccount) => account.config.defaultTo,
-});
-
-const resolveIrcDmPolicy = createScopedDmSecurityResolver<ResolvedIrcAccount>({
-  channelKey: "irc",
-  resolvePolicy: (account) => account.config.dmPolicy,
-  resolveAllowFrom: (account) => account.config.allowFrom,
-  policyPathSuffix: "dmPolicy",
-  normalizeEntry: (raw) => normalizeIrcAllowEntry(raw),
 });
 
 export const ircPlugin: ChannelPlugin<ResolvedIrcAccount, IrcProbe> = {
@@ -115,7 +88,35 @@ export const ircPlugin: ChannelPlugin<ResolvedIrcAccount, IrcProbe> = {
   reload: { configPrefixes: ["channels.irc"] },
   configSchema: buildChannelConfigSchema(IrcConfigSchema),
   config: {
-    ...ircConfigAdapter,
+    listAccountIds: (cfg) => listIrcAccountIds(cfg as CoreConfig),
+    resolveAccount: (cfg, accountId) => resolveIrcAccount({ cfg: cfg as CoreConfig, accountId }),
+    defaultAccountId: (cfg) => resolveDefaultIrcAccountId(cfg as CoreConfig),
+    setAccountEnabled: ({ cfg, accountId, enabled }) =>
+      setAccountEnabledInConfigSection({
+        cfg: cfg as CoreConfig,
+        sectionKey: "irc",
+        accountId,
+        enabled,
+        allowTopLevel: true,
+      }),
+    deleteAccount: ({ cfg, accountId }) =>
+      deleteAccountFromConfigSection({
+        cfg: cfg as CoreConfig,
+        sectionKey: "irc",
+        accountId,
+        clearBaseFields: [
+          "name",
+          "host",
+          "port",
+          "tls",
+          "nick",
+          "username",
+          "realname",
+          "password",
+          "passwordFile",
+          "channels",
+        ],
+      }),
     isConfigured: (account) => account.configured,
     describeAccount: (account) => ({
       accountId: account.accountId,
@@ -128,9 +129,21 @@ export const ircPlugin: ChannelPlugin<ResolvedIrcAccount, IrcProbe> = {
       nick: account.nick,
       passwordSource: account.passwordSource,
     }),
+    ...ircConfigAccessors,
   },
   security: {
-    resolveDmPolicy: resolveIrcDmPolicy,
+    resolveDmPolicy: ({ cfg, accountId, account }) => {
+      return buildAccountScopedDmSecurityPolicy({
+        cfg,
+        channelKey: "irc",
+        accountId,
+        fallbackAccountId: account.accountId ?? DEFAULT_ACCOUNT_ID,
+        policy: account.config.dmPolicy,
+        allowFrom: account.config.allowFrom ?? [],
+        policyPathSuffix: "dmPolicy",
+        normalizeEntry: (raw) => normalizeIrcAllowEntry(raw),
+      });
+    },
     collectWarnings: ({ account, cfg }) => {
       const warnings = collectAllowlistProviderGroupPolicyWarnings({
         cfg,

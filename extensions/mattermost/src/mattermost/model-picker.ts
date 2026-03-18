@@ -6,7 +6,7 @@ import {
   resolveStoredModelOverride,
   type ModelsProviderData,
   type OpenClawConfig,
-} from "../runtime-api.js";
+} from "openclaw/plugin-sdk/mattermost";
 import type { MattermostInteractiveButtonInput } from "./interactions.js";
 
 const MATTERMOST_MODEL_PICKER_CONTEXT_KEY = "oc_model_picker";

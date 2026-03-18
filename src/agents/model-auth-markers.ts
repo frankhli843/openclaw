@@ -2,7 +2,6 @@ import type { SecretRefSource } from "../config/types.secrets.js";
 import { listKnownProviderEnvApiKeyNames } from "./model-auth-env-vars.js";
 
 export const MINIMAX_OAUTH_MARKER = "minimax-oauth";
-export const OAUTH_API_KEY_MARKER_PREFIX = "oauth:";
 export const QWEN_OAUTH_MARKER = "qwen-oauth";
 export const OLLAMA_LOCAL_AUTH_MARKER = "ollama-local";
 export const CUSTOM_LOCAL_AUTH_MARKER = "custom-local";
@@ -42,14 +41,6 @@ export function isKnownEnvApiKeyMarker(value: string): boolean {
   return KNOWN_ENV_API_KEY_MARKERS.has(trimmed) && !isAwsSdkAuthMarker(trimmed);
 }
 
-export function resolveOAuthApiKeyMarker(providerId: string): string {
-  return `${OAUTH_API_KEY_MARKER_PREFIX}${providerId.trim()}`;
-}
-
-export function isOAuthApiKeyMarker(value: string): boolean {
-  return value.trim().startsWith(OAUTH_API_KEY_MARKER_PREFIX);
-}
-
 export function resolveNonEnvSecretRefApiKeyMarker(_source: SecretRefSource): string {
   return NON_ENV_SECRETREF_MARKER;
 }
@@ -80,7 +71,6 @@ export function isNonSecretApiKeyMarker(
   const isKnownMarker =
     trimmed === MINIMAX_OAUTH_MARKER ||
     trimmed === QWEN_OAUTH_MARKER ||
-    isOAuthApiKeyMarker(trimmed) ||
     trimmed === OLLAMA_LOCAL_AUTH_MARKER ||
     trimmed === CUSTOM_LOCAL_AUTH_MARKER ||
     trimmed === NON_ENV_SECRETREF_MARKER ||

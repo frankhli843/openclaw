@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { monitorTelegramProvider } from "./monitor.js";
 import { tagTelegramNetworkError } from "./network-errors.js";
-
-type MonitorTelegramOpts = import("./monitor.js").MonitorTelegramOpts;
 
 type MockCtx = {
   message: {
@@ -83,12 +82,6 @@ const { readTelegramUpdateOffsetSpy } = vi.hoisted(() => ({
 const { startTelegramWebhookSpy } = vi.hoisted(() => ({
   startTelegramWebhookSpy: vi.fn(async () => ({ server: { close: vi.fn() }, stop: vi.fn() })),
 }));
-const { resolveTelegramTransportSpy } = vi.hoisted(() => ({
-  resolveTelegramTransportSpy: vi.fn(() => ({
-    fetch: globalThis.fetch,
-    sourceFetch: globalThis.fetch,
-  })),
-}));
 
 type RunnerStub = {
   task: () => Promise<void>;
@@ -137,7 +130,6 @@ function mockRunOnceAndAbort(abort: AbortController) {
 }
 
 async function expectOffsetConfirmationSkipped(offset: number | null) {
-  const { monitorTelegramProvider } = await import("./monitor.js");
   readTelegramUpdateOffsetSpy.mockResolvedValueOnce(offset);
   const abort = new AbortController();
   api.getUpdates.mockReset();
@@ -151,7 +143,6 @@ async function expectOffsetConfirmationSkipped(offset: number | null) {
 }
 
 async function runMonitorAndCaptureStartupOrder(params?: { persistedOffset?: number | null }) {
-  const { monitorTelegramProvider } = await import("./monitor.js");
   if (params && "persistedOffset" in params) {
     readTelegramUpdateOffsetSpy.mockResolvedValueOnce(params.persistedOffset ?? null);
   }
@@ -206,8 +197,9 @@ function expectRecoverableRetryState(expectedRunCalls: number) {
   expect(runSpy).toHaveBeenCalledTimes(expectedRunCalls);
 }
 
-async function monitorWithAutoAbort(opts: Omit<MonitorTelegramOpts, "abortSignal"> = {}) {
-  const { monitorTelegramProvider } = await import("./monitor.js");
+async function monitorWithAutoAbort(
+  opts: Omit<Parameters<typeof monitorTelegramProvider>[0], "abortSignal"> = {},
+) {
   const abort = new AbortController();
   mockRunOnceAndAbort(abort);
   await monitorTelegramProvider({
@@ -217,8 +209,8 @@ async function monitorWithAutoAbort(opts: Omit<MonitorTelegramOpts, "abortSignal
   });
 }
 
-vi.mock("openclaw/plugin-sdk/config-runtime", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("openclaw/plugin-sdk/config-runtime")>();
+vi.mock("../../../src/config/config.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../src/config/config.js")>();
   return {
     ...actual,
     loadConfig,
@@ -262,45 +254,23 @@ vi.mock("@grammyjs/runner", () => ({
   run: runSpy,
 }));
 
-vi.mock("openclaw/plugin-sdk/infra-runtime", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("openclaw/plugin-sdk/infra-runtime")>();
-  return {
-    ...actual,
-    computeBackoff,
-    sleepWithAbort,
-  };
-});
+vi.mock("../../../src/infra/backoff.js", () => ({
+  computeBackoff,
+  sleepWithAbort,
+}));
 
-vi.mock("openclaw/plugin-sdk/runtime-env", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("openclaw/plugin-sdk/runtime-env")>();
-  return {
-    ...actual,
-    registerUnhandledRejectionHandler: registerUnhandledRejectionHandlerMock,
-  };
-});
+vi.mock("../../../src/infra/unhandled-rejections.js", () => ({
+  registerUnhandledRejectionHandler: registerUnhandledRejectionHandlerMock,
+}));
 
 vi.mock("./webhook.js", () => ({
   startTelegramWebhook: startTelegramWebhookSpy,
-}));
-
-vi.mock("./fetch.js", () => ({
-  resolveTelegramTransport: resolveTelegramTransportSpy,
 }));
 
 vi.mock("./update-offset-store.js", () => ({
   readTelegramUpdateOffset: readTelegramUpdateOffsetSpy,
   writeTelegramUpdateOffset: vi.fn(async () => undefined),
 }));
-
-vi.mock("openclaw/plugin-sdk/reply-runtime", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("openclaw/plugin-sdk/reply-runtime")>();
-  return {
-    ...actual,
-    getReplyFromConfig: async (ctx: { Body?: string }) => ({
-      text: `echo:${ctx.Body}`,
-    }),
-  };
-});
 
 vi.mock("../../../src/auto-reply/reply.js", () => ({
   getReplyFromConfig: async (ctx: { Body?: string }) => ({
@@ -312,7 +282,6 @@ describe("monitorTelegramProvider (grammY)", () => {
   let consoleErrorSpy: { mockRestore: () => void } | undefined;
 
   beforeEach(() => {
-    vi.resetModules();
     loadConfig.mockReturnValue({
       agents: { defaults: { maxConcurrent: 2 } },
       channels: { telegram: {} },
@@ -329,10 +298,6 @@ describe("monitorTelegramProvider (grammY)", () => {
     computeBackoff.mockClear();
     sleepWithAbort.mockClear();
     startTelegramWebhookSpy.mockClear();
-    resolveTelegramTransportSpy.mockReset().mockImplementation(() => ({
-      fetch: globalThis.fetch,
-      sourceFetch: globalThis.fetch,
-    }));
     registerUnhandledRejectionHandlerMock.mockClear();
     resetUnhandledRejection();
     createTelegramBotErrors.length = 0;
@@ -408,7 +373,6 @@ describe("monitorTelegramProvider (grammY)", () => {
   });
 
   it("retries on recoverable undici fetch errors", async () => {
-    const { monitorTelegramProvider } = await import("./monitor.js");
     const abort = new AbortController();
     const networkError = makeRecoverableFetchError();
     runSpy
@@ -432,7 +396,6 @@ describe("monitorTelegramProvider (grammY)", () => {
   });
 
   it("retries recoverable deleteWebhook failures before polling", async () => {
-    const { monitorTelegramProvider } = await import("./monitor.js");
     const abort = new AbortController();
     const cleanupError = makeRecoverableFetchError();
     api.deleteWebhook.mockReset();
@@ -446,7 +409,6 @@ describe("monitorTelegramProvider (grammY)", () => {
   });
 
   it("retries setup-time recoverable errors before starting polling", async () => {
-    const { monitorTelegramProvider } = await import("./monitor.js");
     const abort = new AbortController();
     const setupError = makeRecoverableFetchError();
     createTelegramBotErrors.push(setupError);
@@ -460,7 +422,6 @@ describe("monitorTelegramProvider (grammY)", () => {
   });
 
   it("awaits runner.stop before retrying after recoverable polling error", async () => {
-    const { monitorTelegramProvider } = await import("./monitor.js");
     const abort = new AbortController();
     const recoverableError = makeRecoverableFetchError();
     let firstStopped = false;
@@ -488,7 +449,6 @@ describe("monitorTelegramProvider (grammY)", () => {
   });
 
   it("stops bot instance when polling cycle exits", async () => {
-    const { monitorTelegramProvider } = await import("./monitor.js");
     const abort = new AbortController();
     mockRunOnceAndAbort(abort);
 
@@ -499,7 +459,6 @@ describe("monitorTelegramProvider (grammY)", () => {
   });
 
   it("clears bounded cleanup timers after a clean stop", async () => {
-    const { monitorTelegramProvider } = await import("./monitor.js");
     vi.useFakeTimers();
     try {
       const abort = new AbortController();
@@ -514,7 +473,6 @@ describe("monitorTelegramProvider (grammY)", () => {
   });
 
   it("surfaces non-recoverable errors", async () => {
-    const { monitorTelegramProvider } = await import("./monitor.js");
     runSpy.mockImplementationOnce(() =>
       makeRunnerStub({
         task: () => Promise.reject(new Error("bad token")),
@@ -525,7 +483,6 @@ describe("monitorTelegramProvider (grammY)", () => {
   });
 
   it("force-restarts polling when unhandled network rejection stalls runner", async () => {
-    const { monitorTelegramProvider } = await import("./monitor.js");
     const abort = new AbortController();
     const { stop } = mockRunOnceWithStalledPollingRunner();
     mockRunOnceAndAbort(abort);
@@ -533,7 +490,7 @@ describe("monitorTelegramProvider (grammY)", () => {
     const monitor = monitorTelegramProvider({ token: "tok", abortSignal: abort.signal });
     await vi.waitFor(() => expect(runSpy).toHaveBeenCalledTimes(1));
 
-    emitUnhandledRejection(makeTaggedPollingFetchError());
+    expect(emitUnhandledRejection(makeTaggedPollingFetchError())).toBe(true);
     await monitor;
 
     expect(stop.mock.calls.length).toBeGreaterThanOrEqual(1);
@@ -542,37 +499,7 @@ describe("monitorTelegramProvider (grammY)", () => {
     expect(runSpy).toHaveBeenCalledTimes(2);
   });
 
-  it("reuses the resolved transport across polling restarts", async () => {
-    const { monitorTelegramProvider } = await import("./monitor.js");
-    vi.useFakeTimers({ shouldAdvanceTime: true });
-    try {
-      const telegramTransport = {
-        fetch: globalThis.fetch,
-        sourceFetch: globalThis.fetch,
-      };
-      resolveTelegramTransportSpy.mockReturnValueOnce(telegramTransport);
-
-      const abort = new AbortController();
-      mockRunOnceWithStalledPollingRunner();
-      mockRunOnceAndAbort(abort);
-
-      const monitor = monitorTelegramProvider({ token: "tok", abortSignal: abort.signal });
-      await vi.waitFor(() => expect(createTelegramBotCalls.length).toBeGreaterThanOrEqual(1));
-
-      vi.advanceTimersByTime(120_000);
-      await monitor;
-
-      expect(resolveTelegramTransportSpy).toHaveBeenCalledTimes(1);
-      expect(createTelegramBotCalls).toHaveLength(2);
-      expect(createTelegramBotCalls[0]?.telegramTransport).toBe(telegramTransport);
-      expect(createTelegramBotCalls[1]?.telegramTransport).toBe(telegramTransport);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
   it("aborts the active Telegram fetch when unhandled network rejection forces restart", async () => {
-    const { monitorTelegramProvider } = await import("./monitor.js");
     const abort = new AbortController();
     const { stop } = mockRunOnceWithStalledPollingRunner();
     mockRunOnceAndAbort(abort);
@@ -583,7 +510,7 @@ describe("monitorTelegramProvider (grammY)", () => {
     expect(firstSignal).toBeInstanceOf(AbortSignal);
     expect((firstSignal as AbortSignal).aborted).toBe(false);
 
-    emitUnhandledRejection(makeTaggedPollingFetchError());
+    expect(emitUnhandledRejection(makeTaggedPollingFetchError())).toBe(true);
     await monitor;
 
     expect((firstSignal as AbortSignal).aborted).toBe(true);
@@ -591,7 +518,6 @@ describe("monitorTelegramProvider (grammY)", () => {
   });
 
   it("ignores unrelated process-level network errors while telegram polling is active", async () => {
-    const { monitorTelegramProvider } = await import("./monitor.js");
     const abort = new AbortController();
     const { stop } = mockRunOnceWithStalledPollingRunner();
 
@@ -617,7 +543,6 @@ describe("monitorTelegramProvider (grammY)", () => {
   });
 
   it("passes configured webhookHost to webhook listener", async () => {
-    const { monitorTelegramProvider } = await import("./monitor.js");
     await monitorTelegramProvider({
       token: "tok",
       useWebhook: true,
@@ -642,7 +567,6 @@ describe("monitorTelegramProvider (grammY)", () => {
   });
 
   it("webhook mode waits for abort signal before returning", async () => {
-    const { monitorTelegramProvider } = await import("./monitor.js");
     const abort = new AbortController();
     const settled = vi.fn();
     const monitor = monitorTelegramProvider({
@@ -662,7 +586,6 @@ describe("monitorTelegramProvider (grammY)", () => {
   });
 
   it("force-restarts polling when getUpdates stalls (watchdog)", async () => {
-    const { monitorTelegramProvider } = await import("./monitor.js");
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const abort = new AbortController();
     const { stop } = mockRunOnceWithStalledPollingRunner();
@@ -703,7 +626,6 @@ describe("monitorTelegramProvider (grammY)", () => {
   });
 
   it("resets webhookCleared latch on 409 conflict so deleteWebhook re-runs", async () => {
-    const { monitorTelegramProvider } = await import("./monitor.js");
     const abort = new AbortController();
     api.deleteWebhook.mockReset();
     api.deleteWebhook.mockResolvedValue(true);
@@ -742,7 +664,6 @@ describe("monitorTelegramProvider (grammY)", () => {
   });
 
   it("falls back to configured webhookSecret when not passed explicitly", async () => {
-    const { monitorTelegramProvider } = await import("./monitor.js");
     await monitorTelegramProvider({
       token: "tok",
       useWebhook: true,

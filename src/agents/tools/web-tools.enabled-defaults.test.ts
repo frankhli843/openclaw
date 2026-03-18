@@ -571,9 +571,7 @@ describe("web_search perplexity OpenRouter compatibility", () => {
     });
 
     expect(mockFetch).not.toHaveBeenCalled();
-    expect((result?.details as { error?: string } | undefined)?.error).toMatch(
-      /^unsupported_(domain_filter|structured_filter)$/,
-    );
+    expect(result?.details).toMatchObject({ error: "unsupported_domain_filter" });
   });
 
   it("keeps Search API schema params visible before runtime auth routing", () => {

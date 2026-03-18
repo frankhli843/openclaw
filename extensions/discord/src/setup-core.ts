@@ -1,12 +1,13 @@
 import type { DiscordGuildEntry } from "openclaw/plugin-sdk/config-runtime";
 import {
-  createAccountScopedAllowFromSection,
-  createAccountScopedGroupAccessSection,
-  createLegacyCompatChannelDmPolicy,
   DEFAULT_ACCOUNT_ID,
   createEnvPatchedAccountSetupAdapter,
+  formatDocsLink,
+  noteChannelLookupFailure,
+  noteChannelLookupSummary,
   parseMentionOrPrefixedId,
   patchChannelConfigForAccount,
+  setLegacyChannelDmPolicyWithAllowFrom,
   setSetupChannelEnabled,
   type OpenClawConfig,
 } from "openclaw/plugin-sdk/setup";
@@ -16,7 +17,6 @@ import {
   type ChannelSetupDmPolicy,
   type ChannelSetupWizard,
 } from "openclaw/plugin-sdk/setup";
-import { formatDocsLink } from "openclaw/plugin-sdk/setup-tools";
 import { inspectDiscordAccount } from "./account-inspect.js";
 import { listDiscordAccountIds, resolveDiscordAccount } from "./accounts.js";
 
@@ -88,11 +88,21 @@ export function createDiscordSetupWizardBase(handlers: {
     NonNullable<NonNullable<ChannelSetupWizard["groupAccess"]>["resolveAllowlist"]>
   >;
 }) {
-  const discordDmPolicy: ChannelSetupDmPolicy = createLegacyCompatChannelDmPolicy({
+  const discordDmPolicy: ChannelSetupDmPolicy = {
     label: "Discord",
     channel,
+    policyKey: "channels.discord.dmPolicy",
+    allowFromKey: "channels.discord.allowFrom",
+    getCurrent: (cfg: OpenClawConfig) =>
+      cfg.channels?.discord?.dmPolicy ?? cfg.channels?.discord?.dm?.policy ?? "pairing",
+    setPolicy: (cfg: OpenClawConfig, policy) =>
+      setLegacyChannelDmPolicyWithAllowFrom({
+        cfg,
+        channel,
+        dmPolicy: policy,
+      }),
     promptAllowFrom: handlers.promptAllowFrom,
-  });
+  };
 
   return {
     channel,
@@ -135,8 +145,7 @@ export function createDiscordSetupWizardBase(handlers: {
         },
       },
     ],
-    groupAccess: createAccountScopedGroupAccessSection({
-      channel,
+    groupAccess: {
       label: "Discord channels",
       placeholder: "My Server/#general, guildId/channelId, #support",
       currentPolicy: ({ cfg, accountId }: { cfg: OpenClawConfig; accountId: string }) =>
@@ -155,8 +164,57 @@ export function createDiscordSetupWizardBase(handlers: {
         ),
       updatePrompt: ({ cfg, accountId }: { cfg: OpenClawConfig; accountId: string }) =>
         Boolean(resolveDiscordAccount({ cfg, accountId }).config.guilds),
-      resolveAllowlist: handlers.resolveGroupAllowlist,
-      fallbackResolved: (entries) => entries.map((input) => ({ input, resolved: false })),
+      setPolicy: ({
+        cfg,
+        accountId,
+        policy,
+      }: {
+        cfg: OpenClawConfig;
+        accountId: string;
+        policy: "open" | "allowlist" | "disabled";
+      }) =>
+        patchChannelConfigForAccount({
+          cfg,
+          channel,
+          accountId,
+          patch: { groupPolicy: policy },
+        }),
+      resolveAllowlist: async ({
+        cfg,
+        accountId,
+        credentialValues,
+        entries,
+        prompter,
+      }: {
+        cfg: OpenClawConfig;
+        accountId: string;
+        credentialValues: { token?: string };
+        entries: string[];
+        prompter: { note: (message: string, title?: string) => Promise<void> };
+      }) => {
+        try {
+          return await handlers.resolveGroupAllowlist({
+            cfg,
+            accountId,
+            credentialValues,
+            entries,
+            prompter,
+          });
+        } catch (error) {
+          await noteChannelLookupFailure({
+            prompter,
+            label: "Discord channels",
+            error,
+          });
+          await noteChannelLookupSummary({
+            prompter,
+            label: "Discord channels",
+            resolvedSections: [],
+            unresolved: entries,
+          });
+          return entries.map((input) => ({ input, resolved: false }));
+        }
+      },
       applyAllowlist: ({
         cfg,
         accountId,
@@ -166,9 +224,8 @@ export function createDiscordSetupWizardBase(handlers: {
         accountId: string;
         resolved: unknown;
       }) => setDiscordGuildChannelAllowlist(cfg, accountId, resolved as never),
-    }),
-    allowFrom: createAccountScopedAllowFromSection({
-      channel,
+    },
+    allowFrom: {
       credentialInputKey: "token",
       helpTitle: "Discord allowlist",
       helpLines: [
@@ -185,15 +242,42 @@ export function createDiscordSetupWizardBase(handlers: {
       invalidWithoutCredentialNote:
         "Bot token missing; use numeric user ids (or mention form) only.",
       parseId: parseDiscordAllowFromId,
-      resolveEntries: handlers.resolveAllowFromEntries,
-    }),
+      resolveEntries: async ({
+        cfg,
+        accountId,
+        credentialValues,
+        entries,
+      }: {
+        cfg: OpenClawConfig;
+        accountId: string;
+        credentialValues: { token?: string };
+        entries: string[];
+      }) => await handlers.resolveAllowFromEntries({ cfg, accountId, credentialValues, entries }),
+      apply: async ({
+        cfg,
+        accountId,
+        allowFrom,
+      }: {
+        cfg: OpenClawConfig;
+        accountId: string;
+        allowFrom: string[];
+      }) =>
+        patchChannelConfigForAccount({
+          cfg,
+          channel,
+          accountId,
+          patch: { dmPolicy: "allowlist", allowFrom },
+        }),
+    },
     dmPolicy: discordDmPolicy,
     disable: (cfg: OpenClawConfig) => setSetupChannelEnabled(cfg, channel, false),
   } satisfies ChannelSetupWizard;
 }
-export function createDiscordSetupWizardProxy(loadWizard: () => Promise<ChannelSetupWizard>) {
+export function createDiscordSetupWizardProxy(
+  loadWizard: () => Promise<{ discordSetupWizard: ChannelSetupWizard }>,
+) {
   return createAllowlistSetupWizardProxy({
-    loadWizard,
+    loadWizard: async () => (await loadWizard()).discordSetupWizard,
     createBase: createDiscordSetupWizardBase,
     fallbackResolvedGroupAllowlist: (entries) =>
       entries.map((input) => ({ input, resolved: false })),

@@ -27,7 +27,6 @@ export type ImageGenerationRequest = {
   authStore?: AuthProfileStore;
   count?: number;
   size?: string;
-  aspectRatio?: string;
   resolution?: ImageGenerationResolution;
   inputImages?: ImageGenerationSourceImage[];
 };
@@ -38,36 +37,14 @@ export type ImageGenerationResult = {
   metadata?: Record<string, unknown>;
 };
 
-export type ImageGenerationModeCapabilities = {
-  maxCount?: number;
-  supportsSize?: boolean;
-  supportsAspectRatio?: boolean;
-  supportsResolution?: boolean;
-};
-
-export type ImageGenerationEditCapabilities = ImageGenerationModeCapabilities & {
-  enabled: boolean;
-  maxInputImages?: number;
-};
-
-export type ImageGenerationGeometryCapabilities = {
-  sizes?: string[];
-  aspectRatios?: string[];
-  resolutions?: ImageGenerationResolution[];
-};
-
-export type ImageGenerationProviderCapabilities = {
-  generate: ImageGenerationModeCapabilities;
-  edit: ImageGenerationEditCapabilities;
-  geometry?: ImageGenerationGeometryCapabilities;
-};
-
 export type ImageGenerationProvider = {
   id: string;
   aliases?: string[];
   label?: string;
   defaultModel?: string;
   models?: string[];
-  capabilities: ImageGenerationProviderCapabilities;
+  supportedSizes?: string[];
+  supportedResolutions?: ImageGenerationResolution[];
+  supportsImageEditing?: boolean;
   generateImage: (req: ImageGenerationRequest) => Promise<ImageGenerationResult>;
 };

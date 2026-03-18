@@ -14,20 +14,20 @@ import type {
 import type { OpenClawPluginApi, ProviderPlugin } from "../types.js";
 
 type LoginOpenAICodexOAuth =
-  (typeof import("openclaw/plugin-sdk/provider-auth-login"))["loginOpenAICodexOAuth"];
+  (typeof import("openclaw/plugin-sdk/provider-auth"))["loginOpenAICodexOAuth"];
 type LoginQwenPortalOAuth =
   (typeof import("../../../extensions/qwen-portal-auth/oauth.js"))["loginQwenPortalOAuth"];
 type GithubCopilotLoginCommand =
-  (typeof import("openclaw/plugin-sdk/provider-auth-login"))["githubCopilotLoginCommand"];
+  (typeof import("openclaw/plugin-sdk/provider-auth"))["githubCopilotLoginCommand"];
 type CreateVpsAwareHandlers =
-  (typeof import("../provider-oauth-flow.js"))["createVpsAwareOAuthHandlers"];
+  (typeof import("../../commands/oauth-flow.js"))["createVpsAwareOAuthHandlers"];
 
 const loginOpenAICodexOAuthMock = vi.hoisted(() => vi.fn<LoginOpenAICodexOAuth>());
 const loginQwenPortalOAuthMock = vi.hoisted(() => vi.fn<LoginQwenPortalOAuth>());
 const githubCopilotLoginCommandMock = vi.hoisted(() => vi.fn<GithubCopilotLoginCommand>());
 
-vi.mock("openclaw/plugin-sdk/provider-auth-login", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("openclaw/plugin-sdk/provider-auth-login")>();
+vi.mock("openclaw/plugin-sdk/provider-auth", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("openclaw/plugin-sdk/provider-auth")>();
   return {
     ...actual,
     loginOpenAICodexOAuth: loginOpenAICodexOAuthMock,

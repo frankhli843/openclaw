@@ -54,10 +54,6 @@ vi.mock("./channel.runtime.js", () => ({
 
 import { feishuPlugin } from "./channel.js";
 
-function getDescribedActions(cfg: OpenClawConfig): string[] {
-  return [...(feishuPlugin.actions?.describeMessageTool?.({ cfg })?.actions ?? [])];
-}
-
 describe("feishuPlugin.status.probeAccount", () => {
   it("uses current account credentials for multi-account config", async () => {
     const cfg = {
@@ -116,7 +112,7 @@ describe("feishuPlugin actions", () => {
   });
 
   it("advertises the expanded Feishu action surface", () => {
-    expect(getDescribedActions(cfg)).toEqual([
+    expect(feishuPlugin.actions?.listActions?.({ cfg })).toEqual([
       "send",
       "read",
       "edit",
@@ -146,7 +142,7 @@ describe("feishuPlugin actions", () => {
       },
     } as OpenClawConfig;
 
-    expect(getDescribedActions(disabledCfg)).toEqual([
+    expect(feishuPlugin.actions?.listActions?.({ cfg: disabledCfg })).toEqual([
       "send",
       "read",
       "edit",

@@ -6,7 +6,7 @@ import {
   type OutboundIdentity,
   type ReplyPayload,
   type RuntimeEnv,
-} from "../runtime-api.js";
+} from "openclaw/plugin-sdk/feishu";
 import { resolveFeishuAccount } from "./accounts.js";
 import { createFeishuClient } from "./client.js";
 import { sendMediaFeishu } from "./media.js";

@@ -15,7 +15,7 @@ import {
   type SecretInput,
   upsertAuthProfile,
   validateApiKeyInput,
-} from "openclaw/plugin-sdk/provider-auth-api-key";
+} from "openclaw/plugin-sdk/provider-auth";
 import { DEFAULT_CONTEXT_TOKENS, normalizeModelCompat } from "openclaw/plugin-sdk/provider-models";
 import { createZaiToolStreamWrapper } from "openclaw/plugin-sdk/provider-stream";
 import { fetchZaiUsage, resolveLegacyPiAgentAccessToken } from "openclaw/plugin-sdk/provider-usage";

@@ -1,9 +1,6 @@
 import { normalizeProviderId } from "../agents/provider-id.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
-import {
-  withBundledPluginAllowlistCompat,
-  withBundledPluginEnablementCompat,
-} from "./bundled-compat.js";
+import { withBundledPluginAllowlistCompat } from "./bundled-compat.js";
 import { normalizePluginsConfig, resolveEffectiveEnableState } from "./config-state.js";
 import { loadOpenClawPlugins, type PluginLoadOptions } from "./loader.js";
 import { createPluginLoaderLogger } from "./logger.js";
@@ -168,20 +165,13 @@ export function resolvePluginProviders(params: {
         pluginIds: bundledProviderCompatPluginIds,
       })
     : params.config;
-  const maybeVitestCompat = params.bundledProviderVitestCompat
+  const config = params.bundledProviderVitestCompat
     ? withBundledProviderVitestCompat({
         config: maybeAllowlistCompat,
         pluginIds: bundledProviderCompatPluginIds,
         env: params.env,
       })
     : maybeAllowlistCompat;
-  const config =
-    params.bundledProviderAllowlistCompat || params.bundledProviderVitestCompat
-      ? withBundledPluginEnablementCompat({
-          config: maybeVitestCompat,
-          pluginIds: bundledProviderCompatPluginIds,
-        })
-      : maybeVitestCompat;
   const registry = loadOpenClawPlugins({
     config,
     workspaceDir: params.workspaceDir,
