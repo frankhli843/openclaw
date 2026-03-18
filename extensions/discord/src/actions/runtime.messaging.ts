@@ -1,5 +1,4 @@
 import type { AgentToolResult } from "@mariozechner/pi-agent-core";
-import { ChannelType } from "discord-api-types/v10";
 import { readDiscordComponentSpec } from "../components.js";
 import {
   assertMediaNotDataUrl,
@@ -39,7 +38,7 @@ import {
   unpinMessageDiscord,
 } from "../send.js";
 import type { DiscordSendComponents, DiscordSendEmbeds } from "../send.shared.js";
-import { parseDiscordTarget, resolveDiscordChannelId } from "../targets.js";
+import { resolveDiscordChannelId } from "../targets.js";
 // [frankclaw] Discord DNR + delivery queue
 import { deferDelivery, enqueueDelivery } from "../../../../src/infra/outbound/delivery-queue.js";
 import {
