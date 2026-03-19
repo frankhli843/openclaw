@@ -8,7 +8,7 @@ import {
   writeJsonFileAtomically,
   type BindingTargetKind,
   type SessionBindingRecord,
-} from "openclaw/plugin-sdk/matrix";
+} from "../runtime-api.js";
 import { resolveMatrixStoragePaths } from "./client/storage.js";
 import type { MatrixAuth } from "./client/types.js";
 import type { MatrixClient } from "./sdk.js";
@@ -621,14 +621,6 @@ export async function createMatrixThreadBindingManager(params: {
       });
       return record ? toSessionBindingRecord(record, defaults) : null;
     },
-    setIdleTimeoutBySession: ({ targetSessionKey, idleTimeoutMs }) =>
-      manager
-        .setIdleTimeoutBySessionKey({ targetSessionKey, idleTimeoutMs })
-        .map((record) => toSessionBindingRecord(record, defaults)),
-    setMaxAgeBySession: ({ targetSessionKey, maxAgeMs }) =>
-      manager
-        .setMaxAgeBySessionKey({ targetSessionKey, maxAgeMs })
-        .map((record) => toSessionBindingRecord(record, defaults)),
     touch: (bindingId, at) => {
       manager.touchBinding(bindingId, at);
     },
