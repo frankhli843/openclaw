@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
+import { resolveBundledWebSearchPluginIds } from "../bundled-web-search.js";
 import { loadPluginManifestRegistry } from "../manifest-registry.js";
-import { resolvePluginWebSearchProviders } from "../web-search-providers.js";
 import {
   imageGenerationProviderContractRegistry,
   mediaUnderstandingProviderContractRegistry,
   pluginRegistrationContractRegistry,
+  providerContractLoadError,
   providerContractPluginIds,
   providerContractRegistry,
   speechProviderContractRegistry,
@@ -85,6 +86,11 @@ function findRegistrationForPlugin(pluginId: string) {
 }
 
 describe("plugin contract registry", () => {
+  it("loads bundled non-provider capability registries without import-time failure", () => {
+    expect(providerContractLoadError).toBeUndefined();
+    expect(pluginRegistrationContractRegistry.length).toBeGreaterThan(0);
+  });
+
   it("does not duplicate bundled provider ids", () => {
     const ids = providerContractRegistry.map((entry) => entry.provider.id);
     expect(ids).toEqual([...new Set(ids)]);
@@ -115,9 +121,7 @@ describe("plugin contract registry", () => {
   });
 
   it("covers every bundled web search plugin from the shared resolver", () => {
-    const bundledWebSearchPluginIds = resolvePluginWebSearchProviders({})
-      .map((provider) => provider.pluginId)
-      .toSorted((left, right) => left.localeCompare(right));
+    const bundledWebSearchPluginIds = resolveBundledWebSearchPluginIds({});
 
     expect(
       [...new Set(webSearchProviderContractRegistry.map((entry) => entry.pluginId))].toSorted(

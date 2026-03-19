@@ -1,4 +1,3 @@
-import { monitorWebChannel as monitorWebChannelImpl } from "openclaw/plugin-sdk/whatsapp";
 import { getActiveWebListener as getActiveWebListenerImpl } from "./active-listener.js";
 import {
   getWebAuthAgeMs as getWebAuthAgeMsImpl,
@@ -11,6 +10,7 @@ import {
   startWebLoginWithQr as startWebLoginWithQrImpl,
   waitForWebLogin as waitForWebLoginImpl,
 } from "./login-qr.js";
+import { monitorWebChannel as monitorWebChannelImpl } from "./auto-reply/monitor.js";
 import { loginWeb as loginWebImpl } from "./login.js";
 import { whatsappSetupWizard as whatsappSetupWizardImpl } from "./setup-surface.js";
 
@@ -24,7 +24,7 @@ type LoginWeb = typeof import("./login.js").loginWeb;
 type StartWebLoginWithQr = typeof import("./login-qr.js").startWebLoginWithQr;
 type WaitForWebLogin = typeof import("./login-qr.js").waitForWebLogin;
 type WhatsAppSetupWizard = typeof import("./setup-surface.js").whatsappSetupWizard;
-type MonitorWebChannel = typeof import("openclaw/plugin-sdk/whatsapp").monitorWebChannel;
+type MonitorWebChannel = typeof import("./auto-reply/monitor.js").monitorWebChannel;
 
 export function getActiveWebListener(
   ...args: Parameters<GetActiveWebListener>
@@ -68,8 +68,8 @@ export function waitForWebLogin(...args: Parameters<WaitForWebLogin>): ReturnTyp
 
 export const whatsappSetupWizard: WhatsAppSetupWizard = { ...whatsappSetupWizardImpl };
 
-export async function monitorWebChannel(
+export function monitorWebChannel(
   ...args: Parameters<MonitorWebChannel>
 ): ReturnType<MonitorWebChannel> {
-  return await monitorWebChannelImpl(...args);
+  return monitorWebChannelImpl(...args);
 }

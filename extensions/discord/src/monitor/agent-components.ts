@@ -19,8 +19,8 @@ import {
 import type { APIStringSelectComponent } from "discord-api-types/v10";
 import { ButtonStyle, ChannelType } from "discord-api-types/v10";
 import { resolveHumanDelayConfig } from "openclaw/plugin-sdk/agent-runtime";
+import { createChannelReplyPipeline } from "openclaw/plugin-sdk/channel-reply-pipeline";
 import { resolveCommandAuthorizedFromAuthorizers } from "openclaw/plugin-sdk/channel-runtime";
-import { createReplyPrefixOptions } from "openclaw/plugin-sdk/channel-runtime";
 import { recordInboundSession } from "openclaw/plugin-sdk/channel-runtime";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-runtime";
 import { isDangerousNameMatchingEnabled } from "openclaw/plugin-sdk/config-runtime";
@@ -36,7 +36,10 @@ import {
 } from "openclaw/plugin-sdk/conversation-runtime";
 import { enqueueSystemEvent } from "openclaw/plugin-sdk/infra-runtime";
 import { getAgentScopedMediaLocalRoots } from "openclaw/plugin-sdk/media-runtime";
-import { dispatchPluginInteractiveHandler } from "openclaw/plugin-sdk/plugin-runtime";
+import {
+  dispatchPluginInteractiveHandler,
+  type PluginInteractiveDiscordHandlerContext,
+} from "openclaw/plugin-sdk/plugin-runtime";
 import { resolveChunkMode, resolveTextChunkLimit } from "openclaw/plugin-sdk/reply-runtime";
 import {
   formatInboundEnvelope,
@@ -809,7 +812,7 @@ async function dispatchPluginDiscordInteractiveEvent(params: {
       ? `channel:${params.interactionCtx.channelId}`
       : `user:${params.interactionCtx.userId}`;
   let responded = false;
-  const respond = {
+  const respond: PluginInteractiveDiscordHandlerContext["respond"] = {
     acknowledge: async () => {
       responded = true;
       await params.interaction.acknowledge();
@@ -828,20 +831,15 @@ async function dispatchPluginDiscordInteractiveEvent(params: {
         ephemeral,
       });
     },
-    editMessage: async ({
-      text,
-      components,
-    }: {
-      text?: string;
-      components?: TopLevelComponents[];
-    }) => {
+    editMessage: async (input) => {
       if (!("update" in params.interaction) || typeof params.interaction.update !== "function") {
         throw new Error("Discord interaction cannot update the source message");
       }
+      const { text, components } = input;
       responded = true;
       await params.interaction.update({
         ...(text !== undefined ? { content: text } : {}),
-        ...(components !== undefined ? { components } : {}),
+        ...(components !== undefined ? { components: components as TopLevelComponents[] } : {}),
       });
     },
     clearComponents: async (input?: { text?: string }) => {
@@ -1140,7 +1138,7 @@ async function dispatchDiscordComponentEvent(params: {
 
   const deliverTarget = `channel:${interactionCtx.channelId}`;
   const typingChannelId = interactionCtx.channelId;
-  const { onModelSelected, ...prefixOptions } = createReplyPrefixOptions({
+  const { onModelSelected, ...replyPipeline } = createChannelReplyPipeline({
     cfg: ctx.cfg,
     agentId,
     channel: "discord",
@@ -1168,7 +1166,7 @@ async function dispatchDiscordComponentEvent(params: {
     cfg: ctx.cfg,
     replyOptions: { onModelSelected },
     dispatcherOptions: {
-      ...prefixOptions,
+      ...replyPipeline,
       humanDelay: resolveHumanDelayConfig(ctx.cfg, agentId),
       deliver: async (payload) => {
         const replyToId = replyReference.use();

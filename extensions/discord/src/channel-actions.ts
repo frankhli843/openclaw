@@ -9,6 +9,7 @@ import type {
 import type { DiscordActionConfig } from "openclaw/plugin-sdk/config-runtime";
 import { createDiscordActionGate, listEnabledDiscordAccounts } from "./accounts.js";
 import { handleDiscordMessageAction } from "./actions/handle-action.js";
+import { createDiscordMessageToolComponentsSchema } from "./message-tool-schema.js";
 
 export const discordMessageActions: ChannelMessageActionAdapter = {
   listActions: ({ cfg }) => {

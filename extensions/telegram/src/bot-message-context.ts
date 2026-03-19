@@ -56,6 +56,8 @@ export const buildTelegramMessageContext = async ({
   resolveGroupActivation,
   resolveGroupRequireMention,
   resolveTelegramGroupConfig,
+  loadFreshConfig,
+  upsertPairingRequest,
   sendChatActionHandler,
 }: BuildTelegramMessageContextParams) => {
   const msg = primaryCtx.message;
@@ -80,7 +82,7 @@ export const buildTelegramMessageContext = async ({
       ? (groupConfig.dmPolicy ?? dmPolicy)
       : dmPolicy;
   // Fresh config for bindings lookup; other routing inputs are payload-derived.
-  const freshCfg = loadConfig();
+  const freshCfg = (loadFreshConfig ?? loadConfig)();
   let { route, configuredBinding, configuredBindingSessionKey } = resolveTelegramConversationRoute({
     cfg: freshCfg,
     accountId: account.accountId,
@@ -195,6 +197,7 @@ export const buildTelegramMessageContext = async ({
       accountId: account.accountId,
       bot,
       logger,
+      upsertPairingRequest,
     }))
   ) {
     return null;

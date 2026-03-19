@@ -1,6 +1,15 @@
 /** Shared policy warnings and DM/group policy helpers for channel plugins. */
 export {
   buildOpenGroupPolicyConfigureRouteAllowlistWarning,
+  composeWarningCollectors,
+  createAllowlistProviderGroupPolicyWarningCollector,
+  createConditionalWarningCollector,
+  createAllowlistProviderOpenWarningCollector,
+  createAllowlistProviderRestrictSendersWarningCollector,
+  createAllowlistProviderRouteAllowlistWarningCollector,
+  createOpenGroupPolicyRestrictSendersWarningCollector,
+  createOpenProviderGroupPolicyWarningCollector,
+  createOpenProviderConfiguredRouteWarningCollector,
   buildOpenGroupPolicyRestrictSendersWarning,
   buildOpenGroupPolicyWarning,
   collectAllowlistProviderGroupPolicyWarnings,
@@ -8,6 +17,7 @@ export {
   collectOpenGroupPolicyRestrictSendersWarnings,
   collectOpenGroupPolicyRouteAllowlistWarnings,
   collectOpenProviderGroupPolicyWarnings,
+  projectWarningCollector,
 } from "../channels/plugins/group-policy-warnings.js";
 export { buildAccountScopedDmSecurityPolicy } from "../channels/plugins/helpers.js";
 export { resolveChannelGroupRequireMention } from "../config/group-policy.js";

@@ -1,4 +1,8 @@
 import type { MarkdownTableMode } from "openclaw/plugin-sdk/config-runtime";
+import {
+  resolveOutboundMediaUrls,
+  sendMediaWithLeadingCaption,
+} from "openclaw/plugin-sdk/reply-payload";
 import { chunkMarkdownTextWithMode, type ChunkMode } from "openclaw/plugin-sdk/reply-runtime";
 import type { ReplyPayload } from "openclaw/plugin-sdk/reply-runtime";
 import { logVerbose, shouldLogVerbose } from "openclaw/plugin-sdk/runtime-env";
@@ -7,7 +11,6 @@ import { markdownToWhatsApp } from "openclaw/plugin-sdk/text-runtime";
 import { sleep } from "openclaw/plugin-sdk/text-runtime";
 import { loadWebMedia } from "../media.js";
 import { newConnectionId } from "../reconnect.js";
-import { sendMessageWhatsApp } from "../send.js";
 import { formatError } from "../session.js";
 import { whatsappOutboundLog } from "./loggers.js";
 import type { WebInboundMsg } from "./types.js";
@@ -53,22 +56,7 @@ export async function deliverWebReply(params: {
     convertMarkdownTables(replyResult.text || "", tableMode),
   );
   const textChunks = chunkMarkdownTextWithMode(convertedText, textLimit, chunkMode);
-  const mediaList = replyResult.mediaUrls?.length
-    ? replyResult.mediaUrls
-    : replyResult.mediaUrl
-      ? [replyResult.mediaUrl]
-      : [];
-
-  /** Send text directly via the outbound path (bypasses stale msg.reply). */
-  const sendDirect = async (text: string): Promise<unknown> => {
-    if (!msg.from) {
-      throw new Error("Cannot send direct: msg.from is missing");
-    }
-    whatsappOutboundLog.info(
-      `Falling back to sendMessageWhatsApp for ${msg.from} (stale msg.reply)`,
-    );
-    return sendMessageWhatsApp(msg.from, text, { verbose: false });
-  };
+  const mediaList = resolveOutboundMediaUrls(replyResult);
 
   const sendWithRetry = async (fn: () => Promise<unknown>, label: string, maxAttempts = 3) => {
     let lastErr: unknown;
@@ -78,16 +66,6 @@ export async function deliverWebReply(params: {
       } catch (err) {
         lastErr = err;
         const errText = formatError(err);
-
-        // If msg.reply is not a function (stale connection), fall back to direct send.
-        if (/is not a function/i.test(errText) && msg.from) {
-          whatsappOutboundLog.warn(
-            `msg.reply is stale for ${msg.from}, falling back to direct send`,
-          );
-          // Extract text from the fn closure by re-throwing and handling below
-          throw err;
-        }
-
         const isLast = attempt === maxAttempts;
         const shouldRetry = /closed|reset|timed\s*out|disconnect/i.test(errText);
         if (!shouldRetry || isLast) {
@@ -108,16 +86,7 @@ export async function deliverWebReply(params: {
     const totalChunks = textChunks.length;
     for (const [index, chunk] of textChunks.entries()) {
       const chunkStarted = Date.now();
-      try {
-        await sendWithRetry(() => msg.reply(chunk), "text");
-      } catch (err) {
-        const errText = formatError(err);
-        if (/is not a function/i.test(errText) && msg.from) {
-          await sendDirect(chunk);
-        } else {
-          throw err;
-        }
-      }
+      await sendWithRetry(() => msg.reply(chunk), "text");
       if (!skipLog) {
         const durationMs = Date.now() - chunkStarted;
         whatsappOutboundLog.debug(
@@ -145,9 +114,11 @@ export async function deliverWebReply(params: {
   const remainingText = [...textChunks];
 
   // Media (with optional caption on first item)
-  for (const [index, mediaUrl] of mediaList.entries()) {
-    const caption = index === 0 ? remainingText.shift() || undefined : undefined;
-    try {
+  const leadingCaption = remainingText.shift() || "";
+  await sendMediaWithLeadingCaption({
+    mediaUrls: mediaList,
+    caption: leadingCaption,
+    send: async ({ mediaUrl, caption }) => {
       const media = await loadWebMedia(mediaUrl, {
         maxBytes: maxMediaBytes,
         localRoots: params.mediaLocalRoots,
@@ -220,40 +191,27 @@ export async function deliverWebReply(params: {
         },
         "auto-reply sent (media)",
       );
-    } catch (err) {
-      whatsappOutboundLog.error(`Failed sending web media to ${msg.from}: ${formatError(err)}`);
-      replyLogger.warn({ err, mediaUrl }, "failed to send web media reply");
-      if (index === 0) {
-        const warning =
-          err instanceof Error ? `⚠️ Media failed: ${err.message}` : "⚠️ Media failed.";
-        const fallbackTextParts = [remainingText.shift() ?? caption ?? "", warning].filter(Boolean);
-        const fallbackText = fallbackTextParts.join("\n");
-        if (fallbackText) {
-          whatsappOutboundLog.warn(`Media skipped; sent text-only to ${msg.from}`);
-          try {
-            await msg.reply(fallbackText);
-          } catch (replyErr) {
-            if (/is not a function/i.test(formatError(replyErr)) && msg.from) {
-              await sendDirect(fallbackText);
-            } else {
-              throw replyErr;
-            }
-          }
-        }
+    },
+    onError: async ({ error, mediaUrl, caption, isFirst }) => {
+      whatsappOutboundLog.error(`Failed sending web media to ${msg.from}: ${formatError(error)}`);
+      replyLogger.warn({ err: error, mediaUrl }, "failed to send web media reply");
+      if (!isFirst) {
+        return;
       }
-    }
-  }
+      const warning =
+        error instanceof Error ? `⚠️ Media failed: ${error.message}` : "⚠️ Media failed.";
+      const fallbackTextParts = [remainingText.shift() ?? caption ?? "", warning].filter(Boolean);
+      const fallbackText = fallbackTextParts.join("\n");
+      if (!fallbackText) {
+        return;
+      }
+      whatsappOutboundLog.warn(`Media skipped; sent text-only to ${msg.from}`);
+      await msg.reply(fallbackText);
+    },
+  });
 
   // Remaining text chunks after media
   for (const chunk of remainingText) {
-    try {
-      await msg.reply(chunk);
-    } catch (err) {
-      if (/is not a function/i.test(formatError(err)) && msg.from) {
-        await sendDirect(chunk);
-      } else {
-        throw err;
-      }
-    }
+    await msg.reply(chunk);
   }
 }
