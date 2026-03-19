@@ -221,6 +221,8 @@ export type TelegramTopicConfig = {
   disableAudioPreflight?: boolean;
   /** Route this topic to a specific agent (overrides group-level and binding routing). */
   agentId?: string;
+  /** Frankclaw: gate mode for mention/allowlist filtering. */
+  gateMode?: import("./types.base.js").GateMode;
 };
 
 export type TelegramGroupConfig = {
@@ -242,6 +244,8 @@ export type TelegramGroupConfig = {
   systemPrompt?: string;
   /** If true, skip automatic voice-note transcription for mention detection in this group. */
   disableAudioPreflight?: boolean;
+  /** Frankclaw: gate mode for mention/allowlist filtering. */
+  gateMode?: import("./types.base.js").GateMode;
 };
 
 export type TelegramDirectConfig = {

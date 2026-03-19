@@ -72,7 +72,7 @@ export type AgentRunLoopResult =
       /** Payload keys sent directly (not via pipeline) during tool flush. */
       directlySentBlockKeys?: Set<string>;
     }
-  | { kind: "final"; payload: ReplyPayload };
+  | { kind: "final"; payload: ReplyPayload; retryableFailure?: boolean; failureMessage?: string };
 
 export async function runAgentTurnWithFallback(params: {
   commandBody: string;

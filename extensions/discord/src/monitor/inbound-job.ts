@@ -109,3 +109,24 @@ function normalizeDiscordThreadChannel(
     ownerId: threadChannel.ownerId,
   };
 }
+
+/**
+ * After JSON round-trip through the durable queue, Carbon Message getter fields
+ * (attachments, embeds, content, …) live only inside `_rawData`.
+ * Hoist them so downstream code that reads `message.attachments` works.
+ */
+export function rehydrateCarbonMessage(message: any): void {
+  if (!message || typeof message !== "object") {
+    return;
+  }
+  const raw = message._rawData ?? message.rawData;
+  if (!raw || typeof raw !== "object") {
+    return;
+  }
+  const fields = ["attachments", "embeds", "content", "author", "member", "mentions", "sticker_items"];
+  for (const field of fields) {
+    if (raw[field] !== undefined && message[field] === undefined) {
+      message[field] = raw[field];
+    }
+  }
+}

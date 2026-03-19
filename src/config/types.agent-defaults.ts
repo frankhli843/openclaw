@@ -293,6 +293,12 @@ export type AgentDefaultsConfig = {
   };
   /** Optional sandbox settings for non-main sessions. */
   sandbox?: AgentSandboxConfig;
+  /** Frankclaw: Discord channel for gate-notify alerts. */
+  gateNotifyChannel?: string;
+  /** Frankclaw: Discord user/role to tag in gate-notify alerts. */
+  gateNotifyOwner?: string;
+  /** Frankclaw: Additional keywords that trigger mention-mode responses. */
+  mentionKeywords?: string[];
 };
 
 export type AgentCompactionMode = "default" | "safeguard";

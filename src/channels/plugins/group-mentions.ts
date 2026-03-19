@@ -89,7 +89,7 @@ function resolveTelegramGateModeInternal(params: {
   // Topic config takes priority, then group config, then wildcard
   const resolved = topicConfig ?? defaultTopicConfig ?? groupConfig ?? groupDefault;
   const gateMode = resolved?.gateMode;
-  const rawSenders = resolved?.allowedSenders ?? [];
+  const rawSenders = resolved?.allowFrom ?? [];
   return { gateMode, allowedSenders: rawSenders.map((s) => String(s)) };
 }
 
@@ -137,7 +137,7 @@ function resolveDiscordChannelEntry<TEntry>(
 type SlackChannelPolicyEntry = {
   requireMention?: boolean;
   gateMode?: GateMode;
-  allowedSenders?: Array<string | number>;
+  allowFrom?: Array<string | number>;
   tools?: GroupToolPolicyConfig;
   toolsBySender?: GroupToolPolicyBySenderConfig;
 };
@@ -428,12 +428,12 @@ export function resolveDiscordGroupGateMode(
   if (channelEntries && Object.keys(channelEntries).length > 0) {
     const entry = resolveDiscordChannelEntry(channelEntries, params);
     if (entry?.gateMode) {
-      const rawSenders = entry.allowedSenders ?? [];
+      const rawSenders = (entry.allowFrom ?? []).map((s) => String(s));
       return { gateMode: entry.gateMode, allowedSenders: rawSenders };
     }
   }
   if (guildEntry?.gateMode) {
-    const rawSenders = guildEntry.allowedSenders ?? [];
+    const rawSenders = (guildEntry.allowFrom ?? []).map((s) => String(s));
     return { gateMode: guildEntry.gateMode, allowedSenders: rawSenders };
   }
   return { gateMode: undefined, allowedSenders: [] };
@@ -453,7 +453,7 @@ export function resolveGoogleChatGroupGateMode(
 export function resolveSlackGroupGateMode(params: GroupMentionParams): ChannelGroupGateModeResult {
   const resolved = resolveSlackChannelPolicyEntry(params);
   const gateMode = resolved?.gateMode;
-  const rawSenders = resolved?.allowedSenders ?? [];
+  const rawSenders = resolved?.allowFrom ?? [];
   return { gateMode, allowedSenders: rawSenders.map((s) => String(s)) };
 }
 

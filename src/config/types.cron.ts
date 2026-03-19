@@ -57,4 +57,13 @@ export type CronConfig = {
   failureAlert?: CronFailureAlertConfig;
   /** Default destination for failure notifications across all cron jobs. */
   failureDestination?: CronFailureDestinationConfig;
+  /** Frankclaw: self-heal configuration for failed cron runs. */
+  selfHeal?: {
+    enabled?: boolean;
+    maxAttempts?: number;
+    backoffMs?: number[];
+    retryDelay?: string;
+    maxAttemptsPerRun?: number;
+    match?: string[];
+  };
 };

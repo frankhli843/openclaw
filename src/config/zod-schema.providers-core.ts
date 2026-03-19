@@ -417,6 +417,7 @@ export const DiscordGuildChannelSchema = z
       ])
       .optional(),
     gateMode: GateModeSchema,
+    allowFrom: z.array(z.union([z.string(), z.number()])).optional(),
   })
   .strict();
 
@@ -432,6 +433,7 @@ export const DiscordGuildSchema = z
     roles: DiscordIdListSchema.optional(),
     channels: z.record(z.string(), DiscordGuildChannelSchema.optional()).optional(),
     gateMode: GateModeSchema,
+    allowFrom: z.array(z.union([z.string(), z.number()])).optional(),
   })
   .strict();
 

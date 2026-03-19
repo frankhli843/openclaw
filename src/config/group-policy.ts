@@ -15,7 +15,7 @@ export type GroupPolicyChannel = ChannelId;
 export type ChannelGroupConfig = {
   requireMention?: boolean;
   gateMode?: GateMode;
-  allowedSenders?: Array<string | number>;
+  allowFrom?: Array<string | number>;
   tools?: GroupToolPolicyConfig;
   toolsBySender?: GroupToolPolicyBySenderConfig;
 };
@@ -380,7 +380,7 @@ export function resolveChannelGroupGateMode(params: {
 }): ChannelGroupGateModeResult {
   const { groupConfig, defaultConfig } = resolveChannelGroupPolicy(params);
   const gateMode = groupConfig?.gateMode ?? defaultConfig?.gateMode;
-  const rawSenders = groupConfig?.allowedSenders ?? defaultConfig?.allowedSenders ?? [];
+  const rawSenders = groupConfig?.allowFrom ?? defaultConfig?.allowFrom ?? [];
   const allowedSenders = rawSenders.map((s) => String(s));
   return { gateMode, allowedSenders };
 }

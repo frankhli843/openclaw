@@ -57,6 +57,10 @@ export type DiscordGuildChannelConfig = {
   includeThreadStarter?: boolean;
   /** If true, automatically create a thread for each new message in this channel. */
   autoThread?: boolean;
+  /** Frankclaw: gate mode for mention/allowlist filtering. */
+  gateMode?: import("./types.base.js").GateMode;
+  /** Frankclaw: allowFrom list for allowlist gate mode. */
+  allowFrom?: Array<string | number>;
 };
 
 export type DiscordReactionNotificationMode = "off" | "own" | "all" | "allowlist";
@@ -79,6 +83,10 @@ export type DiscordGuildEntry = {
   /** Optional allowlist for guild senders by role ID. */
   roles?: string[];
   channels?: Record<string, DiscordGuildChannelConfig>;
+  /** Frankclaw: gate mode for mention/allowlist filtering. */
+  gateMode?: import("./types.base.js").GateMode;
+  /** Frankclaw: allowFrom list for allowlist gate mode. */
+  allowFrom?: Array<string | number>;
 };
 
 export type DiscordActionConfig = {
