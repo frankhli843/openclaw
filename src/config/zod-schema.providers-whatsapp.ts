@@ -14,11 +14,16 @@ import {
 
 const ToolPolicyBySenderSchema = z.record(z.string(), ToolPolicySchema).optional();
 
+const GateModeSchema = z
+  .enum(["blocked", "silent", "frank-only", "allowlist", "mention", "open"])
+  .optional();
+
 const WhatsAppGroupEntrySchema = z
   .object({
     requireMention: z.boolean().optional(),
     tools: ToolPolicySchema,
     toolsBySender: ToolPolicyBySenderSchema,
+    gateMode: GateModeSchema,
   })
   .strict()
   .optional();

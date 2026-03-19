@@ -71,6 +71,10 @@ const SlackCapabilitiesSchema = z.union([
     .strict(),
 ]);
 
+const GateModeSchema = z
+  .enum(["blocked", "silent", "frank-only", "allowlist", "mention", "open"])
+  .optional();
+
 export const TelegramTopicSchema = z
   .object({
     requireMention: z.boolean().optional(),
@@ -81,6 +85,7 @@ export const TelegramTopicSchema = z
     allowFrom: z.array(z.union([z.string(), z.number()])).optional(),
     systemPrompt: z.string().optional(),
     agentId: z.string().optional(),
+    gateMode: GateModeSchema,
   })
   .strict();
 
@@ -96,6 +101,7 @@ export const TelegramGroupSchema = z
     allowFrom: z.array(z.union([z.string(), z.number()])).optional(),
     systemPrompt: z.string().optional(),
     topics: z.record(z.string(), TelegramTopicSchema.optional()).optional(),
+    gateMode: GateModeSchema,
   })
   .strict();
 
@@ -410,6 +416,7 @@ export const DiscordGuildChannelSchema = z
         z.literal(10080),
       ])
       .optional(),
+    gateMode: GateModeSchema,
   })
   .strict();
 
@@ -424,6 +431,7 @@ export const DiscordGuildSchema = z
     users: DiscordIdListSchema.optional(),
     roles: DiscordIdListSchema.optional(),
     channels: z.record(z.string(), DiscordGuildChannelSchema.optional()).optional(),
+    gateMode: GateModeSchema,
   })
   .strict();
 
