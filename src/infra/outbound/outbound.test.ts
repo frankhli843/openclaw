@@ -12,7 +12,6 @@ import { typedCases } from "../../test-utils/typed-cases.js";
 import {
   ackDelivery,
   computeBackoffMs,
-  deferDelivery,
   type DeliverFn,
   enqueueDelivery,
   failDelivery,
@@ -194,28 +193,6 @@ describe("delivery-queue", () => {
     });
   });
 
-  describe("deferDelivery", () => {
-    it("persists hold state without incrementing retry count", async () => {
-      const id = await enqueueDelivery(
-        {
-          channel: "discord",
-          to: "channel:1479083833830801520",
-          payloads: [{ text: "suppressed" }],
-        },
-        tmpDir,
-      );
-
-      const deferUntilMs = Date.now() + 60_000;
-      await deferDelivery(id, deferUntilMs, "discord-dnr-window", tmpDir);
-
-      const queueDir = path.join(tmpDir, "delivery-queue");
-      const entry = JSON.parse(fs.readFileSync(path.join(queueDir, `${id}.json`), "utf-8"));
-      expect(entry.retryCount).toBe(0);
-      expect(entry.holdReason).toBe("discord-dnr-window");
-      expect(entry.deferUntilMs).toBeGreaterThan(Date.now());
-    });
-  });
-
   describe("moveToFailed", () => {
     it("moves entry to failed/ subdirectory", async () => {
       const id = await enqueueDelivery(
@@ -352,28 +329,6 @@ describe("delivery-queue", () => {
       }
       expect(result.remainingBackoffMs).toBeGreaterThan(0);
     });
-
-    it("defers delivery when hold window is active", () => {
-      const now = Date.now();
-      const result = isEntryEligibleForRecoveryRetry(
-        {
-          id: "entry-hold",
-          channel: "discord",
-          to: "channel:1479083833830801520",
-          payloads: [{ text: "held" }],
-          enqueuedAt: now - 30_000,
-          retryCount: 0,
-          deferUntilMs: now + 15 * 60_000,
-          holdReason: "discord-dnr-window",
-        },
-        now,
-      );
-      expect(result.eligible).toBe(false);
-      if (result.eligible) {
-        throw new Error("Expected held entry to remain deferred");
-      }
-      expect(result.remainingBackoffMs).toBeGreaterThan(14 * 60_000);
-    });
   });
 
   describe("recoverPendingDeliveries", () => {
@@ -499,35 +454,6 @@ describe("delivery-queue", () => {
       await runRecovery({ deliver });
 
       expect(deliver).toHaveBeenCalledWith(expect.objectContaining({ skipQueue: true }));
-    });
-
-    it("skips held entries until defer window elapses, then retries", async () => {
-      const id = await enqueueDelivery(
-        {
-          channel: "discord",
-          to: "channel:1479083833830801520",
-          payloads: [{ text: "held" }],
-        },
-        tmpDir,
-      );
-      const future = Date.now() + 120_000;
-      await deferDelivery(id, future, "discord-dnr-window", tmpDir);
-
-      const firstDeliver = vi.fn().mockResolvedValue([]);
-      const first = await runRecovery({ deliver: firstDeliver });
-      expect(firstDeliver).not.toHaveBeenCalled();
-      expect(first.result.deferredBackoff).toBe(1);
-
-      const filePath = path.join(tmpDir, "delivery-queue", `${id}.json`);
-      const entry = JSON.parse(fs.readFileSync(filePath, "utf-8"));
-      entry.deferUntilMs = Date.now() - 1;
-      entry.lastAttemptAt = Date.now() - 10_000;
-      fs.writeFileSync(filePath, JSON.stringify(entry), "utf-8");
-
-      const secondDeliver = vi.fn().mockResolvedValue([]);
-      const second = await runRecovery({ deliver: secondDeliver });
-      expect(secondDeliver).toHaveBeenCalledTimes(1);
-      expect(second.result.recovered).toBe(1);
     });
 
     it("replays stored delivery options during recovery", async () => {
@@ -1046,9 +972,45 @@ describe("resolveOutboundSessionRoute", () => {
         from?: string;
         to?: string;
         threadId?: string | number;
-        chatType?: "direct" | "group";
+        chatType?: "channel" | "direct" | "group";
       };
     }> = [
+      {
+        name: "WhatsApp group jid",
+        cfg: baseConfig,
+        channel: "whatsapp",
+        target: "120363040000000000@g.us",
+        expected: {
+          sessionKey: "agent:main:whatsapp:group:120363040000000000@g.us",
+          from: "120363040000000000@g.us",
+          to: "120363040000000000@g.us",
+          chatType: "group",
+        },
+      },
+      {
+        name: "Matrix room target",
+        cfg: baseConfig,
+        channel: "matrix",
+        target: "room:!ops:matrix.example",
+        expected: {
+          sessionKey: "agent:main:matrix:channel:!ops:matrix.example",
+          from: "matrix:channel:!ops:matrix.example",
+          to: "room:!ops:matrix.example",
+          chatType: "channel",
+        },
+      },
+      {
+        name: "MSTeams conversation target",
+        cfg: baseConfig,
+        channel: "msteams",
+        target: "conversation:19:meeting_abc@thread.tacv2",
+        expected: {
+          sessionKey: "agent:main:msteams:channel:19:meeting_abc@thread.tacv2",
+          from: "msteams:channel:19:meeting_abc@thread.tacv2",
+          to: "conversation:19:meeting_abc@thread.tacv2",
+          chatType: "channel",
+        },
+      },
       {
         name: "Slack thread",
         cfg: baseConfig,
@@ -1121,6 +1083,18 @@ describe("resolveOutboundSessionRoute", () => {
         },
       },
       {
+        name: "Nextcloud Talk room target",
+        cfg: baseConfig,
+        channel: "nextcloud-talk",
+        target: "room:opsroom42",
+        expected: {
+          sessionKey: "agent:main:nextcloud-talk:group:opsroom42",
+          from: "nextcloud-talk:room:opsroom42",
+          to: "nextcloud-talk:opsroom42",
+          chatType: "group",
+        },
+      },
+      {
         name: "BlueBubbles chat_* prefix stripping",
         cfg: baseConfig,
         channel: "bluebubbles",
@@ -1131,6 +1105,18 @@ describe("resolveOutboundSessionRoute", () => {
         },
       },
       {
+        name: "Zalo direct target",
+        cfg: perChannelPeerCfg,
+        channel: "zalo",
+        target: "zl:123456",
+        expected: {
+          sessionKey: "agent:main:zalo:direct:123456",
+          from: "zalo:123456",
+          to: "zalo:123456",
+          chatType: "direct",
+        },
+      },
+      {
         name: "Zalo Personal DM target",
         cfg: perChannelPeerCfg,
         channel: "zalouser",
@@ -1138,6 +1124,30 @@ describe("resolveOutboundSessionRoute", () => {
         expected: {
           sessionKey: "agent:main:zalouser:direct:123456",
           chatType: "direct",
+        },
+      },
+      {
+        name: "Nostr prefixed target",
+        cfg: perChannelPeerCfg,
+        channel: "nostr",
+        target: "nostr:npub1example",
+        expected: {
+          sessionKey: "agent:main:nostr:direct:npub1example",
+          from: "nostr:npub1example",
+          to: "nostr:npub1example",
+          chatType: "direct",
+        },
+      },
+      {
+        name: "Tlon group target",
+        cfg: baseConfig,
+        channel: "tlon",
+        target: "group:~zod/main",
+        expected: {
+          sessionKey: "agent:main:tlon:group:chat/~zod/main",
+          from: "tlon:group:chat/~zod/main",
+          to: "tlon:chat/~zod/main",
+          chatType: "group",
         },
       },
       {

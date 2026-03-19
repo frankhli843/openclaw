@@ -99,17 +99,6 @@ describe("ssrf ip classification", () => {
       expect(isPrivateIpAddress(hostname)).toBe(false);
     }
   });
-
-  it.each(unsupportedLegacyIpv4Cases)(
-    "fails closed for unsupported legacy IPv4 literal %s",
-    (address) => {
-      expect(isPrivateIpAddress(address)).toBe(true);
-    },
-  );
-
-  it.each(nonIpHostnameCases)("does not treat hostname %s as an IP literal", (hostname) => {
-    expect(isPrivateIpAddress(hostname)).toBe(false);
-  });
 });
 
 describe("isBlockedHostnameOrIp", () => {

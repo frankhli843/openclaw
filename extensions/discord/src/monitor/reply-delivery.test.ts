@@ -11,21 +11,6 @@ const sendMessageDiscordMock = vi.hoisted(() => vi.fn());
 const sendVoiceMessageDiscordMock = vi.hoisted(() => vi.fn());
 const sendWebhookMessageDiscordMock = vi.hoisted(() => vi.fn());
 const sendDiscordTextMock = vi.hoisted(() => vi.fn());
-const enqueueDeliveryMock = vi.hoisted(() => vi.fn());
-const deferDeliveryMock = vi.hoisted(() => vi.fn());
-const isDiscordDnrTargetMock = vi.hoisted(() => vi.fn());
-const enforceDiscordDnrWindowMock = vi.hoisted(() => vi.fn());
-const DiscordDnrSuppressedErrorCtor = vi.hoisted(
-  () =>
-    class DiscordDnrSuppressedError extends Error {
-      readonly nextEligibleAtMs: number;
-      constructor(nextEligibleAtMs: number) {
-        super("discord outbound suppressed by DNR window");
-        this.name = "DiscordDnrSuppressedError";
-        this.nextEligibleAtMs = nextEligibleAtMs;
-      }
-    },
-);
 
 vi.mock("../send.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../send.js")>();
@@ -39,17 +24,6 @@ vi.mock("../send.js", async (importOriginal) => {
 
 vi.mock("../send.shared.js", () => ({
   sendDiscordText: (...args: unknown[]) => sendDiscordTextMock(...args),
-}));
-
-vi.mock("../../infra/outbound/delivery-queue.js", () => ({
-  enqueueDelivery: (...args: unknown[]) => enqueueDeliveryMock(...args),
-  deferDelivery: (...args: unknown[]) => deferDeliveryMock(...args),
-}));
-
-vi.mock("../../infra/outbound/discord-dnr.js", () => ({
-  DiscordDnrSuppressedError: DiscordDnrSuppressedErrorCtor,
-  enforceDiscordDnrWindow: (...args: unknown[]) => enforceDiscordDnrWindowMock(...args),
-  isDiscordDnrTarget: (...args: unknown[]) => isDiscordDnrTargetMock(...args),
 }));
 
 describe("deliverDiscordReply", () => {
@@ -121,32 +95,7 @@ describe("deliverDiscordReply", () => {
       id: "msg-direct-1",
       channel_id: "channel-1",
     });
-    enqueueDeliveryMock.mockClear().mockResolvedValue("q-1");
-    deferDeliveryMock.mockClear().mockResolvedValue(undefined);
-    isDiscordDnrTargetMock.mockClear().mockReturnValue(false);
-    enforceDiscordDnrWindowMock.mockClear().mockReturnValue(undefined);
     threadBindingTesting.resetThreadBindingsForTests();
-  });
-
-  it("defers to durable queue when Discord DNR window is active", async () => {
-    isDiscordDnrTargetMock.mockReturnValue(true);
-    enforceDiscordDnrWindowMock.mockImplementation(() => {
-      throw new DiscordDnrSuppressedErrorCtor(1_777_000_000_000);
-    });
-
-    await deliverDiscordReply({
-      cfg,
-      replies: [{ text: "queued" }],
-      target: "channel:123",
-      token: "token",
-      runtime,
-      textLimit: 2000,
-      replyToId: "reply-1",
-    });
-
-    expect(enqueueDeliveryMock).toHaveBeenCalledTimes(1);
-    expect(deferDeliveryMock).toHaveBeenCalledTimes(1);
-    expect(sendMessageDiscordMock).not.toHaveBeenCalled();
   });
 
   it("routes audioAsVoice payloads through the voice API and sends text separately", async () => {

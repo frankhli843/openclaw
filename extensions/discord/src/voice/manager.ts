@@ -619,6 +619,7 @@ export class DiscordVoiceManager {
         agentId: entry.route.agentId,
         messageChannel: "discord",
         senderIsOwner: speaker.senderIsOwner,
+        allowModelOverride: false,
         deliver: false,
       },
       this.params.runtime,

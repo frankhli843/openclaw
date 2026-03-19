@@ -10,8 +10,8 @@ import { setRegistry } from "./server.agent.gateway-server-agent.mocks.js";
 import { createRegistry } from "./server.e2e-registry-helpers.js";
 import {
   agentCommand,
-  connectWebchatClient,
   connectOk,
+  connectWebchatClient,
   installGatewayTestHooks,
   onceMessage,
   rpcReq,

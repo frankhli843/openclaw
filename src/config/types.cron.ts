@@ -46,23 +46,6 @@ export type CronConfig = {
    * Default: "24h".
    */
   sessionRetention?: string | false;
-
-  /**
-   * [frankclaw] Cron self-heal retry settings.
-   *
-   * For recurring cron jobs (schedule.kind="cron"), when a run fails with a matching
-   * transient infra error, the scheduler can automatically reschedule a bounded retry
-   * after a cooldown window.
-   */
-  selfHeal?: {
-    enabled?: boolean;
-    /** Retry delay as a duration string (e.g. "30m", "1h"). Default: "30m". */
-    retryDelay?: string;
-    /** Maximum attempts per scheduled run (includes the original attempt). Default: 2. */
-    maxAttemptsPerRun?: number;
-    /** Case-insensitive substring matchers applied to the error string. */
-    match?: string[];
-  };
   /**
    * Run-log pruning controls for `cron/runs/<jobId>.jsonl`.
    * Defaults: `maxBytes=2_000_000`, `keepLines=2000`.

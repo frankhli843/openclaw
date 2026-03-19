@@ -68,7 +68,7 @@ title: "Thinking Levels"
 - Tool failure summaries remain visible in normal mode, but raw error detail suffixes are hidden unless verbose is `on` or `full`.
 - When verbose is `full`, tool outputs are also forwarded after completion (separate bubble, truncated to a safe length). If you toggle `/verbose on|full|off` while a run is in-flight, subsequent tool bubbles honor the new setting.
 
-## Reasoning visibility (/tools/thinking#reasoning-visibility-reasoning)
+## Reasoning visibility (/reasoning)
 
 - Levels: `on|off|stream`.
 - Directive-only message toggles whether thinking blocks are shown in replies.
@@ -80,7 +80,6 @@ title: "Thinking Levels"
 ## Related
 
 - Elevated mode docs live in [Elevated mode](/tools/elevated).
-- Reasoning visibility behavior is documented in [Reasoning visibility](/tools/thinking#reasoning-visibility-reasoning).
 
 ## Heartbeats
 

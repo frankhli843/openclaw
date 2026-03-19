@@ -417,62 +417,6 @@ describe("createDiscordMessageHandler queue behavior", () => {
     expect(processedMessageIds).toEqual(["m-1", "m-2"]);
   });
 
-  it("does not drop messages when per-entry abortSignal becomes aborted before debounce flush", async () => {
-    vi.useFakeTimers();
-    try {
-      preflightDiscordMessageMock.mockReset();
-      processDiscordMessageMock.mockReset();
-
-      processDiscordMessageMock.mockImplementation(async () => undefined);
-      preflightDiscordMessageMock.mockImplementation(
-        async (params: { data: { channel_id: string } }) =>
-          createPreflightContext(params.data.channel_id),
-      );
-
-      // Create handler with debouncing enabled (200ms)
-      const handlerParams = createDiscordHandlerParams();
-      handlerParams.cfg.messages = { inbound: { debounceMs: 200 } };
-      const handler = createDiscordMessageHandler(handlerParams);
-
-      // Create a per-message abort controller (simulates listener-level timeout)
-      const perMessageController = new AbortController();
-
-      // Create a text-only message (no attachments) so it gets debounced
-      const textOnlyData = {
-        channel_id: "ch-1",
-        author: { id: "user-1" },
-        message: {
-          id: "m-stale",
-          author: { id: "user-1", bot: false },
-          content: "hello world",
-          channel_id: "ch-1",
-          attachments: [],
-        },
-      };
-
-      // Enqueue with the (currently active) abort signal
-      await handler(textOnlyData as never, {} as never, {
-        abortSignal: perMessageController.signal,
-      });
-
-      // Abort the per-message signal BEFORE the debounce timer fires
-      // (simulates listener timeout or stale signal from previous cycle)
-      perMessageController.abort();
-
-      // Advance timers to trigger the debounce flush
-      await vi.advanceTimersByTimeAsync(300);
-
-      // The message should still be processed because the fix uses the
-      // handler-level lifecycle signal (which is NOT aborted), not the
-      // per-entry signal
-      await vi.waitFor(() => {
-        expect(preflightDiscordMessageMock).toHaveBeenCalledTimes(1);
-      });
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
   it("recovers queue progress after a run failure without leaving busy state stuck", async () => {
     preflightDiscordMessageMock.mockReset();
     processDiscordMessageMock.mockReset();

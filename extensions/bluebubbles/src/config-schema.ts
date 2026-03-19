@@ -1,4 +1,3 @@
-import { MarkdownConfigSchema, ToolPolicySchema } from "openclaw/plugin-sdk/bluebubbles";
 import {
   AllowFromListSchema,
   buildCatchallMultiAccountChannelSchema,

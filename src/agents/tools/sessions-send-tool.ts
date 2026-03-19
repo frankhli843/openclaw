@@ -243,24 +243,12 @@ export function createSessionsSendTool(opts?: {
         requesterChannel: opts?.agentChannel,
         targetSessionKey: displayKey,
       });
-      // If the target session has a real channel delivery context (whatsapp, discord, telegram),
-      // deliver the response directly to that channel instead of going through the A2A announce
-      // flow (which requires an extra LLM call that can get rate-limited and timeout).
-      // frankclaw patch: direct delivery for channel-bound sessions
-      // Extract channel and target from session key for direct delivery
-      // Keys look like: agent:main:whatsapp:group:120363424690448303@g.us
-      //                  agent:main:discord:channel:1474343755153932394
-      //                  agent:main:telegram:direct:7918451151
-      const targetChannelMatch = displayKey.match(/^agent:main:(whatsapp|discord|telegram):(?:group|channel|direct):(.+)$/);
-      const useDirectDelivery = !!targetChannelMatch;
-      const directDeliveryTo = targetChannelMatch?.[2];
       const sendParams = {
         message,
         sessionKey: resolvedKey,
         idempotencyKey,
-        deliver: useDirectDelivery,
-        channel: useDirectDelivery ? targetChannelMatch![1] : INTERNAL_MESSAGE_CHANNEL,
-        ...(useDirectDelivery && directDeliveryTo ? { to: directDeliveryTo } : {}),
+        deliver: false,
+        channel: INTERNAL_MESSAGE_CHANNEL,
         lane: AGENT_LANE_NESTED,
         extraSystemPrompt: agentMessageContext,
         inputProvenance: {

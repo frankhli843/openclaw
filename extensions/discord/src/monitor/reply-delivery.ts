@@ -2,16 +2,6 @@ import type { RequestClient } from "@buape/carbon";
 import { resolveAgentAvatar } from "openclaw/plugin-sdk/agent-runtime";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-runtime";
 import type { MarkdownTableMode, ReplyToMode } from "openclaw/plugin-sdk/config-runtime";
-// [frankclaw] DNR + delivery queue
-import { loadConfig } from "openclaw/plugin-sdk/config-runtime";
-import { resolveStateDir } from "../../../../src/config/paths.js";
-import { deferDelivery, enqueueDelivery } from "../../../../src/infra/outbound/delivery-queue.js";
-import {
-  DiscordDnrSuppressedError,
-  enforceDiscordDnrWindow,
-  isDiscordDnrTarget,
-} from "../../../../src/infra/outbound/discord-dnr.js";
-import { createDiscordRetryRunner, type RetryRunner } from "openclaw/plugin-sdk/infra-runtime";
 import {
   resolveRetryConfig,
   retryAsync,
@@ -225,39 +215,6 @@ async function sendDiscordChunkWithFallback(params: {
   );
 }
 
-async function sendAdditionalDiscordMedia(params: {
-  cfg: OpenClawConfig;
-  target: string;
-  token: string;
-  rest?: RequestClient;
-  accountId?: string;
-  mediaUrls: string[];
-  mediaLocalRoots?: readonly string[];
-  resolveReplyTo: () => string | undefined;
-  retryConfig: ResolvedRetryConfig;
-}) {
-  for (const mediaUrl of params.mediaUrls) {
-    const replyTo = params.resolveReplyTo();
-    await sendWithRetry(
-      () =>
-        sendMessageDiscord(params.target, "", {
-          cfg: params.cfg,
-          token: params.token,
-          rest: params.rest,
-          mediaUrl,
-          accountId: params.accountId,
-          mediaLocalRoots: params.mediaLocalRoots,
-          replyTo,
-        }),
-      params.retryConfig,
-    );
-  }
-}
-
-export type DeliverDiscordReplyResult = {
-  dnrSuppressed?: boolean;
-};
-
 export async function deliverDiscordReply(params: {
   cfg: OpenClawConfig;
   replies: ReplyPayload[];
@@ -275,38 +232,7 @@ export async function deliverDiscordReply(params: {
   sessionKey?: string;
   threadBindings?: DiscordThreadBindingLookup;
   mediaLocalRoots?: readonly string[];
-}): Promise<DeliverDiscordReplyResult> {
-  const stateDir = resolveStateDir();
-  const dnrCtx = { channel: "discord", to: params.target } as const;
-  if (isDiscordDnrTarget(dnrCtx)) {
-    try {
-      enforceDiscordDnrWindow(dnrCtx);
-    } catch (err) {
-      if (err instanceof DiscordDnrSuppressedError) {
-        // Preserve thread context so deferred delivery replays to the correct thread.
-        // params.target is "channel:<threadId>" for thread messages, so extract the
-        // thread ID to ensure recovery sends to the thread, not the parent channel.
-        const threadId = params.target.startsWith("channel:")
-          ? params.target.slice("channel:".length)
-          : null;
-        const queueId = await enqueueDelivery(
-          {
-            channel: "discord",
-            to: params.target,
-            accountId: params.accountId,
-            payloads: params.replies,
-            replyToId: params.replyToId ?? null,
-            threadId,
-          },
-          stateDir,
-        );
-        await deferDelivery(queueId, err.nextEligibleAtMs, "discord-dnr-window", stateDir);
-        return { dnrSuppressed: true };
-      }
-      throw err;
-    }
-  }
-
+}) {
   const chunkLimit = Math.min(params.textLimit, 2000);
   const replyTo = params.replyToId?.trim() || undefined;
   const replyToMode = params.replyToMode ?? "all";
@@ -470,5 +396,4 @@ export async function deliverDiscordReply(params: {
   if (binding && deliveredAny) {
     params.threadBindings?.touchThread?.({ threadId: binding.threadId });
   }
-  return {};
 }

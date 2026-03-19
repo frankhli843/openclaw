@@ -1,5 +1,9 @@
 import { resolveSendableOutboundReplyParts } from "openclaw/plugin-sdk/reply-payload";
 import { resolveSessionAgentId } from "../../agents/agent-scope.js";
+import {
+  resolveConversationBindingRecord,
+  touchConversationBindingRecord,
+} from "../../bindings/records.js";
 import { shouldSuppressLocalExecApprovalPrompt } from "../../channels/plugins/exec-approval-local.js";
 import type { OpenClawConfig } from "../../config/config.js";
 import {
@@ -21,7 +25,6 @@ import {
   toPluginMessageReceivedEvent,
 } from "../../hooks/message-hook-mappers.js";
 import { isDiagnosticsEnabled } from "../../infra/diagnostic-events.js";
-import { getSessionBindingService } from "../../infra/outbound/session-binding-service.js";
 import {
   logMessageProcessed,
   logMessageQueued,
@@ -304,7 +307,7 @@ export async function dispatchReplyFromConfig(params: {
 
   const pluginOwnedBindingRecord =
     inboundClaimContext.conversationId && inboundClaimContext.channelId
-      ? getSessionBindingService().resolveByConversation({
+      ? resolveConversationBindingRecord({
           channel: inboundClaimContext.channelId,
           accountId: inboundClaimContext.accountId ?? "default",
           conversationId: inboundClaimContext.conversationId,
@@ -321,7 +324,7 @@ export async function dispatchReplyFromConfig(params: {
     | undefined;
 
   if (pluginOwnedBinding) {
-    getSessionBindingService().touch(pluginOwnedBinding.bindingId);
+    touchConversationBindingRecord(pluginOwnedBinding.bindingId);
     logVerbose(
       `plugin-bound inbound routed to ${pluginOwnedBinding.pluginId} conversation=${pluginOwnedBinding.conversationId}`,
     );
@@ -634,15 +637,6 @@ export async function dispatchReplyFromConfig(params: {
     }
 
     const replies = replyResult ? (Array.isArray(replyResult) ? replyResult : [replyResult]) : [];
-
-    // [frankclaw] View-only: suppress all outbound replies
-    const isViewOnly = (ctx as Record<string, unknown>).__frankclawViewOnly === true;
-    if (isViewOnly) {
-      logVerbose(`[frankclaw] View-only: suppressed ${replies.length} reply(ies)`);
-      recordProcessed("completed", { reason: "view-only-suppressed" });
-      markIdle("message_completed");
-      return { queuedFinal: false, counts: dispatcher.getQueuedCounts() };
-    }
 
     let queuedFinal = false;
     let routedFinalCount = 0;

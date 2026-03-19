@@ -1,7 +1,3 @@
-// [frankclaw] GateMode resolution re-exported from dedicated extension module.
-export { resolveGateMode } from "./gate-mode.frankclaw.js";
-export type { GateMode, GateModeParams, GateModeResult } from "./gate-mode.frankclaw.js";
-
 export type MentionGateParams = {
   requireMention: boolean;
   canDetectMention: boolean;

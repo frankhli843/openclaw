@@ -33,7 +33,6 @@ import {
   coerceToFailoverError,
   describeFailoverError,
   FailoverError,
-  parseAnthropicRateLimitHint,
   resolveFailoverStatus,
 } from "../failover-error.js";
 import {
@@ -66,6 +65,7 @@ import {
 import { ensureRuntimePluginsLoaded } from "../runtime-plugins.js";
 import { derivePromptTokens, normalizeUsage, type UsageLike } from "../usage.js";
 import { redactRunIdentifier, resolveRunWorkspaceDir } from "../workspace-run.js";
+import { buildEmbeddedCompactionRuntimeContext } from "./compaction-runtime-context.js";
 import { resolveGlobalLane, resolveSessionLane } from "./lanes.js";
 import { log } from "./logger.js";
 import { resolveModelAsync } from "./model.js";
@@ -432,18 +432,11 @@ export async function runEmbeddedPiAgent(
           lockedProfileId = undefined;
         }
       }
-      // Sub-agent sessions (spawned via sessions_spawn) use a separate auth profile order
-      // so they don't compete for rate limits with the main session.
-      const isSubagentSession = Boolean(params.spawnedBy);
-      const subagentAuthOrderOverride = isSubagentSession
-        ? params.config?.agents?.defaults?.subagents?.auth?.order
-        : undefined;
       const profileOrder = resolveAuthProfileOrder({
         cfg: params.config,
         store: authStore,
         provider,
         preferredProfile: preferredProfileId,
-        authOrderOverride: subagentAuthOrderOverride,
       });
       if (lockedProfileId && !profileOrder.includes(lockedProfileId)) {
         throw new Error(`Auth profile "${lockedProfileId}" is not configured for ${provider}.`);
@@ -619,65 +612,32 @@ export async function runEmbeddedPiAgent(
         return classified ?? "auth";
       };
 
-      const throwAuthProfileFailover = (failoverParams: {
+      const throwAuthProfileFailover = (params: {
         allInCooldown: boolean;
         message?: string;
         error?: unknown;
       }): never => {
         const fallbackMessage = `No available auth profile for ${provider} (all in cooldown or unavailable).`;
         const message =
-          failoverParams.message?.trim() ||
-          (failoverParams.error ? describeUnknownError(failoverParams.error).trim() : "") ||
+          params.message?.trim() ||
+          (params.error ? describeUnknownError(params.error).trim() : "") ||
           fallbackMessage;
         const reason = resolveAuthProfileFailoverReason({
-          allInCooldown: failoverParams.allInCooldown,
+          allInCooldown: params.allInCooldown,
           message,
           profileIds: profileCandidates,
         });
-
-        // ── Diagnostic logging for "all models failed" debugging ──────
-        {
-          const now = Date.now();
-          const profileDiag = profileCandidates.map((id) => {
-            if (!id) {
-              return { id: "(empty)", inCooldown: false };
-            }
-            const stats = authStore.usageStats?.[id];
-            const cooldownUntil = stats?.cooldownUntil;
-            const disabledUntil = stats?.disabledUntil;
-            const inCooldown = isProfileInCooldown(authStore, id);
-            return {
-              id,
-              inCooldown,
-              errorCount: stats?.errorCount ?? 0,
-              cooldownUntil: cooldownUntil ? new Date(cooldownUntil).toISOString() : null,
-              cooldownRemainingMs: cooldownUntil ? Math.max(0, cooldownUntil - now) : 0,
-              disabledUntil: disabledUntil ? new Date(disabledUntil).toISOString() : null,
-              lastFailureAt: stats?.lastFailureAt
-                ? new Date(stats.lastFailureAt).toISOString()
-                : null,
-              failureCounts: stats?.failureCounts ?? {},
-            };
-          });
-          log.warn(
-            `[auth-profile-failover-diag] allInCooldown=${failoverParams.allInCooldown} ` +
-              `reason=${reason} provider=${provider}/${modelId} ` +
-              `sessionKey=${params.sessionKey ?? params.sessionId} ` +
-              `profiles=${JSON.stringify(profileDiag)}`,
-          );
-        }
-
         if (fallbackConfigured) {
           throw new FailoverError(message, {
             reason,
             provider,
             model: modelId,
             status: resolveFailoverStatus(reason),
-            cause: failoverParams.error,
+            cause: params.error,
           });
         }
-        if (failoverParams.error instanceof Error) {
-          throw failoverParams.error;
+        if (params.error instanceof Error) {
+          throw params.error;
         }
         throw new Error(message);
       };
@@ -689,7 +649,6 @@ export async function runEmbeddedPiAgent(
           profileId: candidate,
           store: authStore,
           agentDir,
-          authOrderOverride: subagentAuthOrderOverride,
         });
       };
 
@@ -805,14 +764,11 @@ export async function runEmbeddedPiAgent(
           const inCooldown =
             candidate && candidate !== lockedProfileId && isProfileInCooldown(authStore, candidate);
           if (inCooldown) {
-            if (allowTransientCooldownProbe) {
-              if (!didTransientCooldownProbe) {
-                didTransientCooldownProbe = true;
-              }
+            if (allowTransientCooldownProbe && !didTransientCooldownProbe) {
+              didTransientCooldownProbe = true;
               log.warn(
-                `probing cooldowned auth profile ${candidate} for ${provider}/${modelId} due to ${unavailableReason ?? "transient"} unavailability`,
+                `probing cooldowned auth profile for ${provider}/${modelId} due to ${unavailableReason ?? "transient"} unavailability`,
               );
-              // Try this profile despite cooldown — don't skip it
             } else {
               profileIndex += 1;
               continue;
@@ -870,69 +826,21 @@ export async function runEmbeddedPiAgent(
       let lastRunPromptUsage: ReturnType<typeof normalizeUsage> | undefined;
       let autoCompactionCount = 0;
       let runLoopIterations = 0;
-
-      // ── Anthropic 429 header capture ──────────────────────────────────
-      // pi-ai strips HTTP response headers from streaming errors, so by the
-      // time we see the error message the retry-after info is lost.
-      // We wrap globalThis.fetch to capture the last 429 response headers
-      // from Anthropic API calls. This is scoped to this run and restored
-      // in the finally block.
-      let lastAnthropicRateLimitHeaders: Record<string, string> | undefined;
-      const originalFetch = globalThis.fetch;
-      if (normalizeProviderId(provider) === "anthropic") {
-        globalThis.fetch = async (...args: Parameters<typeof fetch>) => {
-          const response = await originalFetch(...args);
-          if (response.status === 429) {
-            const headers: Record<string, string> = {};
-            response.headers.forEach((value, key) => {
-              headers[key] = value;
-            });
-            lastAnthropicRateLimitHeaders = headers;
-          }
-          return response;
-        };
-      }
-
       let overloadFailoverAttempts = 0;
       const maybeMarkAuthProfileFailure = async (failure: {
         profileId?: string;
         reason?: AuthProfileFailureReason | null;
-        message?: string;
-        /** Raw error object — used to extract HTTP response headers (e.g. retry-after) */
-        error?: unknown;
+        config?: RunEmbeddedPiAgentParams["config"];
+        agentDir?: RunEmbeddedPiAgentParams["agentDir"];
       }) => {
-        const { profileId, reason, message } = failure;
+        const { profileId, reason } = failure;
         if (!profileId || !reason || reason === "timeout") {
           return;
         }
-
-        const activeProvider = normalizeProviderId(
-          authStore.profiles[profileId]?.provider ?? provider,
-        );
-
-        // Build a synthetic error-like object with captured 429 headers
-        // so parseAnthropicRateLimitHint can extract retry-after even from
-        // streaming errors where pi-ai stripped the original headers.
-        const errorWithHeaders =
-          failure.error ??
-          (lastAnthropicRateLimitHeaders
-            ? { status: 429, headers: lastAnthropicRateLimitHeaders }
-            : undefined);
-
-        const rateLimit =
-          reason === "rate_limit" && activeProvider === "anthropic"
-            ? (parseAnthropicRateLimitHint({
-                message,
-                status: resolveFailoverStatus(reason),
-                error: errorWithHeaders,
-              }) ?? undefined)
-            : undefined;
-
         await markAuthProfileFailure({
           store: authStore,
           profileId,
           reason,
-          rateLimit,
           cfg: params.config,
           agentDir,
           runId: params.runId,
@@ -1017,10 +925,6 @@ export async function runEmbeddedPiAgent(
 
           const prompt =
             provider === "anthropic" ? scrubAnthropicRefusalMagic(params.prompt) : params.prompt;
-
-          // Reset captured 429 headers per-attempt so one profile's headers
-          // cannot leak into another profile's cooldown classification.
-          lastAnthropicRateLimitHeaders = undefined;
 
           const attempt = await runEmbeddedAttempt({
             sessionId: params.sessionId,
@@ -1238,24 +1142,30 @@ export async function runEmbeddedPiAgent(
                   force: true,
                   compactionTarget: "budget",
                   runtimeContext: {
-                    sessionKey: params.sessionKey,
-                    messageChannel: params.messageChannel,
-                    messageProvider: params.messageProvider,
-                    agentAccountId: params.agentAccountId,
-                    authProfileId: lastProfileId,
-                    workspaceDir: resolvedWorkspace,
-                    agentDir,
-                    config: params.config,
-                    skillsSnapshot: params.skillsSnapshot,
-                    senderIsOwner: params.senderIsOwner,
-                    provider,
-                    model: modelId,
+                    ...buildEmbeddedCompactionRuntimeContext({
+                      sessionKey: params.sessionKey,
+                      messageChannel: params.messageChannel,
+                      messageProvider: params.messageProvider,
+                      agentAccountId: params.agentAccountId,
+                      currentChannelId: params.currentChannelId,
+                      currentThreadTs: params.currentThreadTs,
+                      currentMessageId: params.currentMessageId,
+                      authProfileId: lastProfileId,
+                      workspaceDir: resolvedWorkspace,
+                      agentDir,
+                      config: params.config,
+                      skillsSnapshot: params.skillsSnapshot,
+                      senderIsOwner: params.senderIsOwner,
+                      senderId: params.senderId,
+                      provider,
+                      modelId,
+                      thinkLevel,
+                      reasoningLevel: params.reasoningLevel,
+                      bashElevated: params.bashElevated,
+                      extraSystemPrompt: params.extraSystemPrompt,
+                      ownerNumbers: params.ownerNumbers,
+                    }),
                     runId: params.runId,
-                    thinkLevel,
-                    reasoningLevel: params.reasoningLevel,
-                    bashElevated: params.bashElevated,
-                    extraSystemPrompt: params.extraSystemPrompt,
-                    ownerNumbers: params.ownerNumbers,
                     trigger: "overflow",
                     ...(observedOverflowTokens !== undefined
                       ? { currentTokenCount: observedOverflowTokens }
@@ -1472,8 +1382,6 @@ export async function runEmbeddedPiAgent(
             await maybeMarkAuthProfileFailure({
               profileId: lastProfileId,
               reason: promptProfileFailureReason,
-              message: errorText,
-              error: promptError,
             });
             const promptFailoverFailure =
               promptFailoverReason !== null || isFailoverErrorMessage(errorText);
@@ -1615,7 +1523,6 @@ export async function runEmbeddedPiAgent(
               await maybeMarkAuthProfileFailure({
                 profileId: lastProfileId,
                 reason,
-                message: lastAssistant?.errorMessage,
               });
               if (timedOut && !isProbeSession) {
                 log.warn(`Profile ${lastProfileId} timed out. Trying next account...`);
@@ -1791,8 +1698,6 @@ export async function runEmbeddedPiAgent(
           };
         }
       } finally {
-        // Restore original fetch after the run to avoid leaking the wrapper
-        globalThis.fetch = originalFetch;
         await contextEngine.dispose?.();
         stopRuntimeAuthRefreshTimer();
         process.chdir(prevCwd);

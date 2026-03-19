@@ -28,7 +28,7 @@ Status: legacy external CLI integration. Gateway spawns `imsg rpc` and communica
   </Card>
 </CardGroup>
 
-## Onboarding
+## Quick setup
 
 <Tabs>
   <Tab title="Local Mac (fast path)">
@@ -359,7 +359,7 @@ imsg send <handle> "test"
   </Accordion>
 </AccordionGroup>
 
-## Configuration
+## Configuration reference pointers
 
 - [Configuration reference - iMessage](/gateway/configuration-reference#imessage)
 - [Gateway configuration](/gateway/configuration)

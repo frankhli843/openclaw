@@ -13,8 +13,6 @@ import { logVerbose } from "openclaw/plugin-sdk/runtime-env";
 import { registerUnhandledRejectionHandler } from "openclaw/plugin-sdk/runtime-env";
 import { getChildLogger } from "openclaw/plugin-sdk/runtime-env";
 import { defaultRuntime, type RuntimeEnv } from "openclaw/plugin-sdk/runtime-env";
-// [frankclaw] Durable queue for crash-resistant message processing
-import { createDiscordInboundDurableQueue } from "../../../discord/src/monitor/inbound-durable-queue.js";
 import { resolveWhatsAppAccount, resolveWhatsAppMediaMaxBytes } from "../accounts.js";
 import { setActiveWebListener } from "../active-listener.js";
 import { monitorWebInbox } from "../inbound.js";
@@ -28,7 +26,6 @@ import {
 import { formatError, getWebAuthAgeMs, readWebSelfId } from "../session.js";
 import { whatsappHeartbeatLog, whatsappLog } from "./loggers.js";
 import { buildMentionConfig } from "./mentions.js";
-import { createWebCoalesceQueue } from "./monitor/coalesce-queue.js";
 import { createEchoTracker } from "./monitor/echo.js";
 import { createWebOnMessageHandler } from "./monitor/on-message.js";
 import type { WebChannelStatus, WebInboundMsg, WebMonitorTuning } from "./types.js";
@@ -181,30 +178,6 @@ export async function monitorWebChannel(
       account,
     });
 
-    const coalesceEnabled = cfg.messages?.queue?.coalesce ?? true;
-    const coalesceQueue = coalesceEnabled
-      ? createWebCoalesceQueue({ cfg, processOne: onMessage })
-      : null;
-    const durableInboundQueue = createDiscordInboundDurableQueue({
-      accountId: `whatsapp-${account.accountId}`,
-      coalesce: false,
-      maxAttempts: 8,
-      backoffMs: (attempt) => {
-        const delays = [1_000, 5_000, 15_000, 30_000, 60_000, 120_000, 180_000, 300_000];
-        return delays[Math.min(Math.max(attempt - 1, 0), delays.length - 1)] ?? 300_000;
-      },
-    });
-    await durableInboundQueue.start({
-      process: async (event) => {
-        const inbound = event.payload as WebInboundMsg;
-        if (coalesceQueue) {
-          coalesceQueue.enqueue(inbound);
-        } else {
-          await onMessage(inbound);
-        }
-      },
-    });
-
     const inboundDebounceMs = resolveInboundDebounceMs({ cfg, channel: "whatsapp" });
     const shouldDebounce = (msg: WebInboundMsg) => {
       if (msg.mediaPath || msg.mediaType) {
@@ -234,16 +207,7 @@ export async function monitorWebChannel(
         status.lastEventAt = lastMessageAt;
         emitStatus();
         _lastInboundMsg = msg;
-        const conversationId = msg.conversationId ?? msg.from;
-        const threadId = msg.replyToId ? String(msg.replyToId) : "";
-        const orderingKey = threadId ? `${conversationId}:${threadId}` : conversationId;
-        const messageId = msg.id ?? `${conversationId}:${msg.timestamp ?? Date.now()}`;
-        await durableInboundQueue.enqueue({
-          channelId: conversationId,
-          messageId,
-          orderingKey,
-          payload: msg,
-        });
+        await onMessage(msg);
       },
     });
 
@@ -280,14 +244,8 @@ export async function monitorWebChannel(
       return true;
     });
 
-    const closeListener = async (clearOutboundListener = true) => {
-      // Frankclaw patch: when clearOutboundListener is false, keep the listener
-      // reference alive during reconnect cycles (e.g. 408 timeouts) so outbound
-      // raw_send can still attempt delivery during the brief gap. The listener
-      // will be replaced by the next successful connection's setActiveWebListener.
-      if (clearOutboundListener) {
-        setActiveWebListener(account.accountId, null);
-      }
+    const closeListener = async () => {
+      setActiveWebListener(account.accountId, null);
       if (unregisterUnhandled) {
         unregisterUnhandled();
         unregisterUnhandled = null;
@@ -302,7 +260,6 @@ export async function monitorWebChannel(
         await Promise.allSettled(backgroundTasks);
         backgroundTasks.clear();
       }
-      await durableInboundQueue.stop();
       try {
         await listener.close();
       } catch (err) {
@@ -357,7 +314,7 @@ export async function monitorWebChannel(
         whatsappHeartbeatLog.warn(
           `No messages received in ${minutesSinceLastMessage}m - restarting connection`,
         );
-        void closeListener(false).catch((err) => {
+        void closeListener().catch((err) => {
           logVerbose(`Close listener failed: ${formatError(err)}`);
         });
         listener.signalClose?.({
@@ -495,7 +452,7 @@ export async function monitorWebChannel(
     runtime.error(
       `WhatsApp Web connection closed (status ${statusCode}). Retry ${reconnectAttempts}/${reconnectPolicy.maxAttempts || "∞"} in ${formatDurationPrecise(delay)}… (${errorStr})`,
     );
-    await closeListener(false); // Frankclaw: keep outbound listener alive during reconnect
+    await closeListener();
     try {
       await sleep(delay, abortSignal);
     } catch {

@@ -1,9 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import type { AuthProfileFailureReason, AuthProfileStore, ProfileUsageStats } from "./types.js";
+import type { AuthProfileStore, ProfileUsageStats } from "./types.js";
 import {
   clearAuthProfileCooldown,
   clearExpiredCooldowns,
-  getSoonestCooldownExpiry,
   isProfileInCooldown,
   markAuthProfileFailure,
   resolveProfilesUnavailableReason,
@@ -25,7 +24,6 @@ function makeStore(usageStats: AuthProfileStore["usageStats"]): AuthProfileStore
     version: 1,
     profiles: {
       "anthropic:default": { type: "api_key", provider: "anthropic", key: "sk-test" },
-      "anthropic:work": { type: "api_key", provider: "anthropic", key: "sk-work" },
       "openai:default": { type: "api_key", provider: "openai", key: "sk-test-2" },
       "openrouter:default": { type: "api_key", provider: "openrouter", key: "sk-or-test" },
       "kilocode:default": { type: "api_key", provider: "kilocode", key: "sk-kc-test" },
@@ -77,17 +75,6 @@ describe("resolveProfileUnusableUntilForDisplay", () => {
 
     expect(resolveProfileUnusableUntilForDisplay(store, "anthropic:default")).toBe(until);
   });
-
-  it("ignores provider-level lockout markers for display (profile-scoped only)", () => {
-    const until = Date.now() + 90_000;
-    const store = makeStore({
-      "__provider__:anthropic": {
-        cooldownUntil: until,
-      },
-    });
-
-    expect(resolveProfileUnusableUntilForDisplay(store, "anthropic:work")).toBeNull();
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -122,17 +109,6 @@ describe("isProfileInCooldown", () => {
       },
     });
     expect(isProfileInCooldown(store, "anthropic:default")).toBe(true);
-  });
-
-  it("does not treat provider-level lockouts as cooldown (profile-scoped only)", () => {
-    const store = makeStore({
-      "__provider__:anthropic": {
-        cooldownUntil: Date.now() + 60_000,
-      },
-    });
-
-    expect(isProfileInCooldown(store, "anthropic:default")).toBe(false);
-    expect(isProfileInCooldown(store, "anthropic:work")).toBe(false);
   });
 
   it("returns false for OpenRouter even when cooldown fields exist", () => {
@@ -286,37 +262,6 @@ describe("resolveProfilesUnavailableReason", () => {
         now,
       }),
     ).toBe("auth");
-  });
-
-  it("does not use provider-level lockout reason when profile stats are absent (profile-scoped only)", () => {
-    const now = Date.now();
-    const store = makeStore({
-      "__provider__:anthropic": {
-        disabledUntil: now + 60_000,
-        disabledReason: "billing",
-      },
-    });
-
-    expect(
-      resolveProfilesUnavailableReason({
-        store,
-        profileIds: ["anthropic:default", "anthropic:work"],
-        now,
-      }),
-    ).toBeNull();
-  });
-});
-
-describe("getSoonestCooldownExpiry", () => {
-  it("ignores provider-level lockout windows (profile-scoped only)", () => {
-    const now = Date.now();
-    const store = makeStore({
-      "__provider__:anthropic": {
-        cooldownUntil: now + 120_000,
-      },
-    });
-
-    expect(getSoonestCooldownExpiry(store, ["anthropic:default", "anthropic:work"])).toBeNull();
   });
 });
 
@@ -584,14 +529,16 @@ describe("clearAuthProfileCooldown", () => {
   });
 });
 
-describe("markAuthProfileFailure — active windows may escalate on retry", () => {
-  // Retries should never shorten active windows. They can stay the same or escalate.
+describe("markAuthProfileFailure — active windows do not extend on retry", () => {
+  // Regression for https://github.com/openclaw/openclaw/issues/23516
+  // When all providers are at saturation backoff (60 min) and retries fire every 30 min,
+  // each retry was resetting cooldownUntil to now+60m, preventing recovery.
   type WindowStats = ProfileUsageStats;
 
   async function markFailureAt(params: {
     store: ReturnType<typeof makeStore>;
     now: number;
-    reason: AuthProfileFailureReason;
+    reason: "rate_limit" | "billing" | "auth_permanent";
   }): Promise<void> {
     vi.useFakeTimers();
     vi.setSystemTime(params.now);
@@ -608,6 +555,16 @@ describe("markAuthProfileFailure — active windows may escalate on retry", () =
 
   const activeWindowCases = [
     {
+      label: "cooldownUntil",
+      reason: "rate_limit" as const,
+      buildUsageStats: (now: number): WindowStats => ({
+        cooldownUntil: now + 50 * 60 * 1000,
+        errorCount: 3,
+        lastFailureAt: now - 10 * 60 * 1000,
+      }),
+      readUntil: (stats: WindowStats | undefined) => stats?.cooldownUntil,
+    },
+    {
       label: "disabledUntil",
       reason: "billing" as const,
       buildUsageStats: (now: number): WindowStats => ({
@@ -617,8 +574,6 @@ describe("markAuthProfileFailure — active windows may escalate on retry", () =
         failureCounts: { billing: 5 },
         lastFailureAt: now - 60_000,
       }),
-      // Active windows should not be shortened; current behavior keeps the active window stable.
-      expectedUntil: (now: number) => now + 20 * 60 * 60 * 1000,
       readUntil: (stats: WindowStats | undefined) => stats?.disabledUntil,
     },
     {
@@ -631,13 +586,12 @@ describe("markAuthProfileFailure — active windows may escalate on retry", () =
         failureCounts: { auth_permanent: 5 },
         lastFailureAt: now - 60_000,
       }),
-      expectedUntil: (now: number) => now + 24 * 60 * 60 * 1000,
       readUntil: (stats: WindowStats | undefined) => stats?.disabledUntil,
     },
   ];
 
   for (const testCase of activeWindowCases) {
-    it(`keeps or escalates active ${testCase.label} on retry`, async () => {
+    it(`keeps active ${testCase.label} unchanged on retry`, async () => {
       const now = 1_000_000;
       const existingStats = testCase.buildUsageStats(now);
       const existingUntil = testCase.readUntil(existingStats);
@@ -650,9 +604,7 @@ describe("markAuthProfileFailure — active windows may escalate on retry", () =
       });
 
       const stats = store.usageStats?.["anthropic:default"];
-      const nextUntil = testCase.readUntil(stats);
-      expect((nextUntil ?? 0) >= (existingUntil ?? 0)).toBe(true);
-      expect(nextUntil).toBe(testCase.expectedUntil(now));
+      expect(testCase.readUntil(stats)).toBe(existingUntil);
     });
   }
 

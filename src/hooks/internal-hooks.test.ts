@@ -238,21 +238,6 @@ describe("hooks", () => {
     }
   });
 
-  describe("isGatewayStartupEvent", () => {
-    it("returns true for gateway:startup events with expected context", () => {
-      const context: GatewayStartupHookContext = {
-        cfg: {},
-      };
-      const event = createInternalHookEvent("gateway", "startup", "gateway:startup", context);
-      expect(isGatewayStartupEvent(event)).toBe(true);
-    });
-
-    it("returns false for non-startup gateway events", () => {
-      const event = createInternalHookEvent("gateway", "shutdown", "gateway:shutdown", {});
-      expect(isGatewayStartupEvent(event)).toBe(false);
-    });
-  });
-
   describe("isMessageReceivedEvent", () => {
     const cases: Array<{
       name: string;

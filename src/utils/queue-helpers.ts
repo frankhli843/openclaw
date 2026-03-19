@@ -221,15 +221,6 @@ export function buildCollectPrompt<T>(params: {
   renderItem: (item: T, index: number) => string;
 }): string {
   const blocks: string[] = [params.title];
-
-  // When multiple items are batched, add an explicit instruction so the LLM
-  // addresses every queued message instead of cherry-picking.
-  if (params.items.length > 1) {
-    blocks.push(
-      `${params.items.length} messages queued — you MUST address ALL of them. Do not ignore or skip any queued message.`,
-    );
-  }
-
   if (params.summary) {
     blocks.push(params.summary);
   }

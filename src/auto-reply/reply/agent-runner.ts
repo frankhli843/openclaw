@@ -15,7 +15,6 @@ import {
   updateSessionStoreEntry,
 } from "../../config/sessions.js";
 import type { TypingMode } from "../../config/types.js";
-import { logVerbose } from "../../globals.js";
 import { emitAgentEvent } from "../../infra/agent-events.js";
 import { emitDiagnosticEvent, isDiagnosticsEnabled } from "../../infra/diagnostic-events.js";
 import { generateSecureUuid } from "../../infra/secure-random.js";
@@ -46,12 +45,6 @@ import {
   hasUnbackedReminderCommitment,
 } from "./agent-runner-reminder-guard.js";
 import { appendUsageLine, formatResponseUsageLine } from "./agent-runner-utils.js";
-import {
-  buildScheduleDeferredRetry,
-  buildSendProgrammaticRetryUpdate,
-  handleRetryableRunOutcome,
-  initDeferredRetryWorker,
-} from "./agent-runner.frankclaw.js";
 import { createAudioAsVoiceBuffer, createBlockReplyPipeline } from "./block-reply-pipeline.js";
 import { resolveEffectiveBlockStreamingConfig } from "./block-streaming.js";
 import { createFollowupRunner } from "./followup-runner.js";
@@ -128,9 +121,6 @@ export async function runReplyAgent(params: {
   let activeSessionEntry = sessionEntry;
   const activeSessionStore = sessionStore;
   let activeIsNewSession = isNewSession;
-
-  // [frankclaw] Initialize deferred retry worker
-  await initDeferredRetryWorker();
 
   const isHeartbeat = opts?.isHeartbeat === true;
   const typingSignals = createTypingSignaler({
@@ -232,10 +222,6 @@ export async function runReplyAgent(params: {
     return undefined;
   }
 
-  logVerbose(
-    `[agent-runner-diag] NEW RUN: sessionId=${followupRun.run.sessionId} queueKey=${queueKey} isActive=${isActive} isStreaming=${isStreaming} shouldFollowup=${shouldFollowup} shouldSteer=${shouldSteer} mode=${resolvedQueue.mode} prompt="${followupRun.prompt.slice(0, 80)}"`,
-  );
-
   await typingSignals.signalRunStart();
 
   activeSessionEntry = await runMemoryFlushIfNeeded({
@@ -264,16 +250,6 @@ export async function runReplyAgent(params: {
     storePath,
     defaultModel,
     agentCfgContextTokens,
-  });
-
-  // [frankclaw] Deferred retry support
-  const sendProgrammaticRetryUpdate = buildSendProgrammaticRetryUpdate({
-    followupRun,
-    onBlockReply: opts?.onBlockReply ? (p: ReplyPayload) => opts.onBlockReply!(p) : undefined,
-  });
-  const scheduleDeferredRetry = buildScheduleDeferredRetry({
-    followupRun,
-    sendRetryUpdate: sendProgrammaticRetryUpdate,
   });
 
   let responseUsageLine: string | undefined;
@@ -375,7 +351,7 @@ export async function runReplyAgent(params: {
     });
   try {
     const runStartedAt = Date.now();
-    let runOutcome = await runAgentTurnWithFallback({
+    const runOutcome = await runAgentTurnWithFallback({
       commandBody,
       followupRun,
       sessionCtx,
@@ -398,43 +374,6 @@ export async function runReplyAgent(params: {
       storePath,
       resolvedVerboseLevel,
     });
-
-    // [frankclaw] Handle retryable failures with immediate + deferred retry
-    const retryResult = await handleRetryableRunOutcome({
-      runOutcome,
-      isHeartbeat,
-      scheduleDeferredRetry,
-      rerunAgent: () =>
-        runAgentTurnWithFallback({
-          commandBody,
-          followupRun,
-          sessionCtx,
-          opts,
-          typingSignals,
-          blockReplyPipeline,
-          blockStreamingEnabled,
-          blockReplyChunking,
-          resolvedBlockStreamingBreak,
-          applyReplyToMode,
-          shouldEmitToolResult,
-          shouldEmitToolOutput,
-          pendingToolTasks,
-          resetSessionAfterCompactionFailure,
-          resetSessionAfterRoleOrderingConflict,
-          isHeartbeat,
-          sessionKey,
-          getActiveSessionEntry: () => activeSessionEntry,
-          activeSessionStore,
-          storePath,
-          resolvedVerboseLevel,
-        }),
-    });
-    if (retryResult) {
-      runOutcome = retryResult.outcome;
-      if (retryResult.deferredPayload) {
-        return finalizeWithFollowup(retryResult.deferredPayload, queueKey, runFollowupTurn);
-      }
-    }
 
     if (runOutcome.kind === "final") {
       return finalizeWithFollowup(runOutcome.payload, queueKey, runFollowupTurn);

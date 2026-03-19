@@ -26,9 +26,6 @@ packages/dashboard-next/out/
 # Mise configuration files
 mise.toml
 
-# Mise configuration files
-mise.toml
-
 # Android build artifacts
 apps/android/.gradle/
 apps/android/app/build/

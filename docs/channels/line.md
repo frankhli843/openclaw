@@ -31,7 +31,7 @@ Local checkout (when running from a git repo):
 openclaw plugins install ./extensions/line
 ```
 
-## Onboarding
+## Setup
 
 1. Create a LINE Developers account and open the Console:
    [https://developers.line.biz/console/](https://developers.line.biz/console/)

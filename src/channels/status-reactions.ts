@@ -55,9 +55,9 @@ export type StatusReactionController = {
 export const DEFAULT_EMOJIS: Required<StatusReactionEmojis> = {
   queued: "👀",
   thinking: "🤔",
-  tool: "🛠️",
-  coding: "⌨️",
-  web: "🕸️",
+  tool: "🔥",
+  coding: "👨‍💻",
+  web: "⚡",
   done: "👍",
   error: "😱",
   stallSoft: "🥱",

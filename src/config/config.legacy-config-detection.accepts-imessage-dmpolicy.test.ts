@@ -98,12 +98,12 @@ describe("legacy config detection", () => {
       "pairing",
     ],
     [
-      "defaults imessage.groupPolicy to open when imessage section exists",
+      "defaults imessage.groupPolicy to allowlist when imessage section exists",
       { channels: { imessage: {} } },
       (config: unknown) =>
         (config as { channels?: { imessage?: { groupPolicy?: string } } }).channels?.imessage
           ?.groupPolicy,
-      "open",
+      "allowlist",
     ],
     [
       "defaults discord.groupPolicy to allowlist when discord section exists",
@@ -122,12 +122,12 @@ describe("legacy config detection", () => {
       "allowlist",
     ],
     [
-      "defaults msteams.groupPolicy to open when msteams section exists",
+      "defaults msteams.groupPolicy to allowlist when msteams section exists",
       { channels: { msteams: {} } },
       (config: unknown) =>
         (config as { channels?: { msteams?: { groupPolicy?: string } } }).channels?.msteams
           ?.groupPolicy,
-      "open",
+      "allowlist",
     ],
   ])("defaults: %s", (_name, config, readValue, expectedValue) => {
     expectValidConfigValue({ config, readValue, expectedValue });

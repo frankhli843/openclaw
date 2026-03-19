@@ -184,7 +184,6 @@ describe("announce loop guard (#18264)", () => {
       ]),
     );
 
-    // Initialization attempts resume once, then gives up for exhausted entries.
     registry.initSubagentRegistry();
     await Promise.resolve();
     await Promise.resolve();

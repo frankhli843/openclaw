@@ -2,7 +2,6 @@ import type { ChannelId } from "../channels/plugins/types.js";
 import { resolveAccountEntry } from "../routing/account-lookup.js";
 import { normalizeAccountId } from "../routing/session-key.js";
 import type { OpenClawConfig } from "./config.js";
-import type { GateMode } from "./types.base.js";
 import {
   parseToolsBySenderTypedKey,
   type GroupToolPolicyBySenderConfig,
@@ -14,8 +13,6 @@ export type GroupPolicyChannel = ChannelId;
 
 export type ChannelGroupConfig = {
   requireMention?: boolean;
-  gateMode?: GateMode;
-  allowedSenders?: Array<string | number>;
   tools?: GroupToolPolicyConfig;
   toolsBySender?: GroupToolPolicyBySenderConfig;
 };
@@ -359,30 +356,6 @@ export function resolveChannelGroupPolicy(params: {
     groupConfig,
     defaultConfig,
   };
-}
-
-export type ChannelGroupGateModeResult = {
-  gateMode: GateMode | undefined;
-  allowedSenders: string[];
-};
-
-/**
- * Resolve the effective gateMode and allowedSenders for a group.
- * Priority: specific group config > wildcard ("*") default config.
- * Returns undefined gateMode when not configured (caller decides legacy fallback).
- */
-export function resolveChannelGroupGateMode(params: {
-  cfg: OpenClawConfig;
-  channel: GroupPolicyChannel;
-  groupId?: string | null;
-  accountId?: string | null;
-  groupIdCaseInsensitive?: boolean;
-}): ChannelGroupGateModeResult {
-  const { groupConfig, defaultConfig } = resolveChannelGroupPolicy(params);
-  const gateMode = groupConfig?.gateMode ?? defaultConfig?.gateMode;
-  const rawSenders = groupConfig?.allowedSenders ?? defaultConfig?.allowedSenders ?? [];
-  const allowedSenders = rawSenders.map((s) => String(s));
-  return { gateMode, allowedSenders };
 }
 
 export function resolveChannelGroupRequireMention(params: {

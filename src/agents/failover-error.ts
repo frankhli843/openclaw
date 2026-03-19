@@ -8,181 +8,6 @@ import {
 
 const ABORT_TIMEOUT_RE = /request was aborted|request aborted/i;
 
-export type RateLimitSeverity = "soft" | "hard";
-
-export type ParsedRateLimitHint = {
-  retryAfterMs?: number;
-  availableAtMs?: number;
-  severity?: RateLimitSeverity;
-};
-
-const RETRY_AFTER_SECONDS_RE = /retry\s+after\s+(\d+)\s*(?:s|sec|secs|second|seconds)\b/i;
-const RETRY_AFTER_MINUTES_RE = /retry\s+after\s+(\d+)\s*(?:m|min|mins|minute|minutes)\b/i;
-const AVAILABLE_AT_RE = /available\s+at\s+([^\n.;]+)/i;
-
-function parseRetryAfterMs(message: string): number | undefined {
-  const secMatch = message.match(RETRY_AFTER_SECONDS_RE);
-  if (secMatch?.[1]) {
-    const seconds = Number(secMatch[1]);
-    if (Number.isFinite(seconds) && seconds > 0) {
-      return seconds * 1000;
-    }
-  }
-  const minMatch = message.match(RETRY_AFTER_MINUTES_RE);
-  if (minMatch?.[1]) {
-    const minutes = Number(minMatch[1]);
-    if (Number.isFinite(minutes) && minutes > 0) {
-      return minutes * 60 * 1000;
-    }
-  }
-  return undefined;
-}
-
-function parseAvailableAtMs(message: string): number | undefined {
-  const match = message.match(AVAILABLE_AT_RE);
-  const raw = match?.[1]?.trim();
-  if (!raw) {
-    return undefined;
-  }
-  const parsed = Date.parse(raw);
-  if (!Number.isFinite(parsed)) {
-    return undefined;
-  }
-  return parsed;
-}
-
-/**
- * Extract rate limit hints from HTTP response headers on an error object.
- * Works with Anthropic SDK errors (APIError) which carry `.headers`.
- * Returns undefined if no usable headers found.
- */
-export function extractRateLimitFromHeaders(err: unknown):
-  | {
-      retryAfterMs?: number;
-      retryAfterHeader?: string;
-    }
-  | undefined {
-  if (!err || typeof err !== "object") {
-    return undefined;
-  }
-  const headers = (err as { headers?: unknown }).headers;
-  if (!headers || typeof headers !== "object") {
-    return undefined;
-  }
-
-  // Headers can be a standard Headers object (with .get()) or a plain object
-  const getHeader = (name: string): string | undefined => {
-    if (typeof (headers as { get?: unknown }).get === "function") {
-      const val = (headers as Headers).get(name);
-      return val ?? undefined;
-    }
-    // Plain object fallback
-    const val = (headers as Record<string, unknown>)[name];
-    return typeof val === "string" ? val : undefined;
-  };
-
-  const retryAfterRaw = getHeader("retry-after");
-  if (retryAfterRaw) {
-    const seconds = Number(retryAfterRaw);
-    if (Number.isFinite(seconds) && seconds > 0) {
-      return { retryAfterMs: seconds * 1000, retryAfterHeader: retryAfterRaw };
-    }
-    // Could be an HTTP-date; try parsing
-    const parsed = Date.parse(retryAfterRaw);
-    if (Number.isFinite(parsed) && parsed > Date.now()) {
-      return { retryAfterMs: parsed - Date.now(), retryAfterHeader: retryAfterRaw };
-    }
-  }
-
-  // Check x-ratelimit-reset-tokens / x-ratelimit-reset-requests (absolute ISO timestamps or seconds)
-  for (const hdr of ["x-ratelimit-reset-tokens", "x-ratelimit-reset-requests"]) {
-    const val = getHeader(hdr);
-    if (!val) {
-      continue;
-    }
-    // Anthropic uses durations like "1s", "30s", "5m0s"
-    const durMatch = val.match(/^(?:(\d+)m)?(\d+)s$/);
-    if (durMatch) {
-      const mins = Number(durMatch[1] || 0);
-      const secs = Number(durMatch[2] || 0);
-      const ms = (mins * 60 + secs) * 1000;
-      if (ms > 0) {
-        return { retryAfterMs: ms, retryAfterHeader: `${hdr}: ${val}` };
-      }
-    }
-    // Try as seconds
-    const num = Number(val);
-    if (Number.isFinite(num) && num > 0) {
-      return { retryAfterMs: num * 1000, retryAfterHeader: `${hdr}: ${val}` };
-    }
-    // Try as ISO date
-    const parsed = Date.parse(val);
-    if (Number.isFinite(parsed) && parsed > Date.now()) {
-      return { retryAfterMs: parsed - Date.now(), retryAfterHeader: `${hdr}: ${val}` };
-    }
-  }
-
-  return undefined;
-}
-
-export function parseAnthropicRateLimitHint(params: {
-  message?: string;
-  status?: number;
-  error?: unknown;
-}): ParsedRateLimitHint | null {
-  const message = params.message?.trim() ?? "";
-
-  // First, try to extract from HTTP response headers on the error object.
-  // This is the most reliable source (actual retry-after from Anthropic).
-  const headerHint = params.error ? extractRateLimitFromHeaders(params.error) : undefined;
-  if (headerHint?.retryAfterMs) {
-    const severity: RateLimitSeverity = headerHint.retryAfterMs >= 10 * 60 * 1000 ? "hard" : "soft";
-    return {
-      retryAfterMs: headerHint.retryAfterMs,
-      severity,
-    };
-  }
-
-  // Fall back to parsing the error message text
-  if (!message) {
-    return null;
-  }
-
-  // Keep this parser scoped to Anthropic's response style to avoid
-  // over-classifying other providers.
-  const lower = message.toLowerCase();
-  const looksAnthropic =
-    lower.includes("anthropic") ||
-    lower.includes("request_id") ||
-    lower.includes("rate_limit_error") ||
-    params.status === 429 ||
-    params.status === 529;
-  if (!looksAnthropic) {
-    return null;
-  }
-
-  const retryAfterMs = parseRetryAfterMs(message);
-  const availableAtMs = parseAvailableAtMs(message);
-
-  if (retryAfterMs === undefined && availableAtMs === undefined) {
-    return null;
-  }
-
-  const now = Date.now();
-  const availableDeltaMs =
-    typeof availableAtMs === "number" && availableAtMs > now ? availableAtMs - now : undefined;
-  const effectiveRetryMs = availableDeltaMs ?? retryAfterMs;
-
-  const severity: RateLimitSeverity | undefined =
-    typeof effectiveRetryMs === "number" && effectiveRetryMs >= 10 * 60 * 1000 ? "hard" : "soft";
-
-  return {
-    retryAfterMs,
-    availableAtMs,
-    severity,
-  };
-}
-
 export class FailoverError extends Error {
   readonly reason: FailoverReason;
   readonly provider?: string;
@@ -190,9 +15,6 @@ export class FailoverError extends Error {
   readonly profileId?: string;
   readonly status?: number;
   readonly code?: string;
-  readonly retryAfterMs?: number;
-  readonly availableAtMs?: number;
-  readonly rateLimitSeverity?: RateLimitSeverity;
 
   constructor(
     message: string,
@@ -203,9 +25,6 @@ export class FailoverError extends Error {
       profileId?: string;
       status?: number;
       code?: string;
-      retryAfterMs?: number;
-      availableAtMs?: number;
-      rateLimitSeverity?: RateLimitSeverity;
       cause?: unknown;
     },
   ) {
@@ -217,9 +36,6 @@ export class FailoverError extends Error {
     this.profileId = params.profileId;
     this.status = params.status;
     this.code = params.code;
-    this.retryAfterMs = params.retryAfterMs;
-    this.availableAtMs = params.availableAtMs;
-    this.rateLimitSeverity = params.rateLimitSeverity;
   }
 }
 
@@ -464,9 +280,6 @@ export function describeFailoverError(err: unknown): {
   reason?: FailoverReason;
   status?: number;
   code?: string;
-  retryAfterMs?: number;
-  availableAtMs?: number;
-  rateLimitSeverity?: RateLimitSeverity;
 } {
   if (isFailoverError(err)) {
     return {
@@ -474,9 +287,6 @@ export function describeFailoverError(err: unknown): {
       reason: err.reason,
       status: err.status,
       code: err.code,
-      retryAfterMs: err.retryAfterMs,
-      availableAtMs: err.availableAtMs,
-      rateLimitSeverity: err.rateLimitSeverity,
     };
   }
   const message = getErrorMessage(err) || String(err);
@@ -507,10 +317,6 @@ export function coerceToFailoverError(
   const message = getErrorMessage(err) || String(err);
   const status = getStatusCode(err) ?? resolveFailoverStatus(reason);
   const code = getErrorCode(err);
-  const anthropicRateLimitHint =
-    reason === "rate_limit" && context?.provider === "anthropic"
-      ? parseAnthropicRateLimitHint({ message, status })
-      : null;
 
   return new FailoverError(message, {
     reason,
@@ -519,9 +325,6 @@ export function coerceToFailoverError(
     profileId: context?.profileId,
     status,
     code,
-    retryAfterMs: anthropicRateLimitHint?.retryAfterMs,
-    availableAtMs: anthropicRateLimitHint?.availableAtMs,
-    rateLimitSeverity: anthropicRateLimitHint?.severity,
     cause: err instanceof Error ? err : undefined,
   });
 }

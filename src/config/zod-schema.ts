@@ -155,6 +155,13 @@ const PluginEntrySchema = z
       })
       .strict()
       .optional(),
+    subagent: z
+      .object({
+        allowModelOverride: z.boolean().optional(),
+        allowedModels: z.array(z.string()).optional(),
+      })
+      .strict()
+      .optional(),
     config: z.record(z.string(), z.unknown()).optional(),
   })
   .strict();
@@ -353,7 +360,6 @@ export const OpenClawSchema = z
         remoteCdpHandshakeTimeoutMs: z.number().int().nonnegative().optional(),
         color: z.string().optional(),
         executablePath: z.string().optional(),
-        userDataDir: z.string().optional(), // [frankclaw]
         headless: z.boolean().optional(),
         noSandbox: z.boolean().optional(),
         attachOnly: z.boolean().optional(),
@@ -527,16 +533,6 @@ export const OpenClawSchema = z
         webhook: HttpUrlSchema.optional(),
         webhookToken: SecretInputSchema.optional().register(sensitive),
         sessionRetention: z.union([z.string(), z.literal(false)]).optional(),
-        // [frankclaw] Cron self-heal retry configuration
-        selfHeal: z
-          .object({
-            enabled: z.boolean().optional(),
-            retryDelay: z.string().optional(),
-            maxAttemptsPerRun: z.number().int().min(1).optional(),
-            match: z.array(z.string()).optional(),
-          })
-          .strict()
-          .optional(),
         runLog: z
           .object({
             maxBytes: z.union([z.string(), z.number()]).optional(),

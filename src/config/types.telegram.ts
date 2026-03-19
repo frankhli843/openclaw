@@ -2,7 +2,6 @@ import type {
   BlockStreamingChunkConfig,
   BlockStreamingCoalesceConfig,
   DmPolicy,
-  GateMode,
   GroupPolicy,
   MarkdownConfig,
   OutboundRetryConfig,
@@ -208,10 +207,6 @@ export type TelegramAccountConfig = {
 
 export type TelegramTopicConfig = {
   requireMention?: boolean;
-  /** 5-tier gating mode (takes priority over requireMention when set). */
-  gateMode?: GateMode;
-  /** Allowlist of sender IDs for 'allowlist' gateMode (Telegram user IDs). */
-  allowedSenders?: Array<string | number>;
   /** Per-topic override for group message policy (open|disabled|allowlist). */
   groupPolicy?: GroupPolicy;
   /** If specified, only load these skills for this topic. Omit = all skills; empty = no skills. */
@@ -230,10 +225,6 @@ export type TelegramTopicConfig = {
 
 export type TelegramGroupConfig = {
   requireMention?: boolean;
-  /** 5-tier gating mode (takes priority over requireMention when set). */
-  gateMode?: GateMode;
-  /** Allowlist of sender IDs for 'allowlist' gateMode (Telegram user IDs). */
-  allowedSenders?: Array<string | number>;
   /** Per-group override for group message policy (open|disabled|allowlist). */
   groupPolicy?: GroupPolicy;
   /** Optional tool policy overrides for this group. */

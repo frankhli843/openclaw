@@ -33,8 +33,7 @@ import { getAgentScopedMediaLocalRoots } from "../../media/local-roots.js";
 import { getGlobalHookRunner } from "../../plugins/hook-runner-global.js";
 import { throwIfAborted } from "./abort.js";
 import { resolveOutboundChannelPlugin } from "./channel-resolution.js";
-import { ackDelivery, deferDelivery, enqueueDelivery, failDelivery } from "./delivery-queue.js";
-import { DiscordDnrSuppressedError, enforceDiscordDnrWindow } from "./discord-dnr.js";
+import { ackDelivery, enqueueDelivery, failDelivery } from "./delivery-queue.js";
 import type { OutboundIdentity } from "./identity.js";
 import type { DeliveryMirror } from "./mirror.js";
 import type { NormalizedOutboundPayload } from "./payloads.js";
@@ -511,7 +510,6 @@ export async function deliverOutboundPayloads(
     : params;
 
   try {
-    enforceDiscordDnrWindow({ channel, to, threadId: params.threadId });
     const results = await deliverOutboundPayloadsCore(wrappedParams);
     if (queueId) {
       if (hadPartialFailure) {
@@ -522,12 +520,6 @@ export async function deliverOutboundPayloads(
     }
     return results;
   } catch (err) {
-    if (err instanceof DiscordDnrSuppressedError) {
-      if (queueId) {
-        await deferDelivery(queueId, err.nextEligibleAtMs, "discord-dnr-window").catch(() => {});
-      }
-      return [];
-    }
     if (queueId) {
       if (isAbortError(err)) {
         await ackDelivery(queueId).catch(() => {});

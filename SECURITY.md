@@ -209,22 +209,6 @@ Security boundary notes:
   - SDK temp helpers: `src/plugin-sdk/temp-path.ts`
   - messaging/channel tmp guardrail: `scripts/check-no-random-messaging-tmp.mjs`
 
-## Deployment Assumptions
-
-OpenClaw security guidance assumes:
-
-- The host where OpenClaw runs is within a trusted OS/admin boundary.
-- Anyone who can modify `~/.openclaw` state/config (including `openclaw.json`) is effectively a trusted operator.
-- A single Gateway shared by mutually untrusted people is **not a recommended setup**. Use separate gateways (or at minimum separate OS users/hosts) per trust boundary.
-
-## Plugin Trust Boundary
-
-Plugins/extensions are loaded **in-process** with the Gateway and are treated as trusted code.
-
-- Plugins can execute with the same OS privileges as the OpenClaw process.
-- Runtime helpers (for example `runtime.system.runCommandWithTimeout`) are convenience APIs, not a sandbox boundary.
-- Only install plugins you trust, and prefer `plugins.allow` to pin explicit trusted plugin ids.
-
 ## Operational Guidance
 
 For threat model + hardening guidance (including `openclaw security audit --deep` and `--fix`), see:

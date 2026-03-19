@@ -5,8 +5,6 @@ import { createChannelReplyPipeline } from "openclaw/plugin-sdk/channel-reply-pi
 import { shouldAckReaction as shouldAckReactionGate } from "openclaw/plugin-sdk/channel-runtime";
 import { logTypingFailure, logAckFailure } from "openclaw/plugin-sdk/channel-runtime";
 import { recordInboundSession } from "openclaw/plugin-sdk/channel-runtime";
-// [frankclaw] Roaming seen reaction
-import { markSilentSeen } from "../../../../src/channels/silent-seen-reaction.js";
 import {
   createStatusReactionController,
   DEFAULT_TIMING,
@@ -55,7 +53,6 @@ import {
 } from "./message-utils.js";
 import { buildDirectLabel, buildGuildLabel, resolveReplyContext } from "./reply-context.js";
 import { deliverDiscordReply } from "./reply-delivery.js";
-import { resolveDiscordThreadHistory } from "./thread-history.js";
 import { resolveDiscordAutoThreadReplyPlan, resolveDiscordThreadStarter } from "./threading.js";
 import { sendTyping } from "./typing.js";
 
@@ -278,7 +275,6 @@ export async function processDiscordMessage(ctx: DiscordMessagePreflightContext)
   }
 
   let threadStarterBody: string | undefined;
-  let threadHistoryBody: string | undefined;
   let threadLabel: string | undefined;
   let parentSessionKey: string | undefined;
   if (threadChannel) {
@@ -296,14 +292,6 @@ export async function processDiscordMessage(ctx: DiscordMessagePreflightContext)
         threadStarterBody = starter.text;
       }
     }
-    // Fetch full thread history for context (cached with short TTL).
-    threadHistoryBody = await resolveDiscordThreadHistory({
-      client,
-      threadChannelId: messageChannelId,
-      currentMessageId: message.id,
-      botUserId: ctx.botUserId,
-      envelopeOptions,
-    });
     const parentName = threadParentName ?? "parent";
     threadLabel = threadName
       ? `Discord thread #${normalizeDiscordSlug(parentName)} › ${threadName}`
@@ -394,7 +382,6 @@ export async function processDiscordMessage(ctx: DiscordMessagePreflightContext)
     ParentSessionKey: autoThreadContext?.ParentSessionKey ?? threadKeys.parentSessionKey,
     MessageThreadId: threadChannel?.id ?? autoThreadContext?.createdThreadId ?? undefined,
     ThreadStarterBody: threadStarterBody,
-    ThreadHistoryBody: threadHistoryBody,
     ThreadLabel: threadLabel,
     Timestamp: resolveTimestampMs(message.timestamp),
     ...mediaPayload,
@@ -606,9 +593,6 @@ export async function processDiscordMessage(ctx: DiscordMessagePreflightContext)
   // When draft streaming is active, suppress block streaming to avoid double-streaming.
   const disableBlockStreamingForDraft = draftStream ? true : undefined;
 
-  // ── frankclaw: webhook relay mention flag ──
-  let webhookRelayMentionPending = Boolean(ctx.webhookRelayMentionUserId);
-
   const { dispatcher, replyOptions, markDispatchIdle, markRunComplete } =
     createReplyDispatcherWithTyping({
       ...replyPipeline,
@@ -621,11 +605,6 @@ export async function processDiscordMessage(ctx: DiscordMessagePreflightContext)
         if (payload.isReasoning) {
           // Reasoning/thinking payloads should not be delivered to Discord.
           return;
-        }
-        // ── frankclaw: prepend @mention for webhook relay responses ──
-        if (webhookRelayMentionPending && ctx.webhookRelayMentionUserId && payload.text) {
-          payload = { ...payload, text: `<@${ctx.webhookRelayMentionUserId}> ${payload.text}` };
-          webhookRelayMentionPending = false;
         }
         if (draftStream && isFinal) {
           await flushDraft();
@@ -706,7 +685,7 @@ export async function processDiscordMessage(ctx: DiscordMessagePreflightContext)
         }
 
         const replyToId = replyReference.use();
-        const deliveryResult = await deliverDiscordReply({
+        await deliverDiscordReply({
           cfg,
           replies: [payload],
           target: deliverTarget,
@@ -724,13 +703,6 @@ export async function processDiscordMessage(ctx: DiscordMessagePreflightContext)
           threadBindings,
           mediaLocalRoots,
         });
-        if (deliveryResult.dnrSuppressed) {
-          // React with 🛏️ to indicate the response was queued for quiet hours.
-          await reactMessageDiscord(messageChannelId, message.id, "🛏️", {
-            rest: client.rest as never,
-          }).catch(() => {});
-          return;
-        }
         replyReference.markSent();
       },
       onError: (err, info) => {
@@ -859,24 +831,6 @@ export async function processDiscordMessage(ctx: DiscordMessagePreflightContext)
           })();
         } else {
           void statusReactions.restoreInitial();
-          // [frankclaw] Roaming 👀: move the seen reaction to this message, remove from previous
-          logVerbose(
-            `[frankclaw-roaming-seen] channelId=${messageChannelId} messageId=${message.id}`,
-          );
-          void markSilentSeen({
-            conversationId: messageChannelId,
-            messageId: message.id,
-            adapter: {
-              addReaction: async (_msgId, _emoji) => {
-                // Already added by restoreInitial above — no-op
-              },
-              removeReaction: async (msgId, emoji) => {
-                await removeReactionDiscord(messageChannelId, msgId, emoji, {
-                  rest: client.rest as never,
-                });
-              },
-            },
-          });
         }
       }
     }

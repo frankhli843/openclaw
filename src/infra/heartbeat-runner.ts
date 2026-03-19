@@ -20,7 +20,7 @@ import {
   stripHeartbeatToken,
 } from "../auto-reply/heartbeat.js";
 import { getReplyFromConfig } from "../auto-reply/reply.js";
-import { HEARTBEAT_TOKEN, isSilentReplyText, SILENT_REPLY_TOKEN } from "../auto-reply/tokens.js";
+import { HEARTBEAT_TOKEN } from "../auto-reply/tokens.js";
 import type { ReplyPayload } from "../auto-reply/types.js";
 import { getChannelPlugin } from "../channels/plugins/index.js";
 import type { ChannelHeartbeatDeps } from "../channels/plugins/types.js";
@@ -367,22 +367,12 @@ function normalizeHeartbeatReply(
   ackMaxChars: number,
 ) {
   const rawText = typeof payload.text === "string" ? payload.text : "";
-  const hasMedia = Boolean(payload.mediaUrl || (payload.mediaUrls?.length ?? 0) > 0);
-  // Handle NO_REPLY token (same as the streaming reply path does via reply-directives).
-  // The agent may reply NO_REPLY after sending alerts via the message tool.
-  const textForSilentCheck = stripLeadingHeartbeatResponsePrefix(rawText, responsePrefix);
-  if (isSilentReplyText(textForSilentCheck, SILENT_REPLY_TOKEN) && !hasMedia) {
-    return {
-      shouldSkip: true,
-      text: "",
-      hasMedia,
-    };
-  }
-  const stripped = stripHeartbeatToken(textForSilentCheck, {
+  const textForStrip = stripLeadingHeartbeatResponsePrefix(rawText, responsePrefix);
+  const stripped = stripHeartbeatToken(textForStrip, {
     mode: "heartbeat",
     maxAckChars: ackMaxChars,
   });
-
+  const hasMedia = resolveSendableOutboundReplyParts(payload).hasMedia;
   if (stripped.shouldSkip && !hasMedia) {
     return {
       shouldSkip: true,

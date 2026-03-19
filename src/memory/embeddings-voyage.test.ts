@@ -96,7 +96,7 @@ describe("voyage embedding provider", () => {
       model: "voyage-4-lite",
       fallback: "none",
       remote: {
-        baseUrl: "https://127.0.0.1",
+        baseUrl: "https://example.com",
         apiKey: "remote-override-key",
         headers: { "X-Custom": "123" },
       },
@@ -107,7 +107,7 @@ describe("voyage embedding provider", () => {
     const call = fetchMock.mock.calls[0];
     expect(call).toBeDefined();
     const [url, init] = call as [RequestInfo | URL, RequestInit | undefined];
-    expect(url).toBe("https://127.0.0.1/embeddings");
+    expect(url).toBe("https://example.com/embeddings");
 
     const headers = (init?.headers ?? {}) as Record<string, string>;
     expect(headers.Authorization).toBe("Bearer remote-override-key");

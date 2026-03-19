@@ -985,16 +985,14 @@ export async function startGatewayServer(
     void cron.start().catch((err) => logCron.error(`failed to start: ${String(err)}`));
   }
 
-  let deliveryRecoveryInterval: ReturnType<typeof setInterval> | null = null;
-
   const stopModelPricingRefresh =
     !minimalTestGateway && process.env.VITEST !== "1"
       ? startGatewayModelPricingRefresh({ config: cfgAtStart })
       : () => {};
 
-  // Recover pending outbound deliveries from previous crash/restart and keep retrying queued holds.
+  // Recover pending outbound deliveries from previous crash/restart.
   if (!minimalTestGateway) {
-    const runDeliveryRecovery = async () => {
+    void (async () => {
       const { recoverPendingDeliveries } = await import("../infra/outbound/delivery-queue.js");
       const { deliverOutboundPayloads } = await import("../infra/outbound/deliver.js");
       const logRecovery = log.child("delivery-recovery");
@@ -1003,17 +1001,7 @@ export async function startGatewayServer(
         log: logRecovery,
         cfg: cfgAtStart,
       });
-    };
-
-    void runDeliveryRecovery().catch((err) =>
-      log.error(`Delivery recovery failed: ${String(err)}`),
-    );
-    const intervalMs = 10 * 60_000;
-    deliveryRecoveryInterval = setInterval(() => {
-      void runDeliveryRecovery().catch((err) =>
-        log.error(`Delivery periodic recovery failed: ${String(err)}`),
-      );
-    }, intervalMs);
+    })().catch((err) => log.error(`Delivery recovery failed: ${String(err)}`));
   }
 
   const execApprovalManager = new ExecApprovalManager();
@@ -1202,27 +1190,6 @@ export async function startGatewayServer(
     }
   }
 
-  // Register gateMode blocked-notification → Discord delivery
-  if (!minimalTestGateway) {
-    const gateNotifyChannelId = cfgAtStart.agents?.defaults?.gateNotifyChannel;
-    if (gateNotifyChannelId) {
-      const { registerGateNotifyDiscord } = await import("../channels/gate-notify-discord.js");
-      const ownerDiscordId = cfgAtStart.agents?.defaults?.gateNotifyOwner;
-      registerGateNotifyDiscord({ discordChannelId: gateNotifyChannelId, ownerDiscordId });
-      log.info(`gateway: gateMode blocked notifications → Discord channel ${gateNotifyChannelId}`);
-    }
-  }
-
-  // Register auth long-cooldown notifications → Discord #logs (programmatic, no cron).
-  if (!minimalTestGateway) {
-    const { registerAuthCooldownNotifyDiscord } =
-      await import("../agents/auth-profiles/cooldown-notify.js");
-    registerAuthCooldownNotifyDiscord({
-      discordChannelId: "1474420675933638847",
-    });
-    log.info("gateway: auth long-cooldown notifications → Discord #logs");
-  }
-
   const configReloader = minimalTestGateway
     ? { stop: async () => {} }
     : (() => {
@@ -1354,10 +1321,6 @@ export async function startGatewayServer(
       browserAuthRateLimiter.dispose();
       stopModelPricingRefresh();
       channelHealthMonitor?.stop();
-      if (deliveryRecoveryInterval) {
-        clearInterval(deliveryRecoveryInterval);
-        deliveryRecoveryInterval = null;
-      }
       clearSecretsRuntimeSnapshot();
       await close(opts);
     },

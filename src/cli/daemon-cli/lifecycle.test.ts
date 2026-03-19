@@ -1,23 +1,5 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-// frankclaw: mock selfheal module and fs/child_process so validateReasonFile
-// and dryRunSelfHealScript don't call process.exit(2) in unit tests.
-vi.mock("./restart-selfheal.frankclaw.js", () => ({
-  validateReasonFile: vi.fn(),
-  clearReasonFile: vi.fn(),
-  getReasonFilePath: vi.fn(() => "/tmp/test-restart-reason.md"),
-}));
-
-vi.mock("node:fs", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("node:fs")>();
-  return { ...actual, existsSync: vi.fn(() => true) };
-});
-
-vi.mock("node:child_process", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("node:child_process")>();
-  return { ...actual, execSync: vi.fn(() => Buffer.from("")) };
-});
-
 type RestartHealthSnapshot = {
   healthy: boolean;
   staleGatewayPids: number[];
@@ -253,9 +235,8 @@ describe("runDaemonRestart health checks", () => {
     waitForGatewayHealthyRestart.mockResolvedValue(unhealthy);
 
     await expect(runDaemonRestart({ json: true })).rejects.toMatchObject({
-      // frankclaw: message updated to reflect self-heal attempt
-      message: "Gateway restart failed. Self-heal attempted but gateway is still unhealthy.",
-      hints: expect.arrayContaining(["openclaw gateway status --deep", "openclaw doctor"]),
+      message: "Gateway restart timed out after 60s waiting for health checks.",
+      hints: ["openclaw gateway status --deep", "openclaw doctor"],
     });
     expect(terminateStaleGatewayPids).not.toHaveBeenCalled();
     expect(renderRestartDiagnostics).toHaveBeenCalledTimes(1);

@@ -7,7 +7,7 @@ import {
 } from "../../agents/tools/common.js";
 import { parseReplyDirectives } from "../../auto-reply/reply/reply-directives.js";
 import { getChannelPlugin } from "../../channels/plugins/index.js";
-import { dispatchChannelMessageAction } from "../../channels/plugins/message-actions.js";
+import { dispatchChannelMessageAction } from "../../channels/plugins/message-action-dispatch.js";
 import type {
   ChannelId,
   ChannelMessageActionName,
@@ -96,6 +96,7 @@ export type RunMessageActionParams = {
   params: Record<string, unknown>;
   defaultAccountId?: string;
   requesterSenderId?: string | null;
+  sessionId?: string;
   toolContext?: ChannelThreadingToolContext;
   gateway?: MessageActionRunnerGateway;
   deps?: OutboundSendDeps;
@@ -353,7 +354,6 @@ async function handleBroadcastAction(
             ...params,
             channel: targetChannel,
             target: resolved.target.to,
-            __allowPlainSend: true,
           },
         });
         results.push({
@@ -534,12 +534,6 @@ async function handleSendAction(ctx: ResolvedActionContext): Promise<MessageActi
   if (agentId) {
     params.__agentId = agentId;
   }
-  if (input.toolContext?.currentChannelProvider) {
-    params.__toolCurrentChannelProvider = input.toolContext.currentChannelProvider;
-  }
-  if (input.toolContext?.currentChannelId) {
-    params.__toolCurrentChannelId = input.toolContext.currentChannelId;
-  }
   const mirrorMediaUrls =
     mergedMediaUrls.length > 0 ? mergedMediaUrls : mediaUrl ? [mediaUrl] : undefined;
   throwIfAborted(abortSignal);
@@ -595,34 +589,7 @@ async function handlePollAction(ctx: ResolvedActionContext): Promise<MessageActi
   throwIfAborted(abortSignal);
   const action: ChannelMessageActionName = "poll";
   const to = readStringParam(params, "to", { required: true });
-  const question = readStringParam(params, "pollQuestion", {
-    required: true,
-  });
-  const options = readStringArrayParam(params, "pollOption", { required: true });
-  if (options.length < 2) {
-    throw new Error("pollOption requires at least two values");
-  }
   const silent = readBooleanParam(params, "silent");
-  const allowMultiselect = readBooleanParam(params, "pollMulti") ?? false;
-  const pollAnonymous = readBooleanParam(params, "pollAnonymous");
-  const pollPublic = readBooleanParam(params, "pollPublic");
-  const isAnonymous = resolveTelegramPollVisibility({ pollAnonymous, pollPublic });
-  const durationHours = readNumberParam(params, "pollDurationHours", {
-    integer: true,
-    strict: true,
-  });
-  const durationSeconds = readNumberParam(params, "pollDurationSeconds", {
-    integer: true,
-    strict: true,
-  });
-  const maxSelections = resolvePollMaxSelections(options.length, allowMultiselect);
-
-  if (durationSeconds !== undefined && channel !== "telegram") {
-    throw new Error("pollDurationSeconds is only supported for Telegram polls");
-  }
-  if (isAnonymous !== undefined && channel !== "telegram") {
-    throw new Error("pollAnonymous/pollPublic are only supported for Telegram polls");
-  }
 
   const resolvedThreadId = resolveAndApplyOutboundThreadId(params, {
     cfg,
@@ -656,8 +623,6 @@ async function handlePollAction(ctx: ResolvedActionContext): Promise<MessageActi
       dryRun,
       silent: silent ?? undefined,
     },
-    durationSeconds: durationSeconds ?? undefined,
-    isAnonymous,
     resolveCorePoll: () => {
       const question = readStringParam(params, "pollQuestion", {
         required: true,
@@ -697,7 +662,7 @@ async function handlePollAction(ctx: ResolvedActionContext): Promise<MessageActi
 }
 
 async function handlePluginAction(ctx: ResolvedActionContext): Promise<MessageActionRunResult> {
-  const { cfg, params, channel, accountId, dryRun, gateway, input, abortSignal } = ctx;
+  const { cfg, params, channel, accountId, dryRun, gateway, input, abortSignal, agentId } = ctx;
   throwIfAborted(abortSignal);
   const action = input.action as Exclude<ChannelMessageActionName, "send" | "poll" | "broadcast">;
   if (dryRun) {
@@ -723,6 +688,9 @@ async function handlePluginAction(ctx: ResolvedActionContext): Promise<MessageAc
     params,
     accountId: accountId ?? undefined,
     requesterSenderId: input.requesterSenderId ?? undefined,
+    sessionKey: input.sessionKey,
+    sessionId: input.sessionId,
+    agentId,
     gateway,
     toolContext: input.toolContext,
     dryRun,
@@ -858,6 +826,7 @@ export async function runMessageAction(
     dryRun,
     gateway,
     input,
+    agentId: resolvedAgentId,
     abortSignal: input.abortSignal,
   });
 }

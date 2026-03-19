@@ -216,23 +216,9 @@ export const FIELD_LABELS: Record<string, string> = {
   "tools.message.broadcast.enabled": "Enable Message Broadcast",
   "tools.web.search.enabled": "Enable Web Search Tool",
   "tools.web.search.provider": "Web Search Provider",
-  "tools.web.search.apiKey": "Brave Search API Key",
   "tools.web.search.maxResults": "Web Search Max Results",
   "tools.web.search.timeoutSeconds": "Web Search Timeout (sec)",
   "tools.web.search.cacheTtlMinutes": "Web Search Cache TTL (min)",
-  "tools.web.search.brave.mode": "Brave Search Mode",
-  "tools.web.search.firecrawl.apiKey": "Firecrawl Search API Key", // pragma: allowlist secret
-  "tools.web.search.firecrawl.baseUrl": "Firecrawl Search Base URL",
-  "tools.web.search.gemini.apiKey": "Gemini Search API Key", // pragma: allowlist secret
-  "tools.web.search.gemini.model": "Gemini Search Model",
-  "tools.web.search.grok.apiKey": "Grok Search API Key", // pragma: allowlist secret
-  "tools.web.search.grok.model": "Grok Search Model",
-  "tools.web.search.kimi.apiKey": "Kimi Search API Key", // pragma: allowlist secret
-  "tools.web.search.kimi.baseUrl": "Kimi Search Base URL",
-  "tools.web.search.kimi.model": "Kimi Search Model",
-  "tools.web.search.perplexity.apiKey": "Perplexity API Key", // pragma: allowlist secret
-  "tools.web.search.perplexity.baseUrl": "Perplexity Base URL",
-  "tools.web.search.perplexity.model": "Perplexity Model",
   "tools.web.fetch.enabled": "Enable Web Fetch Tool",
   "tools.web.fetch.maxChars": "Web Fetch Max Chars",
   "tools.web.fetch.maxCharsCap": "Web Fetch Hard Max Chars",
@@ -494,8 +480,6 @@ export const FIELD_LABELS: Record<string, string> = {
   "agents.defaults.heartbeat.directPolicy": "Heartbeat Direct Policy",
   "agents.list.*.heartbeat.directPolicy": "Heartbeat Direct Policy",
   "agents.defaults.heartbeat.suppressToolErrorWarnings": "Heartbeat Suppress Tool Error Warnings",
-  "agents.defaults.subagents.auth": "Subagent Auth",
-  "agents.defaults.subagents.auth.order": "Subagent Auth Profile Order",
   "agents.defaults.sandbox.browser.network": "Sandbox Browser Network",
   "agents.defaults.sandbox.browser.cdpSourceRange": "Sandbox Browser CDP Source Port Range",
   "agents.defaults.sandbox.docker.dangerouslyAllowContainerNamespaceJoin":
@@ -865,6 +849,9 @@ export const FIELD_LABELS: Record<string, string> = {
   "plugins.entries.*.enabled": "Plugin Enabled",
   "plugins.entries.*.hooks": "Plugin Hook Policy",
   "plugins.entries.*.hooks.allowPromptInjection": "Allow Prompt Injection Hooks",
+  "plugins.entries.*.subagent": "Plugin Subagent Policy",
+  "plugins.entries.*.subagent.allowModelOverride": "Allow Plugin Subagent Model Override",
+  "plugins.entries.*.subagent.allowedModels": "Plugin Subagent Allowed Models",
   "plugins.entries.*.apiKey": "Plugin API Key", // pragma: allowlist secret
   "plugins.entries.*.env": "Plugin Environment Variables",
   "plugins.entries.*.config": "Plugin Config",

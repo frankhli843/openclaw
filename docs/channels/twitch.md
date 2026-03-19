@@ -27,7 +27,7 @@ openclaw plugins install ./extensions/twitch
 
 Details: [Plugins](/tools/plugin)
 
-## Onboarding
+## Quick setup (beginner)
 
 1. Create a dedicated Twitch account for the bot (or use an existing account).
 2. Generate credentials: [Twitch Token Generator](https://twitchtokengenerator.com/)
@@ -67,7 +67,7 @@ Minimal config:
 - Each account maps to an isolated session key `agent:<agentId>:twitch:<accountName>`.
 - `username` is the bot's account (who authenticates), `channel` is which chat room to join.
 
-## Onboarding (detailed, recommended)
+## Setup (detailed)
 
 ### Generate credentials
 
@@ -255,7 +255,7 @@ openclaw doctor
 openclaw channels status --probe
 ```
 
-### Bot doesn't respond to messages
+### Bot does not respond to messages
 
 **Check access control:** Ensure your user ID is in `allowFrom`, or temporarily remove
 `allowFrom` and set `allowedRoles: ["all"]` to test.

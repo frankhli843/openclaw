@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { resolveDefaultAgentId } from "../agents/agent-scope.js";
 import type { CliDeps } from "../cli/deps.js";
 import { createOutboundSendDeps } from "../cli/outbound-send-deps.js";
@@ -30,7 +29,6 @@ import { enqueueSystemEvent } from "../infra/system-events.js";
 import { getChildLogger } from "../logging.js";
 import { normalizeAgentId, toAgentStoreSessionKey } from "../routing/session-key.js";
 import { defaultRuntime } from "../runtime.js";
-import { callGateway } from "./call.js";
 
 export type GatewayCronState = {
   cron: CronService;
@@ -364,25 +362,6 @@ export function buildGatewayCronService(params: {
       });
     },
     log: getChildLogger({ module: "cron", storePath }),
-    sendDeadLetterAlert: async (message) => {
-      try {
-        await callGateway({
-          method: "send",
-          params: {
-            channel: "discord",
-            to: "1481643321922420787",
-            message,
-            idempotencyKey: `cron-dlq:${randomUUID()}`,
-          },
-          timeoutMs: 10_000,
-        });
-      } catch (err) {
-        cronLogger.warn(
-          { err: String(err) },
-          "cron: failed to send durable queue dead-letter alert",
-        );
-      }
-    },
     onEvent: (evt) => {
       params.broadcast("cron", evt, { dropIfSlow: true });
       if (evt.action === "finished") {

@@ -17,7 +17,7 @@ Zalo ships as a plugin and is not bundled with the core install.
 - Or select **Zalo** during setup and confirm the install prompt
 - Details: [Plugins](/tools/plugin)
 
-## Onboarding
+## Quick setup (beginner)
 
 1. Install the Zalo plugin:
    - From a source checkout: `openclaw plugins install ./extensions/zalo`
@@ -60,7 +60,7 @@ This page reflects current OpenClaw behavior for **Zalo Bot Creator / Marketplac
 - DMs share the agent's main session.
 - The [Capabilities](#capabilities) section below shows current Marketplace-bot support.
 
-## Onboarding (quick path)
+## Setup (fast path)
 
 ### 1) Create a bot token (Zalo Bot Platform)
 
@@ -206,7 +206,7 @@ This table summarizes current **Zalo Bot Creator / Marketplace bot** behavior in
 - Confirm the gateway HTTP endpoint is reachable on the configured path
 - Check that getUpdates polling is not running (they're mutually exclusive)
 
-## Configuration
+## Configuration reference (Zalo)
 
 Full configuration: [Configuration](/gateway/configuration)
 

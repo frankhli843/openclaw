@@ -76,7 +76,6 @@ describe("channelsAddCommand", () => {
       createTestRegistry(),
     );
     setDefaultChannelPluginRegistryForTests();
-    ({ channelsAddCommand } = await import("./channels.js"));
   });
 
   it("clears telegram update offsets when the token changes", async () => {

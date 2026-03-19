@@ -18,14 +18,6 @@ export type QueueConfig = {
   debounceMsByChannel?: InboundDebounceByProvider;
   cap?: number;
   drop?: QueueDropPolicy;
-  /** Coalesce durable inbound jobs by ordering key (Discord monitor). */
-  coalesce?: boolean;
-  /** No-progress soft timeout before deferred status (ms). Default: 120000. */
-  watchdogSoftMs?: number;
-  /** Hard-timeout grace after soft timeout (ms). Default: 45000. */
-  watchdogGraceMs?: number;
-  /** Extra hard-timeout grace when cooldown/rate-limit signals detected (ms). Default: 45000. */
-  watchdogRateLimitGraceMs?: number;
 };
 
 export type InboundDebounceByProvider = Record<string, number>;

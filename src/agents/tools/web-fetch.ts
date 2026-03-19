@@ -45,8 +45,6 @@ const DEFAULT_FIRECRAWL_BASE_URL = "https://api.firecrawl.dev";
 const DEFAULT_FIRECRAWL_MAX_AGE_MS = 172_800_000;
 const DEFAULT_FETCH_USER_AGENT =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7_2) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
-const WEB_FETCH_RESEARCH_REMINDER =
-  "Reminder: use WebAISearch first for discovery/research, then use web_fetch only to verify/check specific sources.";
 
 const FETCH_CACHE = new Map<string, CacheEntry<Record<string, unknown>>>();
 
@@ -733,13 +731,6 @@ function resolveFirecrawlEndpoint(baseUrl: string): string {
   }
 }
 
-function withWebFetchReminder(result: Record<string, unknown>): Record<string, unknown> {
-  return {
-    reminder: WEB_FETCH_RESEARCH_REMINDER,
-    ...result,
-  };
-}
-
 export function createWebFetchTool(options?: {
   config?: OpenClawConfig;
   sandboxed?: boolean;
@@ -805,7 +796,7 @@ export function createWebFetchTool(options?: {
         firecrawlStoreInCache: true,
         firecrawlTimeoutSeconds,
       });
-      return jsonResult(withWebFetchReminder(result));
+      return jsonResult(result);
     },
   };
 }

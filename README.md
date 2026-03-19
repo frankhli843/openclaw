@@ -293,7 +293,7 @@ If you plan to build/run companion apps, follow the platform runbooks below.
 - WebChat + debug tools.
 - Remote gateway control over SSH.
 
-Note: signed builds required for macOS permissions to stick across rebuilds (see `docs/mac/permissions.md`).
+Note: signed builds required for macOS permissions to stick across rebuilds (see [macOS Permissions](https://docs.openclaw.ai/platforms/mac/permissions)).
 
 ### iOS node (optional)
 
@@ -308,49 +308,6 @@ Runbook: [iOS connect](https://docs.openclaw.ai/platforms/ios).
 - Pairs as a WS node via device pairing (`openclaw devices ...`).
 - Exposes Connect/Chat/Voice tabs plus Canvas, Camera, Screen capture, and Android device command families.
 - Runbook: [Android connect](https://docs.openclaw.ai/platforms/android).
-
-## Memory search: shared vs isolated agents
-
-By default, each agent (main, subagent) gets its own SQLite embedding index at `~/.openclaw/memory/{agentId}.sqlite`. This means cron jobs and sub-agents start with an **empty index** and can't find knowledge files until their index is populated (which may never complete for short-lived sessions).
-
-**Fix:** Set a shared store path so all agents read from the same pre-populated index:
-
-```json5
-{
-  agents: {
-    defaults: {
-      memorySearch: {
-        store: {
-          path: "~/.openclaw/memory/main.sqlite",
-        },
-      },
-    },
-  },
-}
-```
-
-Now cron jobs and sub-agents share the main session's embedding index and can search all memory + knowledge files immediately.
-
-**Isolated agents:** If you need a sub-agent with its own clean memory (no access to existing knowledge), add an agent config with `{agentId}` in the store path:
-
-```json5
-{
-  agents: {
-    list: [
-      {
-        id: "isolated",
-        memorySearch: {
-          store: {
-            path: "~/.openclaw/memory/{agentId}.sqlite",
-          },
-        },
-      },
-    ],
-  },
-}
-```
-
-Then spawn with `agentId: "isolated"` to get a sandboxed memory store.
 
 ## Agent workspace + skills
 
@@ -407,7 +364,7 @@ Details: [Security guide](https://docs.openclaw.ai/gateway/security) · [Docker 
 
 ### [Discord](https://docs.openclaw.ai/channels/discord)
 
-- Set `DISCORD_BOT_TOKEN` or `channels.discord.token` (env wins).
+- Set `DISCORD_BOT_TOKEN` or `channels.discord.token`.
 - Optional: set `commands.native`, `commands.text`, or `commands.useAccessGroups`, plus `channels.discord.allowFrom`, `channels.discord.guilds`, or `channels.discord.mediaMaxMb` as needed.
 
 ```json5

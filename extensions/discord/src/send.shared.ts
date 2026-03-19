@@ -19,7 +19,7 @@ import {
 } from "openclaw/plugin-sdk/media-runtime";
 import { resolveTextChunksWithFallback } from "openclaw/plugin-sdk/reply-payload";
 import type { ChunkMode } from "openclaw/plugin-sdk/reply-runtime";
-import { loadWebMedia } from "../../whatsapp/src/media.js";
+import { loadWebMedia } from "openclaw/plugin-sdk/web-media";
 import { resolveDiscordAccount } from "./accounts.js";
 import { chunkDiscordTextWithMode } from "./chunk.js";
 import { createDiscordClient, resolveDiscordRest } from "./client.js";

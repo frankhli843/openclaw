@@ -6,7 +6,6 @@ import {
 import { DISCORD_THREAD_BINDING_CHANNEL } from "../../../channels/thread-bindings-policy.js";
 import { resolveConversationIdFromTargets } from "../../../infra/outbound/conversation-id.js";
 import { getSessionBindingService } from "../../../infra/outbound/session-binding-service.js";
-import { buildFeishuConversationId } from "../../../plugin-sdk/feishu.js";
 import { parseAgentSessionKey } from "../../../routing/session-key.js";
 import type { HandleCommandsParams } from "../commands-types.js";
 import { parseDiscordParentChannelFromSessionKey } from "../discord-parent-channel.js";

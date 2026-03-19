@@ -2,13 +2,29 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, expectTypeOf, it } from "vitest";
+import {
+  listDiscordDirectoryGroupsFromConfig,
+  listDiscordDirectoryPeersFromConfig,
+} from "../../../extensions/discord/src/directory-config.js";
 import type { DiscordProbe } from "../../../extensions/discord/src/probe.js";
 import type { DiscordTokenResolution } from "../../../extensions/discord/src/token.js";
 import type { IMessageProbe } from "../../../extensions/imessage/src/probe.js";
 import type { SignalProbe } from "../../../extensions/signal/src/probe.js";
+import {
+  listSlackDirectoryGroupsFromConfig,
+  listSlackDirectoryPeersFromConfig,
+} from "../../../extensions/slack/src/directory-config.js";
 import type { SlackProbe } from "../../../extensions/slack/src/probe.js";
+import {
+  listTelegramDirectoryGroupsFromConfig,
+  listTelegramDirectoryPeersFromConfig,
+} from "../../../extensions/telegram/src/directory-config.js";
 import type { TelegramProbe } from "../../../extensions/telegram/src/probe.js";
 import type { TelegramTokenResolution } from "../../../extensions/telegram/src/token.js";
+import {
+  listWhatsAppDirectoryGroupsFromConfig,
+  listWhatsAppDirectoryPeersFromConfig,
+} from "../../../extensions/whatsapp/src/directory-config.js";
 import type { OpenClawConfig } from "../../config/config.js";
 import type { LineProbeResult } from "../../line/types.js";
 import { setActivePluginRegistry } from "../../plugins/runtime.js";
@@ -29,16 +45,6 @@ import {
   resolveChannelConfigWrites,
   resolveConfigWriteTargetFromPath,
 } from "./config-writes.js";
-import {
-  listDiscordDirectoryGroupsFromConfig,
-  listDiscordDirectoryPeersFromConfig,
-  listSlackDirectoryGroupsFromConfig,
-  listSlackDirectoryPeersFromConfig,
-  listTelegramDirectoryGroupsFromConfig,
-  listTelegramDirectoryPeersFromConfig,
-  listWhatsAppDirectoryGroupsFromConfig,
-  listWhatsAppDirectoryPeersFromConfig,
-} from "./directory-config.js";
 import { listChannelPlugins } from "./index.js";
 import { loadChannelPlugin } from "./load.js";
 import { loadChannelOutboundAdapter } from "./outbound/load.js";
@@ -767,73 +773,6 @@ describe("directory (config-backed)", () => {
 
     await expectDirectoryIds(listWhatsAppDirectoryPeersFromConfig, cfg, ["+15550000000"]);
     await expectDirectoryIds(listWhatsAppDirectoryGroupsFromConfig, cfg, ["999@g.us"]);
-  });
-
-  it("applies query and limit filtering for config-backed directories", async () => {
-    const cfg = {
-      channels: {
-        slack: {
-          botToken: "xoxb-test",
-          appToken: "xapp-test",
-          dm: { allowFrom: ["U100", "U200"] },
-          dms: { U300: {} },
-          channels: { C111: {}, C222: {}, C333: {} },
-        },
-        discord: {
-          token: "discord-test",
-          guilds: {
-            "123": {
-              channels: {
-                "555": {},
-                "666": {},
-                "777": {},
-              },
-            },
-          },
-        },
-        telegram: {
-          botToken: "telegram-test",
-          groups: { "-1001": {}, "-1002": {}, "-2001": {} },
-        },
-        whatsapp: {
-          groups: { "111@g.us": {}, "222@g.us": {}, "333@s.whatsapp.net": {} },
-        },
-      },
-      // oxlint-disable-next-line typescript/no-explicit-any
-    } as any;
-
-    const slackPeers = await listSlackDirectoryPeersFromConfig({
-      cfg,
-      accountId: "default",
-      query: "user:u",
-      limit: 2,
-    });
-    expect(slackPeers).toHaveLength(2);
-    expect(slackPeers.every((entry) => entry.id.startsWith("user:u"))).toBe(true);
-
-    const discordGroups = await listDiscordDirectoryGroupsFromConfig({
-      cfg,
-      accountId: "default",
-      query: "666",
-      limit: 5,
-    });
-    expect(discordGroups.map((entry) => entry.id)).toEqual(["channel:666"]);
-
-    const telegramGroups = await listTelegramDirectoryGroupsFromConfig({
-      cfg,
-      accountId: "default",
-      query: "-100",
-      limit: 1,
-    });
-    expect(telegramGroups.map((entry) => entry.id)).toEqual(["-1001"]);
-
-    const whatsAppGroups = await listWhatsAppDirectoryGroupsFromConfig({
-      cfg,
-      accountId: "default",
-      query: "@g.us",
-      limit: 1,
-    });
-    expect(whatsAppGroups.map((entry) => entry.id)).toEqual(["111@g.us"]);
   });
 
   it("applies query and limit filtering for config-backed directories", async () => {

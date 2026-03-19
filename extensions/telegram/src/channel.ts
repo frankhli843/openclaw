@@ -19,22 +19,18 @@ import { buildOutboundBaseSessionKey, normalizeOutboundThreadId } from "openclaw
 import { resolveExecApprovalCommandDisplay } from "openclaw/plugin-sdk/infra-runtime";
 import { buildExecApprovalPendingReplyPayload } from "openclaw/plugin-sdk/infra-runtime";
 import { resolveThreadSessionKeys, type RoutePeer } from "openclaw/plugin-sdk/routing";
-import { parseTelegramTopicConversation } from "openclaw/plugin-sdk/telegram";
+import { parseTelegramTopicConversation } from "../runtime-api.js";
 import {
   buildTokenChannelStatusSummary,
   clearAccountEntryFields,
   DEFAULT_ACCOUNT_ID,
-  listTelegramDirectoryGroupsFromConfig,
-  listTelegramDirectoryPeersFromConfig,
   PAIRING_APPROVED_MESSAGE,
   projectCredentialSnapshotFields,
   resolveConfiguredFromCredentialStatuses,
-  resolveTelegramGroupRequireMention,
-  resolveTelegramGroupToolPolicy,
   type ChannelPlugin,
   type ChannelMessageActionAdapter,
   type OpenClawConfig,
-} from "openclaw/plugin-sdk/telegram";
+} from "../runtime-api.js";
 import {
   listTelegramAccountIds,
   resolveTelegramAccount,
@@ -44,9 +40,17 @@ import { buildTelegramExecApprovalButtons } from "./approval-buttons.js";
 import { auditTelegramGroupMembership, collectTelegramUnmentionedGroupIds } from "./audit.js";
 import { buildTelegramGroupPeerId } from "./bot/helpers.js";
 import {
+  listTelegramDirectoryGroupsFromConfig,
+  listTelegramDirectoryPeersFromConfig,
+} from "./directory-config.js";
+import {
   isTelegramExecApprovalClientEnabled,
   resolveTelegramExecApprovalTarget,
 } from "./exec-approvals.js";
+import {
+  resolveTelegramGroupRequireMention,
+  resolveTelegramGroupToolPolicy,
+} from "./group-policy.js";
 import { monitorTelegramProvider } from "./monitor.js";
 import { looksLikeTelegramTargetId, normalizeTelegramMessagingTarget } from "./normalize.js";
 import { sendTelegramPayloadMessages } from "./outbound-adapter.js";
@@ -60,7 +64,7 @@ import {
   createTelegramPluginBase,
   findTelegramTokenOwnerAccountId,
   formatDuplicateTelegramTokenReason,
-  telegramConfigAccessors,
+  telegramConfigAdapter,
 } from "./shared.js";
 import { collectTelegramStatusIssues } from "./status-issues.js";
 import { parseTelegramTarget } from "./targets.js";
@@ -257,10 +261,8 @@ function hasTelegramExecApprovalDmRoute(cfg: OpenClawConfig): boolean {
 }
 
 const telegramMessageActions: ChannelMessageActionAdapter = {
-  listActions: (ctx) =>
-    getTelegramRuntime().channel.telegram.messageActions?.listActions?.(ctx) ?? [],
-  getCapabilities: (ctx) =>
-    getTelegramRuntime().channel.telegram.messageActions?.getCapabilities?.(ctx) ?? [],
+  describeMessageTool: (ctx) =>
+    getTelegramRuntime().channel.telegram.messageActions?.describeMessageTool?.(ctx) ?? null,
   extractToolSend: (ctx) =>
     getTelegramRuntime().channel.telegram.messageActions?.extractToolSend?.(ctx) ?? null,
   handleAction: async (ctx) => {
@@ -343,8 +345,12 @@ export const telegramPlugin: ChannelPlugin<ResolvedTelegramAccount, TelegramProb
   bindings: {
     compileConfiguredBinding: ({ conversationId }) =>
       normalizeTelegramAcpConversationId(conversationId),
-    matchConfiguredBinding: ({ bindingConversationId, conversationId, parentConversationId }) =>
-      matchTelegramAcpConversation({ bindingConversationId, conversationId, parentConversationId }),
+    matchInboundConversation: ({ compiledBinding, conversationId, parentConversationId }) =>
+      matchTelegramAcpConversation({
+        bindingConversationId: compiledBinding.conversationId,
+        conversationId,
+        parentConversationId,
+      }),
   },
   security: {
     resolveDmPolicy: resolveTelegramDmPolicy,

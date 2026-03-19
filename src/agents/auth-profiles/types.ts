@@ -56,9 +56,6 @@ export type ProfileUsageStats = {
   errorCount?: number;
   failureCounts?: Partial<Record<AuthProfileFailureReason, number>>;
   lastFailureAt?: number;
-  /** Quota/billing-specific rolling counters (profile-scoped). */
-  billingFailureCount?: number;
-  billingLastFailureAt?: number;
 };
 
 export type AuthProfileStore = {

@@ -8,7 +8,6 @@ import {
   BlockStreamingCoalesceSchema,
   DmConfigSchema,
   DmPolicySchema,
-  GateModeSchema,
   GroupPolicySchema,
   MarkdownConfigSchema,
 } from "./zod-schema.core.js";
@@ -18,8 +17,6 @@ const ToolPolicyBySenderSchema = z.record(z.string(), ToolPolicySchema).optional
 const WhatsAppGroupEntrySchema = z
   .object({
     requireMention: z.boolean().optional(),
-    gateMode: GateModeSchema.optional(),
-    allowedSenders: z.array(z.string()).optional(),
     tools: ToolPolicySchema,
     toolsBySender: ToolPolicyBySenderSchema,
   })
@@ -50,7 +47,7 @@ const WhatsAppSharedSchema = z.object({
   allowFrom: z.array(z.string()).optional(),
   defaultTo: z.string().optional(),
   groupAllowFrom: z.array(z.string()).optional(),
-  groupPolicy: GroupPolicySchema.optional().default("open"),
+  groupPolicy: GroupPolicySchema.optional().default("allowlist"),
   historyLimit: z.number().int().min(0).optional(),
   dmHistoryLimit: z.number().int().min(0).optional(),
   dms: z.record(z.string(), DmConfigSchema.optional()).optional(),

@@ -142,7 +142,7 @@ describe("callGateway url resolution", () => {
 
     await callGateway({ method: "health" });
 
-    expect(lastClientOptions?.url).toBe("wss://127.0.0.1:18800");
+    expect(lastClientOptions?.url).toBe("ws://127.0.0.1:18800");
   });
 
   it.each([

@@ -84,7 +84,7 @@ function buildPlugin(params: {
         }
       : undefined,
     actions: {
-      listActions: () => ["poll"],
+      describeMessageTool: () => ({ actions: ["poll"] }),
     },
   };
 }

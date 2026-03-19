@@ -1,6 +1,3 @@
-import { execSync } from "node:child_process";
-import { existsSync } from "node:fs";
-import { resolve } from "node:path";
 import { isRestartEnabled } from "../../config/commands.js";
 import { readBestEffortConfig, resolveGatewayPort } from "../../config/config.js";
 import { resolveGatewayService } from "../../daemon/service.js";
@@ -28,97 +25,11 @@ import {
   waitForGatewayHealthyListener,
   waitForGatewayHealthyRestart,
 } from "./restart-health.js";
-import {
-  validateReasonFile,
-  clearReasonFile,
-  getReasonFilePath,
-} from "./restart-selfheal.frankclaw.js";
 import { parsePortFromArgs, renderGatewayServiceStartHints } from "./shared.js";
 import type { DaemonLifecycleOptions } from "./types.js";
 
 const POST_RESTART_HEALTH_ATTEMPTS = DEFAULT_RESTART_HEALTH_ATTEMPTS;
 const POST_RESTART_HEALTH_DELAY_MS = DEFAULT_RESTART_HEALTH_DELAY_MS;
-
-/**
- * Dry-run the self-heal script to validate it's functional before restart.
- * Returns true if the script passes all checks.
- */
-function dryRunSelfHealScript(reasonFilePath: string, json: boolean): boolean {
-  const workspace =
-    process.env.OPENCLAW_WORKSPACE ?? resolve(process.env.HOME ?? "/root", ".openclaw/workspace");
-  const script = resolve(workspace, "scripts/gateway-selfheal.sh");
-
-  if (!existsSync(script)) {
-    if (!json) {
-      defaultRuntime.log(theme.warn(`Self-heal script not found: ${script}`));
-    }
-    return false;
-  }
-
-  try {
-    const output = execSync(`bash "${script}" --dry-run --reason-file "${reasonFilePath}"`, {
-      timeout: 150_000,
-      stdio: "pipe",
-      env: { ...process.env },
-    }).toString();
-    if (!json) {
-      defaultRuntime.log(theme.muted(output.trim()));
-    }
-    return true;
-  } catch (err: unknown) {
-    if (!json) {
-      const stderr =
-        err && typeof err === "object" && "stderr" in err
-          ? ((err as { stderr: Buffer }).stderr?.toString?.() ?? "")
-          : "";
-      const stdout =
-        err && typeof err === "object" && "stdout" in err
-          ? ((err as { stdout: Buffer }).stdout?.toString?.() ?? "")
-          : "";
-      defaultRuntime.log(theme.error(`Self-heal dry-run failed:\n${stdout}\n${stderr}`));
-    }
-    return false;
-  }
-}
-
-/**
- * Schedule the standalone self-heal bash script via `at`.
- * Runs 2 minutes after restart, completely outside the gateway process.
- * The script checks health and only triggers repair if gateway is down.
- */
-function scheduleSelfHealCheck(reasonFilePath: string, json: boolean): void {
-  const workspace =
-    process.env.OPENCLAW_WORKSPACE ?? resolve(process.env.HOME ?? "/root", ".openclaw/workspace");
-  const script = resolve(workspace, "scripts/gateway-selfheal.sh");
-  const log = resolve("/tmp", "gateway-selfheal.log");
-
-  if (!existsSync(script)) {
-    if (!json) {
-      defaultRuntime.log(
-        theme.warn(`Self-heal script not found: ${script}. Skipping self-heal scheduling.`),
-      );
-    }
-    return;
-  }
-
-  try {
-    execSync(
-      `echo 'bash "${script}" --reason-file "${reasonFilePath}" >> "${log}" 2>&1' | at now + 2 minutes`,
-      { stdio: "pipe", timeout: 10_000 },
-    );
-    if (!json) {
-      defaultRuntime.log(
-        theme.muted("Self-heal check scheduled via `at` (runs in 2 min if needed)"),
-      );
-    }
-  } catch (err: unknown) {
-    // `at` not available — warn but don't block restart
-    if (!json) {
-      const msg = err instanceof Error ? err.message : String(err);
-      defaultRuntime.log(theme.warn(`Could not schedule self-heal via at: ${msg}`));
-    }
-  }
-}
 
 async function resolveGatewayLifecyclePort(service = resolveGatewayService()) {
   const command = await service.readCommand(process.env).catch(() => null);
@@ -235,56 +146,9 @@ export async function runDaemonStop(opts: DaemonLifecycleOptions = {}) {
  * Restart the gateway service service.
  * @returns `true` if restart succeeded, `false` if the service was not loaded.
  * Throws/exits on check or restart failures.
- *
- * frankclaw: requires --reason <file> for self-heal context.
- * If health check fails after restart, spawns Claude Code (Gemini backup) to fix.
  */
 export async function runDaemonRestart(opts: DaemonLifecycleOptions = {}): Promise<boolean> {
   const json = Boolean(opts.json);
-
-  // --- frankclaw: validate reason file ---
-  const reasonFilePath = opts.reason ?? getReasonFilePath();
-  try {
-    validateReasonFile(reasonFilePath);
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    if (!json) {
-      defaultRuntime.log(theme.error(message));
-    } else {
-      defaultRuntime.log(JSON.stringify({ error: message }));
-    }
-    process.exit(2);
-  }
-
-  if (!json) {
-    defaultRuntime.log(theme.muted(`Restart reason loaded from: ${reasonFilePath}`));
-  }
-
-  // Dry-run the self-heal script to validate it works BEFORE restarting.
-  // If it fails, abort restart and ask the agent to fix the script first.
-  const dryRunOk = dryRunSelfHealScript(reasonFilePath, json);
-  if (!dryRunOk) {
-    if (!json) {
-      defaultRuntime.log(
-        theme.error(
-          "Self-heal script dry-run failed. Fix the script before restarting.\n" +
-            "Script: scripts/gateway-selfheal.sh\n" +
-            "Run: bash scripts/gateway-selfheal.sh --dry-run --reason-file state/restart-reason.md",
-        ),
-      );
-    } else {
-      defaultRuntime.log(JSON.stringify({ error: "Self-heal script dry-run failed" }));
-    }
-    process.exit(2);
-  }
-
-  // Schedule standalone self-heal script via `at` BEFORE restart.
-  // This ensures the self-heal runs even if the binary itself is broken
-  // after restart. The script checks health independently and only
-  // triggers repair if the gateway is actually down.
-  scheduleSelfHealCheck(reasonFilePath, json);
-  // --- end frankclaw reason validation + self-heal scheduling ---
-
   const service = resolveGatewayService();
   let restartedWithoutServiceManager = false;
   const restartPort = await resolveGatewayLifecyclePort(service).catch(() =>
@@ -366,8 +230,6 @@ export async function runDaemonRestart(opts: DaemonLifecycleOptions = {}): Promi
       }
 
       if (health.healthy) {
-        // --- frankclaw: clear reason file on success ---
-        clearReasonFile();
         return;
       }
 
@@ -393,22 +255,9 @@ export async function runDaemonRestart(opts: DaemonLifecycleOptions = {}): Promi
         warnings.push(...diagnostics);
       }
 
-      // --- frankclaw: self-heal is already scheduled via `at` (pre-restart) ---
-      // The standalone bash script will check health independently and
-      // spawn Claude Code / Gemini if the gateway doesn't come back.
-      if (!json) {
-        defaultRuntime.log(
-          theme.warn(
-            "Self-heal script was pre-scheduled via `at`. It will run shortly and attempt repair.",
-          ),
-        );
-      }
-      // --- end frankclaw self-heal ---
-
-      fail(`Gateway restart failed. Self-heal attempted but gateway is still unhealthy.`, [
+      fail(`Gateway restart timed out after ${restartWaitSeconds}s waiting for health checks.`, [
         formatCliCommand("openclaw gateway status --deep"),
         formatCliCommand("openclaw doctor"),
-        `Check self-heal log: cat /tmp/gateway-selfheal.log`,
       ]);
     },
   });

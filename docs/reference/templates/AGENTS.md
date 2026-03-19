@@ -120,15 +120,6 @@ Reactions are lightweight social signals. Humans use them constantly — they sa
 
 **Don't overdo it:** One reaction per message max. Pick the one that fits best.
 
-## Visual Communication
-
-When explaining architecture, flows, processes, or complex ideas, **generate diagrams** instead of describing them in text. A rendered diagram communicates in seconds what paragraphs of text cannot.
-
-- Use the `mermaid-diagram` skill (if installed) to render flowcharts, sequence diagrams, architecture diagrams, Gantt charts, state machines, etc. as PNG images and send them in chat. The skill defaults to a clean light theme automatically.
-- For interactive or exploratory visuals, build a self-contained HTML artifact and share the link.
-- **Never send raw mermaid code, ASCII art, or text-based diagrams** as a substitute for rendered images.
-- Use visuals proactively: when comparing options, illustrating a plan, showing system interactions, or mapping dependencies.
-
 ## Tools
 
 Skills provide your tools. When you need one, check its `SKILL.md`. Keep local notes (camera names, SSH details, voice preferences) in `TOOLS.md`.

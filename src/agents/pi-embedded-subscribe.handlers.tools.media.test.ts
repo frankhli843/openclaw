@@ -115,7 +115,7 @@ describe("handleToolExecutionEnd media emission", () => {
     await emitPngMediaToolResult(ctx);
 
     expect(onToolResult).toHaveBeenCalledWith({
-      mediaUrls: ["https://example.com/file.png"],
+      mediaUrls: ["/tmp/screenshot.png"],
     });
   });
 

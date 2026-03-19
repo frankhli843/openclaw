@@ -26,14 +26,6 @@ function parseSenderInfoPayload(text: string): Record<string, unknown> {
   return JSON.parse(match[1]) as Record<string, unknown>;
 }
 
-function parseThreadContextPayload(text: string): Record<string, unknown> {
-  const match = text.match(/Thread context \(untrusted metadata\):\n```json\n([\s\S]*?)\n```/);
-  if (!match?.[1]) {
-    throw new Error("missing thread context json block");
-  }
-  return JSON.parse(match[1]) as Record<string, unknown>;
-}
-
 describe("buildInboundMetaSystemPrompt", () => {
   it("includes session-stable routing fields", () => {
     const prompt = buildInboundMetaSystemPrompt({
@@ -338,31 +330,5 @@ describe("buildInboundUserContextPrefix", () => {
 
     const conversationInfo = parseConversationInfoPayload(text);
     expect(conversationInfo["sender"]).toBe("user@example.com");
-  });
-
-  it("injects a dedicated thread context block when ThreadLabel is present", () => {
-    const text = buildInboundUserContextPrefix({
-      ChatType: "channel",
-      ConversationLabel: "Guild #ops channel id:1",
-      GroupChannel: "#ops",
-      GroupSpace: "workspace-1",
-      ThreadLabel: "Discord thread #ops › Incident triage",
-      ThreadStarterBody: "starter message",
-    } as TemplateContext);
-
-    const threadContext = parseThreadContextPayload(text);
-    expect(threadContext["in_thread"]).toBe(true);
-    expect(threadContext["thread_label"]).toBe("Discord thread #ops › Incident triage");
-    expect(threadContext["parent_group_channel"]).toBe("#ops");
-    expect(threadContext["has_thread_starter"]).toBe(true);
-  });
-
-  it("does not inject thread context block when ThreadLabel is missing", () => {
-    const text = buildInboundUserContextPrefix({
-      ChatType: "group",
-      ConversationLabel: "ops-room",
-    } as TemplateContext);
-
-    expect(text).not.toContain("Thread context (untrusted metadata):");
   });
 });

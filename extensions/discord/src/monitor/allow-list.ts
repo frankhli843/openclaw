@@ -485,7 +485,7 @@ export function resolveDiscordShouldRequireMention(params: {
   if (!params.isGuildMessage) {
     return false;
   }
-  // Only skip mention requirement in threads created by the bot.
+  // Only skip mention requirement in threads created by the bot (when autoThread is enabled).
   const isBotThread = params.isAutoThreadOwnedByBot ?? isDiscordAutoThreadOwnedByBot(params);
   if (isBotThread) {
     return false;
@@ -500,6 +500,9 @@ export function isDiscordAutoThreadOwnedByBot(params: {
   threadOwnerId?: string | null;
 }): boolean {
   if (!params.isThread) {
+    return false;
+  }
+  if (!params.channelConfig?.autoThread) {
     return false;
   }
   const botId = params.botId?.trim();

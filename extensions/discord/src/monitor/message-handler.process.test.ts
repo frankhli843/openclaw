@@ -89,19 +89,7 @@ vi.mock("./reply-delivery.js", () => ({
   deliverDiscordReply: deliveryMocks.deliverDiscordReply,
 }));
 
-vi.mock("../send.messages.js", () => ({
-  editMessageDiscord,
-}));
-
-vi.mock("../draft-stream.js", () => ({
-  createDiscordDraftStream,
-}));
-
-vi.mock("./reply-delivery.js", () => ({
-  deliverDiscordReply,
-}));
-
-vi.mock("../../auto-reply/dispatch.js", () => ({
+vi.mock("../../../../src/auto-reply/dispatch.js", () => ({
   dispatchInboundMessage,
 }));
 
@@ -685,118 +673,5 @@ describe("processDiscordMessage draft streaming", () => {
     await runInPartialStreamMode();
 
     expect(draftStream.update).not.toHaveBeenCalled();
-  });
-});
-
-describe("processDiscordMessage draft streaming", () => {
-  it("finalizes via preview edit when final fits one chunk", async () => {
-    dispatchInboundMessage.mockImplementationOnce(async (params?: DispatchInboundParams) => {
-      await params?.dispatcher.sendFinalReply({ text: "Hello\nWorld" });
-      return { queuedFinal: true, counts: { final: 1, tool: 0, block: 0 } };
-    });
-
-    const ctx = await createBaseContext({
-      discordConfig: { streamMode: "partial", maxLinesPerMessage: 5 },
-    });
-
-    // oxlint-disable-next-line typescript/no-explicit-any
-    await processDiscordMessage(ctx as any);
-
-    expect(editMessageDiscord).toHaveBeenCalledWith(
-      "c1",
-      "preview-1",
-      { content: "Hello\nWorld" },
-      { rest: {} },
-    );
-    expect(deliverDiscordReply).not.toHaveBeenCalled();
-  });
-
-  it("falls back to standard send when final needs multiple chunks", async () => {
-    dispatchInboundMessage.mockImplementationOnce(async (params?: DispatchInboundParams) => {
-      await params?.dispatcher.sendFinalReply({ text: "Hello\nWorld" });
-      return { queuedFinal: true, counts: { final: 1, tool: 0, block: 0 } };
-    });
-
-    const ctx = await createBaseContext({
-      discordConfig: { streamMode: "partial", maxLinesPerMessage: 1 },
-    });
-
-    // oxlint-disable-next-line typescript/no-explicit-any
-    await processDiscordMessage(ctx as any);
-
-    expect(editMessageDiscord).not.toHaveBeenCalled();
-    expect(deliverDiscordReply).toHaveBeenCalledTimes(1);
-  });
-
-  it("streams block previews using draft chunking", async () => {
-    const draftStream = {
-      update: vi.fn<(text: string) => void>(() => {}),
-      flush: vi.fn(async () => {}),
-      messageId: vi.fn(() => "preview-1"),
-      clear: vi.fn(async () => {}),
-      stop: vi.fn(async () => {}),
-      forceNewMessage: vi.fn(() => {}),
-    };
-    createDiscordDraftStream.mockReturnValueOnce(draftStream);
-
-    dispatchInboundMessage.mockImplementationOnce(async (params?: DispatchInboundParams) => {
-      await params?.replyOptions?.onPartialReply?.({ text: "HelloWorld" });
-      return { queuedFinal: false, counts: { final: 0, tool: 0, block: 0 } };
-    });
-
-    const ctx = await createBaseContext({
-      cfg: {
-        messages: { ackReaction: "👀" },
-        session: { store: "/tmp/openclaw-discord-process-test-sessions.json" },
-        channels: {
-          discord: {
-            draftChunk: { minChars: 1, maxChars: 5, breakPreference: "newline" },
-          },
-        },
-      },
-      discordConfig: { streamMode: "block" },
-    });
-
-    // oxlint-disable-next-line typescript/no-explicit-any
-    await processDiscordMessage(ctx as any);
-
-    const updates = draftStream.update.mock.calls.map((call) => call[0]);
-    expect(updates).toEqual(["Hello", "HelloWorld"]);
-  });
-
-  it("forces new preview messages on assistant boundaries in block mode", async () => {
-    const draftStream = {
-      update: vi.fn<(text: string) => void>(() => {}),
-      flush: vi.fn(async () => {}),
-      messageId: vi.fn(() => "preview-1"),
-      clear: vi.fn(async () => {}),
-      stop: vi.fn(async () => {}),
-      forceNewMessage: vi.fn(() => {}),
-    };
-    createDiscordDraftStream.mockReturnValueOnce(draftStream);
-
-    dispatchInboundMessage.mockImplementationOnce(async (params?: DispatchInboundParams) => {
-      await params?.replyOptions?.onPartialReply?.({ text: "Hello" });
-      await params?.replyOptions?.onAssistantMessageStart?.();
-      return { queuedFinal: false, counts: { final: 0, tool: 0, block: 0 } };
-    });
-
-    const ctx = await createBaseContext({
-      cfg: {
-        messages: { ackReaction: "👀" },
-        session: { store: "/tmp/openclaw-discord-process-test-sessions.json" },
-        channels: {
-          discord: {
-            draftChunk: { minChars: 1, maxChars: 5, breakPreference: "newline" },
-          },
-        },
-      },
-      discordConfig: { streamMode: "block" },
-    });
-
-    // oxlint-disable-next-line typescript/no-explicit-any
-    await processDiscordMessage(ctx as any);
-
-    expect(draftStream.forceNewMessage).toHaveBeenCalledTimes(1);
   });
 });

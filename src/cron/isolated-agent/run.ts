@@ -586,12 +586,6 @@ export async function runCronIsolatedAgentTurn(params: {
         agentDir,
         fallbacksOverride:
           payloadFallbacks ?? resolveAgentModelFallbacksOverride(params.cfg, agentId),
-        // Cron sessions are sub-agent-like; use dedicated auth order when configured.
-        authOrderOverride: params.cfg.agents?.defaults?.subagents?.auth?.order,
-        // Enable rate-limit retry: pass abort signal so the fallback loop can
-        // wait for cooldowns instead of dying when all providers are rate-limited.
-        abortSignal,
-        sessionStartedAt: Date.now(),
         run: async (providerOverride, modelOverride, runOptions) => {
           if (abortSignal?.aborted) {
             throw new Error(abortReason());

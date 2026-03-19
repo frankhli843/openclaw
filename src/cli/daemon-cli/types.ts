@@ -25,6 +25,4 @@ export type DaemonInstallOptions = {
 
 export type DaemonLifecycleOptions = {
   json?: boolean;
-  /** Internal only (for testing). Override the reason file path. */
-  reason?: string;
 };

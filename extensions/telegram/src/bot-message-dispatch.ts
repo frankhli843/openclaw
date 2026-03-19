@@ -24,10 +24,10 @@ import { getAgentScopedMediaLocalRoots } from "openclaw/plugin-sdk/media-runtime
 import { resolveSendableOutboundReplyParts } from "openclaw/plugin-sdk/reply-payload";
 import { resolveChunkMode } from "openclaw/plugin-sdk/reply-runtime";
 import { clearHistoryEntriesIfEnabled } from "openclaw/plugin-sdk/reply-runtime";
-import { dispatchReplyWithBufferedBlockDispatcher } from "openclaw/plugin-sdk/reply-runtime";
 import type { ReplyPayload } from "openclaw/plugin-sdk/reply-runtime";
 import { danger, logVerbose } from "openclaw/plugin-sdk/runtime-env";
 import type { RuntimeEnv } from "openclaw/plugin-sdk/runtime-env";
+import { defaultTelegramBotDeps, type TelegramBotDeps } from "./bot-deps.js";
 import type { TelegramMessageContext } from "./bot-message-context.js";
 import type { TelegramBotOptions } from "./bot.js";
 import { deliverReplies } from "./bot/delivery.js";
@@ -110,6 +110,7 @@ type DispatchTelegramMessageParams = {
   streamMode: TelegramStreamMode;
   textLimit: number;
   telegramCfg: TelegramAccountConfig;
+  telegramDeps?: TelegramBotDeps;
   opts: Pick<TelegramBotOptions, "token">;
 };
 
@@ -147,6 +148,7 @@ export const dispatchTelegramMessage = async ({
   streamMode,
   textLimit,
   telegramCfg,
+  telegramDeps = defaultTelegramBotDeps,
   opts,
 }: DispatchTelegramMessageParams) => {
   const {
@@ -535,7 +537,7 @@ export const dispatchTelegramMessage = async ({
 
   let dispatchError: unknown;
   try {
-    ({ queuedFinal } = await dispatchReplyWithBufferedBlockDispatcher({
+    ({ queuedFinal } = await telegramDeps.dispatchReplyWithBufferedBlockDispatcher({
       ctx: ctxPayload,
       cfg,
       dispatcherOptions: {
@@ -822,7 +824,7 @@ export const dispatchTelegramMessage = async ({
     sentFallback = result.delivered;
   }
 
-  const hasFinalResponse = queuedFinal || sentFallback || deliverySummary.delivered;
+  const hasFinalResponse = queuedFinal || sentFallback;
 
   if (statusReactionController && !hasFinalResponse) {
     void statusReactionController.setError().catch((err) => {

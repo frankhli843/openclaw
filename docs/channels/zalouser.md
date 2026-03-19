@@ -22,7 +22,7 @@ Zalo Personal ships as a plugin and is not bundled with the core install.
 
 No external `zca`/`openzca` CLI binary is required.
 
-## Onboarding
+## Quick setup (beginner)
 
 1. Install the plugin (see above).
 2. Login (QR, on the Gateway machine):

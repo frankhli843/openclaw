@@ -94,7 +94,7 @@ describe("security fix", () => {
     }
   });
 
-  it("preserves open groupPolicy defaults while tightening filesystem perms", async () => {
+  it("tightens groupPolicy + filesystem perms", async () => {
     const stateDir = await createStateDir("tightens");
     await fs.chmod(stateDir, 0o755);
 
@@ -117,19 +117,28 @@ describe("security fix", () => {
     const res = await fixSecurityFootguns({ env, stateDir, configPath });
     expect(res.ok).toBe(true);
     expect(res.configWritten).toBe(true);
-    expect(res.changes).toEqual(expect.arrayContaining(['logging.redactSensitive=off -> "tools"']));
+    expect(res.changes).toEqual(
+      expect.arrayContaining([
+        "channels.telegram.groupPolicy=open -> allowlist",
+        "channels.whatsapp.groupPolicy=open -> allowlist",
+        "channels.discord.groupPolicy=open -> allowlist",
+        "channels.signal.groupPolicy=open -> allowlist",
+        "channels.imessage.groupPolicy=open -> allowlist",
+        'logging.redactSensitive=off -> "tools"',
+      ]),
+    );
 
     await expectTightenedStateAndConfigPerms(stateDir, configPath);
 
     const parsed = await readParsedConfig(configPath);
     const channels = parsed.channels as Record<string, Record<string, unknown>>;
-    expect(channels.telegram.groupPolicy).toBe("open");
-    expect(channels.whatsapp.groupPolicy).toBe("open");
-    expect(channels.discord.groupPolicy).toBe("open");
-    expect(channels.signal.groupPolicy).toBe("open");
-    expect(channels.imessage.groupPolicy).toBe("open");
+    expect(channels.telegram.groupPolicy).toBe("allowlist");
+    expect(channels.whatsapp.groupPolicy).toBe("allowlist");
+    expect(channels.discord.groupPolicy).toBe("allowlist");
+    expect(channels.signal.groupPolicy).toBe("allowlist");
+    expect(channels.imessage.groupPolicy).toBe("allowlist");
 
-    expect(channels.whatsapp.groupAllowFrom).toBeUndefined();
+    expect(channels.whatsapp.groupAllowFrom).toEqual(["+15551234567"]);
   });
 
   it("applies allowlist per-account and seeds WhatsApp groupAllowFrom from store", async () => {
@@ -150,7 +159,7 @@ describe("security fix", () => {
     const whatsapp = channels.whatsapp;
     const accounts = whatsapp.accounts as Record<string, Record<string, unknown>>;
 
-    expect(accounts.a1.groupPolicy).toBe("open");
+    expect(accounts.a1.groupPolicy).toBe("allowlist");
     expect(accounts.a1.groupAllowFrom).toEqual(["+15550001111"]);
   });
 
@@ -168,7 +177,7 @@ describe("security fix", () => {
     });
     expect(res.ok).toBe(true);
 
-    expect(channels.whatsapp.groupPolicy).toBe("open");
+    expect(channels.whatsapp.groupPolicy).toBe("allowlist");
     expect(channels.whatsapp.groupAllowFrom).toBeUndefined();
   });
 

@@ -2,9 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   coerceToFailoverError,
   describeFailoverError,
-  extractRateLimitFromHeaders,
   isTimeoutError,
-  parseAnthropicRateLimitHint,
   resolveFailoverReasonFromError,
   resolveFailoverStatus,
 } from "./failover-error.js";
@@ -464,117 +462,9 @@ describe("failover-error", () => {
     expect(err?.reason).toBe("auth_permanent");
   });
 
-  it("parses Anthropic soft rate-limit hints from retry-after text", () => {
-    const hint = parseAnthropicRateLimitHint({
-      message:
-        '429 {"type":"error","error":{"type":"rate_limit_error","message":"Rate limited, retry after 45 seconds"}}',
-      status: 429,
-    });
-    expect(hint?.retryAfterMs).toBe(45_000);
-    expect(hint?.severity).toBe("soft");
-  });
-
-  it("parses Anthropic hard lockout hints from available-at timestamps", () => {
-    const until = new Date(Date.now() + 20 * 60 * 1000).toISOString();
-    const hint = parseAnthropicRateLimitHint({
-      message: `rate_limit_error: This account is currently limited and will be available at ${until}`,
-      status: 429,
-    });
-    expect(hint?.availableAtMs).toBeTypeOf("number");
-    expect(hint?.severity).toBe("hard");
-  });
-
-  it("coerces Anthropic rate-limit errors with parsed retry metadata", () => {
-    const err = coerceToFailoverError(
-      {
-        status: 429,
-        message: "rate_limit_error: too many requests, retry after 30 seconds (request_id=req_123)",
-      },
-      { provider: "anthropic", model: "claude-opus-4-6" },
-    );
-    expect(err?.reason).toBe("rate_limit");
-    expect(err?.retryAfterMs).toBe(30_000);
-    expect(err?.rateLimitSeverity).toBe("soft");
-  });
-
   it("describes non-Error values consistently", () => {
     const described = describeFailoverError(123);
     expect(described.message).toBe("123");
     expect(described.reason).toBeUndefined();
-  });
-
-  describe("extractRateLimitFromHeaders", () => {
-    it("extracts retry-after seconds from Headers object", () => {
-      const headers = new Headers({ "retry-after": "60" });
-      const err = { status: 429, headers };
-      const result = extractRateLimitFromHeaders(err);
-      expect(result?.retryAfterMs).toBe(60_000);
-    });
-
-    it("extracts retry-after from plain object headers", () => {
-      const err = { status: 429, headers: { "retry-after": "30" } };
-      const result = extractRateLimitFromHeaders(err);
-      expect(result?.retryAfterMs).toBe(30_000);
-    });
-
-    it("extracts x-ratelimit-reset-tokens duration format", () => {
-      const err = { status: 429, headers: { "x-ratelimit-reset-tokens": "5m30s" } };
-      const result = extractRateLimitFromHeaders(err);
-      expect(result?.retryAfterMs).toBe(330_000);
-    });
-
-    it("extracts x-ratelimit-reset-requests seconds format", () => {
-      const err = { status: 429, headers: { "x-ratelimit-reset-requests": "45s" } };
-      const result = extractRateLimitFromHeaders(err);
-      expect(result?.retryAfterMs).toBe(45_000);
-    });
-
-    it("returns undefined for missing headers", () => {
-      expect(extractRateLimitFromHeaders({})).toBeUndefined();
-      expect(extractRateLimitFromHeaders(null)).toBeUndefined();
-      expect(extractRateLimitFromHeaders("string")).toBeUndefined();
-    });
-
-    it("returns undefined when no rate limit headers present", () => {
-      const err = { status: 429, headers: { "content-type": "application/json" } };
-      expect(extractRateLimitFromHeaders(err)).toBeUndefined();
-    });
-  });
-
-  describe("parseAnthropicRateLimitHint with error headers", () => {
-    it("prefers header retry-after over message text parsing", () => {
-      const headers = new Headers({ "retry-after": "120" });
-      const err = { status: 429, message: "rate_limit_error: retry after 30 seconds", headers };
-      const hint = parseAnthropicRateLimitHint({
-        message: "rate_limit_error: retry after 30 seconds",
-        status: 429,
-        error: err,
-      });
-      // Should use header value (120s = 120000ms) not message value (30s)
-      expect(hint?.retryAfterMs).toBe(120_000);
-      expect(hint?.severity).toBe("soft");
-    });
-
-    it("classifies large header retry-after as hard", () => {
-      const headers = new Headers({ "retry-after": "3600" });
-      const err = { status: 429, headers };
-      const hint = parseAnthropicRateLimitHint({
-        message: "rate_limit_error",
-        status: 429,
-        error: err,
-      });
-      expect(hint?.retryAfterMs).toBe(3_600_000);
-      expect(hint?.severity).toBe("hard");
-    });
-
-    it("falls back to message parsing when no headers", () => {
-      const hint = parseAnthropicRateLimitHint({
-        message: "rate_limit_error: retry after 45 seconds (request_id=req_123)",
-        status: 429,
-        error: { status: 429 }, // no headers
-      });
-      expect(hint?.retryAfterMs).toBe(45_000);
-      expect(hint?.severity).toBe("soft");
-    });
   });
 });

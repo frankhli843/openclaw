@@ -190,18 +190,10 @@ export const AgentDefaultsSchema = z
         thinking: z.string().optional(),
         runTimeoutSeconds: z.number().int().min(0).optional(),
         announceTimeoutMs: z.number().int().positive().optional(),
-        auth: z
-          .object({
-            order: z.record(z.string(), z.array(z.string())).optional(),
-          })
-          .strict()
-          .optional(),
       })
       .strict()
       .optional(),
     sandbox: AgentSandboxSchema,
-    gateNotifyChannel: z.string().optional(),
-    gateNotifyOwner: z.string().optional(),
   })
   .strict()
   .optional();

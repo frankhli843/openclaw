@@ -28,45 +28,8 @@ export function resolveMentionTargets(msg: WebInboundMsg, authDir?: string): Men
     ? msg.mentionedJids.map((jid) => jidToE164(jid, jidOptions) ?? jid).filter(Boolean)
     : [];
   const selfE164 = msg.selfE164 ?? (msg.selfJid ? jidToE164(msg.selfJid, jidOptions) : null);
-  const selfJid = msg.selfJid ? msg.selfJid.replace(/:\d+/, "") : null;
+  const selfJid = msg.selfJid ? msg.selfJid.replace(/:\\d+/, "") : null;
   return { normalizedMentions, selfE164, selfJid };
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function extractJidLocalPart(jid: string | null): string | null {
-  if (!jid) {
-    return null;
-  }
-  const [local] = jid.split("@");
-  return local?.trim() || null;
-}
-
-function matchesSelfIdentifierText(bodyClean: string, targets: MentionTargets): boolean {
-  const candidates = new Set<string>();
-
-  const selfDigits = targets.selfE164?.replace(/\D/g, "");
-  if (selfDigits) {
-    candidates.add(selfDigits);
-  }
-
-  const selfJidLocal = extractJidLocalPart(targets.selfJid);
-  if (selfJidLocal) {
-    candidates.add(selfJidLocal);
-  }
-
-  for (const candidate of candidates) {
-    const escaped = escapeRegExp(candidate);
-    // WhatsApp often normalizes mentions to textual @<id> in body.
-    // Accept both "@123" and "@+123" forms.
-    if (new RegExp(`(^|\\s)@\\+?${escaped}(?=$|\\s|[.,!?;:])`, "i").test(bodyClean)) {
-      return true;
-    }
-  }
-
-  return false;
 }
 
 export function isBotMentionedFromTargets(
@@ -79,7 +42,6 @@ export function isBotMentionedFromTargets(
     normalizeMentionText(text);
 
   const isSelfChat = isSelfChatMode(targets.selfE164, mentionCfg.allowFrom);
-  const bodyClean = clean(msg.body);
 
   const hasMentions = (msg.mentionedJids?.length ?? 0) > 0;
   if (hasMentions && !isSelfChat) {
@@ -92,17 +54,12 @@ export function isBotMentionedFromTargets(
         return true;
       }
     }
-    // Some WhatsApp payloads render a real mention in text as @<numeric-id>
-    // but the metadata cannot be resolved to self (e.g., unresolved @lid mapping).
-    if (matchesSelfIdentifierText(bodyClean, targets)) {
-      return true;
-    }
-    // If the message explicitly mentions someone else, do not fall back to generic regex matches.
+    // If the message explicitly mentions someone else, do not fall back to regex matches.
     return false;
   } else if (hasMentions && isSelfChat) {
     // Self-chat mode: ignore WhatsApp @mention JIDs, otherwise @mentioning the owner in group chats triggers the bot.
   }
-
+  const bodyClean = clean(msg.body);
   if (mentionCfg.mentionRegexes.some((re) => re.test(bodyClean))) {
     return true;
   }
@@ -121,10 +78,6 @@ export function isBotMentionedFromTargets(
         return true;
       }
     }
-  }
-
-  if (matchesSelfIdentifierText(bodyClean, targets)) {
-    return true;
   }
 
   return false;

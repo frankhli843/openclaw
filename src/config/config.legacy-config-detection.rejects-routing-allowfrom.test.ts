@@ -470,7 +470,7 @@ describe("legacy config detection", () => {
       if (res.ok) {
         const channel = getChannelConfig(res.config, provider);
         expect(channel?.dmPolicy, provider).toBe("pairing");
-        expect(channel?.groupPolicy, provider).toBe("open");
+        expect(channel?.groupPolicy, provider).toBe("allowlist");
         if (provider === "telegram") {
           expect(channel?.streaming, provider).toBe("partial");
           expect(channel?.streamMode, provider).toBeUndefined();

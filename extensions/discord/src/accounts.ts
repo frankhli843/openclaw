@@ -6,8 +6,9 @@ import { normalizeAccountId } from "openclaw/plugin-sdk/account-id";
 import { resolveAccountEntry } from "openclaw/plugin-sdk/routing";
 import {
   type OpenClawConfig,
-} from "openclaw/plugin-sdk/account-resolution";
-import type { DiscordAccountConfig, DiscordActionConfig } from "openclaw/plugin-sdk/discord";
+  type DiscordAccountConfig,
+  type DiscordActionConfig,
+} from "./runtime-api.js";
 import { resolveDiscordToken } from "./token.js";
 
 export type ResolvedDiscordAccount = {

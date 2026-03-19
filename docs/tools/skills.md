@@ -299,25 +299,6 @@ copy). Workspace skills are user-owned and override both on name conflicts.
 
 See [Skills config](/tools/skills-config) for the full configuration schema.
 
-## Recommended skills for new instances
-
-When setting up a new OpenClaw instance, consider including these utility skills
-that other skills can reference as shared building blocks:
-
-| Skill               | Purpose                               | Why include it                                                                                                                                                                                                                                                                                            |
-| ------------------- | ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **mermaid-diagram** | Render mermaid diagrams as PNG images | Many planning, architecture, and documentation skills need to produce visual diagrams. This skill handles rendering via the mermaid.ink API (no local Puppeteer/Chromium dependency) and works on all architectures including ARM64. Other skills reference it instead of reimplementing rendering logic. |
-
-These are workspace skills (`<workspace>/skills/`). Install them via ClawHub
-when available, or create them manually following the format above.
-
-<Tip>
-**Building block pattern:** utility skills like `mermaid-diagram` act as shared
-libraries. When you build a new skill that needs diagrams, reference the
-mermaid-diagram skill instead of embedding rendering logic. This keeps skills
-lean and avoids rediscovering platform-specific workarounds.
-</Tip>
-
 ## Looking for more skills?
 
 Browse [https://clawhub.com](https://clawhub.com).

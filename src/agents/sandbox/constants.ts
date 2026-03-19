@@ -1,14 +1,8 @@
-import os from "node:os";
 import path from "node:path";
 import { CHANNEL_IDS } from "../../channels/ids.js";
 import { STATE_DIR } from "../../config/paths.js";
 
-const EFFECTIVE_STATE_DIR =
-  typeof STATE_DIR === "string" && STATE_DIR.trim().length > 0
-    ? STATE_DIR
-    : process.env.OPENCLAW_STATE_DIR?.trim() || path.join(os.homedir(), ".openclaw");
-
-export const DEFAULT_SANDBOX_WORKSPACE_ROOT = path.join(EFFECTIVE_STATE_DIR, "sandboxes");
+export const DEFAULT_SANDBOX_WORKSPACE_ROOT = path.join(STATE_DIR, "sandboxes");
 
 export const DEFAULT_SANDBOX_IMAGE = "openclaw-sandbox:bookworm-slim";
 export const DEFAULT_SANDBOX_CONTAINER_PREFIX = "openclaw-sbx-";
@@ -56,6 +50,6 @@ export const DEFAULT_SANDBOX_BROWSER_AUTOSTART_TIMEOUT_MS = 12_000;
 
 export const SANDBOX_AGENT_WORKSPACE_MOUNT = "/agent";
 
-export const SANDBOX_STATE_DIR = path.join(EFFECTIVE_STATE_DIR, "sandbox");
+export const SANDBOX_STATE_DIR = path.join(STATE_DIR, "sandbox");
 export const SANDBOX_REGISTRY_PATH = path.join(SANDBOX_STATE_DIR, "containers.json");
 export const SANDBOX_BROWSER_REGISTRY_PATH = path.join(SANDBOX_STATE_DIR, "browsers.json");

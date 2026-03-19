@@ -1,7 +1,6 @@
 import type {
   BlockStreamingCoalesceConfig,
   DmPolicy,
-  GateMode,
   GroupPolicy,
   MarkdownConfig,
 } from "./types.base.js";
@@ -20,10 +19,6 @@ export type WhatsAppActionConfig = {
 
 export type WhatsAppGroupConfig = {
   requireMention?: boolean;
-  /** 5-tier gating mode (takes priority over requireMention when set). */
-  gateMode?: GateMode;
-  /** Allowlist of sender IDs for 'allowlist' gateMode (platform IDs). */
-  allowedSenders?: string[];
   tools?: GroupToolPolicyConfig;
   toolsBySender?: GroupToolPolicyBySenderConfig;
 };

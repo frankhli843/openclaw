@@ -7,8 +7,8 @@ import {
   normalizeThinkLevel,
   resolvePreferredOpenClawTmpDir,
   supportsXHighThinking,
-} from "openclaw/plugin-sdk/llm-task";
-import type { OpenClawPluginApi } from "openclaw/plugin-sdk/llm-task";
+} from "../api.js";
+import type { OpenClawPluginApi } from "../api.js";
 
 const AjvCtor = Ajv as unknown as typeof import("ajv").default;
 

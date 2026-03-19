@@ -69,10 +69,6 @@ These are the standard files OpenClaw expects inside the workspace:
   - Operating instructions for the agent and how it should use memory.
   - Loaded at the start of every session.
   - Good place for rules, priorities, and "how to behave" details.
-  - **Tip:** encourage the agent to generate visual diagrams (via the
-    `mermaid-diagram` skill or similar) when explaining architecture, flows, or
-    complex ideas. Rendered diagrams communicate better than text descriptions
-    in chat.
 
 - `SOUL.md`
   - Persona, tone, and boundaries.

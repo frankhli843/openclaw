@@ -3,7 +3,6 @@ import type {
   BlockStreamingChunkConfig,
   BlockStreamingCoalesceConfig,
   DmPolicy,
-  GateMode,
   GroupPolicy,
   MarkdownConfig,
   OutboundRetryConfig,
@@ -36,10 +35,6 @@ export type DiscordDmConfig = {
 export type DiscordGuildChannelConfig = {
   allow?: boolean;
   requireMention?: boolean;
-  /** 5-tier gating mode (takes priority over requireMention when set). */
-  gateMode?: GateMode;
-  /** Allowlist of sender IDs for 'allowlist' gateMode (Discord user IDs). */
-  allowedSenders?: string[];
   /**
    * If true, drop messages that mention another user/role but not this one (not @everyone/@here).
    * Default: false.
@@ -69,10 +64,6 @@ export type DiscordReactionNotificationMode = "off" | "own" | "all" | "allowlist
 export type DiscordGuildEntry = {
   slug?: string;
   requireMention?: boolean;
-  /** 5-tier gating mode for this guild (takes priority over requireMention when set). */
-  gateMode?: GateMode;
-  /** Allowlist of sender IDs for 'allowlist' gateMode (Discord user IDs). */
-  allowedSenders?: string[];
   /**
    * If true, drop messages that mention another user/role but not this one (not @everyone/@here).
    * Default: false.

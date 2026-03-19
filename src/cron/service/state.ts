@@ -112,7 +112,6 @@ export type CronServiceDeps = {
     accountId?: string;
   }) => Promise<void>;
   onEvent?: (evt: CronEvent) => void;
-  sendDeadLetterAlert?: (message: string) => Promise<void> | void;
 };
 
 export type CronServiceDepsInternal = Omit<CronServiceDeps, "nowMs"> & {

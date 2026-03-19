@@ -200,10 +200,10 @@ function setGroupPolicyAllowlist(params: {
   }
 
   const topPolicy = section.groupPolicy;
-  // "open" is now the intended default — gateMode handles per-group access control.
-  // Previously this auto-fixed open→allowlist, but that silently broke mention-gated groups.
   if (topPolicy === "open") {
-    // no-op: open is valid and expected
+    section.groupPolicy = "allowlist";
+    params.changes.push(`channels.${params.channel}.groupPolicy=open -> allowlist`);
+    params.policyFlips.add(`channels.${params.channel}.`);
   }
 
   const accounts = section.accounts;
@@ -219,10 +219,9 @@ function setGroupPolicyAllowlist(params: {
     }
     const account = accountValue as Record<string, unknown>;
     if (account.groupPolicy === "open") {
-      // no-op: open is valid and expected (gateMode handles access)
-      void 0;
+      account.groupPolicy = "allowlist";
       params.changes.push(
-        `channels.${params.channel}.accounts.${accountId}.groupPolicy=open (kept)`,
+        `channels.${params.channel}.accounts.${accountId}.groupPolicy=open -> allowlist`,
       );
       params.policyFlips.add(`channels.${params.channel}.accounts.${accountId}.`);
     }

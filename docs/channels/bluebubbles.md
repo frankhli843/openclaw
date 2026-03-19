@@ -286,7 +286,7 @@ Control whether responses are sent as a single message or streamed in blocks:
 - Media cap via `channels.bluebubbles.mediaMaxMb` for inbound and outbound media (default: 8 MB).
 - Outbound text is chunked to `channels.bluebubbles.textChunkLimit` (default: 4000 chars).
 
-## Configuration
+## Configuration reference
 
 Full configuration: [Configuration](/gateway/configuration)
 

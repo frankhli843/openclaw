@@ -46,8 +46,6 @@ export type BrowserConfig = {
   color?: string;
   /** Override the browser executable path (all platforms). */
   executablePath?: string;
-  /** Optional user data dir override for the built-in openclaw browser profile. */
-  userDataDir?: string;
   /** Start Chrome headless (best-effort). Default: false */
   headless?: boolean;
   /** Pass --no-sandbox to Chrome (Linux containers). Default: false */

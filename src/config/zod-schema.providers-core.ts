@@ -23,7 +23,6 @@ import {
   DmConfigSchema,
   DmPolicySchema,
   ExecutableTokenSchema,
-  GateModeSchema,
   GroupPolicySchema,
   HexColorSchema,
   MarkdownConfigSchema,
@@ -75,8 +74,6 @@ const SlackCapabilitiesSchema = z.union([
 export const TelegramTopicSchema = z
   .object({
     requireMention: z.boolean().optional(),
-    gateMode: GateModeSchema.optional(),
-    allowedSenders: z.array(z.union([z.string(), z.number()])).optional(),
     disableAudioPreflight: z.boolean().optional(),
     groupPolicy: GroupPolicySchema.optional(),
     skills: z.array(z.string()).optional(),
@@ -90,8 +87,6 @@ export const TelegramTopicSchema = z
 export const TelegramGroupSchema = z
   .object({
     requireMention: z.boolean().optional(),
-    gateMode: GateModeSchema.optional(),
-    allowedSenders: z.array(z.union([z.string(), z.number()])).optional(),
     disableAudioPreflight: z.boolean().optional(),
     groupPolicy: GroupPolicySchema.optional(),
     tools: ToolPolicySchema,
@@ -193,7 +188,7 @@ export const TelegramAccountSchemaBase = z
     allowFrom: z.array(z.union([z.string(), z.number()])).optional(),
     defaultTo: z.union([z.string(), z.number()]).optional(),
     groupAllowFrom: z.array(z.union([z.string(), z.number()])).optional(),
-    groupPolicy: GroupPolicySchema.optional().default("open"),
+    groupPolicy: GroupPolicySchema.optional().default("allowlist"),
     historyLimit: z.number().int().min(0).optional(),
     dmHistoryLimit: z.number().int().min(0).optional(),
     dms: z.record(z.string(), DmConfigSchema.optional()).optional(),
@@ -395,8 +390,6 @@ export const DiscordGuildChannelSchema = z
   .object({
     allow: z.boolean().optional(),
     requireMention: z.boolean().optional(),
-    gateMode: GateModeSchema.optional(),
-    allowedSenders: DiscordIdListSchema.optional(),
     ignoreOtherMentions: z.boolean().optional(),
     tools: ToolPolicySchema,
     toolsBySender: ToolPolicyBySenderSchema,
@@ -424,8 +417,6 @@ export const DiscordGuildSchema = z
   .object({
     slug: z.string().optional(),
     requireMention: z.boolean().optional(),
-    gateMode: GateModeSchema.optional(),
-    allowedSenders: DiscordIdListSchema.optional(),
     ignoreOtherMentions: z.boolean().optional(),
     tools: ToolPolicySchema,
     toolsBySender: ToolPolicyBySenderSchema,
@@ -752,8 +743,6 @@ export const GoogleChatGroupSchema = z
     enabled: z.boolean().optional(),
     allow: z.boolean().optional(),
     requireMention: z.boolean().optional(),
-    gateMode: GateModeSchema.optional(),
-    allowedSenders: z.array(z.union([z.string(), z.number()])).optional(),
     users: z.array(z.union([z.string(), z.number()])).optional(),
     systemPrompt: z.string().optional(),
   })
@@ -768,7 +757,7 @@ export const GoogleChatAccountSchema = z
     allowBots: z.boolean().optional(),
     dangerouslyAllowNameMatching: z.boolean().optional(),
     requireMention: z.boolean().optional(),
-    groupPolicy: GroupPolicySchema.optional().default("open"),
+    groupPolicy: GroupPolicySchema.optional().default("allowlist"),
     groupAllowFrom: z.array(z.union([z.string(), z.number()])).optional(),
     groups: z.record(z.string(), GoogleChatGroupSchema.optional()).optional(),
     defaultTo: z.string().optional(),
@@ -828,8 +817,6 @@ export const SlackChannelSchema = z
     enabled: z.boolean().optional(),
     allow: z.boolean().optional(),
     requireMention: z.boolean().optional(),
-    gateMode: GateModeSchema.optional(),
-    allowedSenders: z.array(z.union([z.string(), z.number()])).optional(),
     tools: ToolPolicySchema,
     toolsBySender: ToolPolicyBySenderSchema,
     allowBots: z.boolean().optional(),
@@ -1157,7 +1144,7 @@ export const IrcAccountSchemaBase = z
     allowFrom: z.array(z.union([z.string(), z.number()])).optional(),
     defaultTo: z.string().optional(),
     groupAllowFrom: z.array(z.union([z.string(), z.number()])).optional(),
-    groupPolicy: GroupPolicySchema.optional().default("open"),
+    groupPolicy: GroupPolicySchema.optional().default("allowlist"),
     groups: z.record(z.string(), IrcGroupSchema.optional()).optional(),
     mentionPatterns: z.array(z.string()).optional(),
     historyLimit: z.number().int().min(0).optional(),
@@ -1267,7 +1254,7 @@ export const IMessageAccountSchemaBase = z
     allowFrom: z.array(z.union([z.string(), z.number()])).optional(),
     defaultTo: z.string().optional(),
     groupAllowFrom: z.array(z.union([z.string(), z.number()])).optional(),
-    groupPolicy: GroupPolicySchema.optional().default("open"),
+    groupPolicy: GroupPolicySchema.optional().default("allowlist"),
     historyLimit: z.number().int().min(0).optional(),
     dmHistoryLimit: z.number().int().min(0).optional(),
     dms: z.record(z.string(), DmConfigSchema.optional()).optional(),
@@ -1289,8 +1276,6 @@ export const IMessageAccountSchemaBase = z
         z
           .object({
             requireMention: z.boolean().optional(),
-            gateMode: GateModeSchema.optional(),
-            allowedSenders: z.array(z.string()).optional(),
             tools: ToolPolicySchema,
             toolsBySender: ToolPolicyBySenderSchema,
           })
@@ -1380,8 +1365,6 @@ const BlueBubblesActionSchema = z
 const BlueBubblesGroupConfigSchema = z
   .object({
     requireMention: z.boolean().optional(),
-    gateMode: GateModeSchema.optional(),
-    allowedSenders: z.array(z.union([z.string(), z.number()])).optional(),
     tools: ToolPolicySchema,
     toolsBySender: ToolPolicyBySenderSchema,
   })
@@ -1400,7 +1383,7 @@ export const BlueBubblesAccountSchemaBase = z
     dmPolicy: DmPolicySchema.optional().default("pairing"),
     allowFrom: z.array(BlueBubblesAllowFromEntry).optional(),
     groupAllowFrom: z.array(BlueBubblesAllowFromEntry).optional(),
-    groupPolicy: GroupPolicySchema.optional().default("open"),
+    groupPolicy: GroupPolicySchema.optional().default("allowlist"),
     historyLimit: z.number().int().min(0).optional(),
     dmHistoryLimit: z.number().int().min(0).optional(),
     dms: z.record(z.string(), DmConfigSchema.optional()).optional(),
@@ -1513,7 +1496,7 @@ export const MSTeamsConfigSchema = z
     allowFrom: z.array(z.string()).optional(),
     defaultTo: z.string().optional(),
     groupAllowFrom: z.array(z.string()).optional(),
-    groupPolicy: GroupPolicySchema.optional().default("open"),
+    groupPolicy: GroupPolicySchema.optional().default("allowlist"),
     textChunkLimit: z.number().int().positive().optional(),
     chunkMode: z.enum(["length", "newline"]).optional(),
     blockStreamingCoalesce: BlockStreamingCoalesceSchema.optional(),

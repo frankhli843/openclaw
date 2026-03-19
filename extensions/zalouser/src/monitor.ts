@@ -16,7 +16,7 @@ import type {
   OpenClawConfig,
   OutboundReplyPayload,
   RuntimeEnv,
-} from "openclaw/plugin-sdk/zalouser";
+} from "../runtime-api.js";
 import {
   createChannelPairingController,
   createChannelReplyPipeline,
@@ -32,8 +32,7 @@ import {
   resolveSenderScopedGroupPolicy,
   summarizeMapping,
   warnMissingProviderGroupPolicyFallbackOnce,
-} from "openclaw/plugin-sdk/zalouser";
-import { createDeferred } from "../../shared/deferred.js";
+} from "../runtime-api.js";
 import {
   buildZalouserGroupCandidates,
   findZalouserGroupEntry,
