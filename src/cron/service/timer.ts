@@ -21,6 +21,11 @@ import {
   resolveJobPayloadTextForMain,
 } from "./jobs.js";
 import { locked } from "./locked.js";
+import {
+  applySelfHealOnError,
+  clearSelfHealOnSuccess,
+  shouldBypassDurableQueueForCronJob,
+} from "./self-heal.frankclaw.js";
 import type { CronEvent, CronServiceState } from "./state.js";
 import { ensureLoaded, persist } from "./store.js";
 import { DEFAULT_JOB_TIMEOUT_MS, resolveCronJobTimeoutMs } from "./timeout-policy.js";
@@ -50,6 +55,8 @@ type TimedCronRunOutcome = CronRunOutcome &
     deliveryAttempted?: boolean;
     startedAt: number;
     endedAt: number;
+    /** The scheduled nextRunAtMs at the time the job was picked up (for self-heal tracking). */
+    scheduledAtMs?: number;
   };
 
 type StartupCatchupCandidate = {
@@ -160,6 +167,8 @@ function resolveRetryConfig(cronConfig?: CronConfig) {
     retryOn: Array.isArray(retry?.retryOn) && retry.retryOn.length > 0 ? retry.retryOn : undefined,
   };
 }
+
+export { shouldBypassDurableQueueForCronJob } from "./self-heal.frankclaw.js";
 
 function resolveDeliveryStatus(params: { job: CronJob; delivered?: boolean }): CronDeliveryStatus {
   if (params.delivered === true) {
@@ -301,6 +310,7 @@ export function applyJobResult(
     delivered?: boolean;
     startedAt: number;
     endedAt: number;
+    scheduledAtMs?: number;
   },
   opts?: {
     // Preserve recurring "every" anchors for manual force runs.
@@ -364,6 +374,8 @@ export function applyJobResult(
   } else {
     job.state.consecutiveErrors = 0;
     job.state.lastFailureAlertAtMs = undefined;
+    // [frankclaw] Clear self-heal state on success/skipped.
+    clearSelfHealOnSuccess(job);
   }
 
   const shouldDelete =
@@ -414,33 +426,44 @@ export function applyJobResult(
         }
       }
     } else if (result.status === "error" && job.enabled) {
-      // Apply exponential backoff for errored jobs to prevent retry storms.
-      const backoff = errorBackoffMs(job.state.consecutiveErrors ?? 1);
-      let normalNext: number | undefined;
-      try {
-        normalNext =
-          opts?.preserveSchedule && job.schedule.kind === "every"
-            ? computeNextWithPreservedLastRun(result.endedAt)
-            : computeJobNextRunAtMs(job, result.endedAt);
-      } catch (err) {
-        // If the schedule expression/timezone throws (croner edge cases),
-        // record the schedule error (auto-disables after repeated failures)
-        // and fall back to backoff-only schedule so the state update is not lost.
-        recordScheduleComputeError({ state, job, err });
-      }
-      const backoffNext = result.endedAt + backoff;
-      // Use whichever is later: the natural next run or the backoff delay.
-      job.state.nextRunAtMs =
-        normalNext !== undefined ? Math.max(normalNext, backoffNext) : backoffNext;
-      state.deps.log.info(
-        {
-          jobId: job.id,
-          consecutiveErrors: job.state.consecutiveErrors,
-          backoffMs: backoff,
-          nextRunAtMs: job.state.nextRunAtMs,
+      // [frankclaw] Self-heal: for cron-schedule jobs, try automatic retry on transient infra errors.
+      const selfHealHandled = applySelfHealOnError({
+        state,
+        job,
+        result: {
+          status: "error",
+          error: result.error,
+          startedAt: result.startedAt,
+          endedAt: result.endedAt,
+          scheduledAtMs: result.scheduledAtMs,
         },
-        "cron: applying error backoff",
-      );
+        errorBackoffMs: (n) => errorBackoffMs(n),
+      });
+      if (!selfHealHandled) {
+        // Self-heal did not schedule a retry — use upstream error backoff.
+        const backoff = errorBackoffMs(job.state.consecutiveErrors ?? 1);
+        let normalNext: number | undefined;
+        try {
+          normalNext =
+            opts?.preserveSchedule && job.schedule.kind === "every"
+              ? computeNextWithPreservedLastRun(result.endedAt)
+              : computeJobNextRunAtMs(job, result.endedAt);
+        } catch (err) {
+          recordScheduleComputeError({ state, job, err });
+        }
+        const backoffNext = result.endedAt + backoff;
+        job.state.nextRunAtMs =
+          normalNext !== undefined ? Math.max(normalNext, backoffNext) : backoffNext;
+        state.deps.log.info(
+          {
+            jobId: job.id,
+            consecutiveErrors: job.state.consecutiveErrors,
+            backoffMs: backoff,
+            nextRunAtMs: job.state.nextRunAtMs,
+          },
+          "cron: applying error backoff",
+        );
+      }
     } else if (job.enabled) {
       let naturalNext: number | undefined;
       try {
@@ -494,6 +517,7 @@ function applyOutcomeToStoredJob(state: CronServiceState, result: TimedCronRunOu
     delivered: result.delivered,
     startedAt: result.startedAt,
     endedAt: result.endedAt,
+    scheduledAtMs: result.scheduledAtMs,
   });
 
   emitJobFinished(state, job, result, result.startedAt);
@@ -618,14 +642,16 @@ export async function onTimer(state: CronServiceState) {
       return due.map((j) => ({
         id: j.id,
         job: j,
+        scheduledAtMs: j.state.nextRunAtMs, // [frankclaw] Capture for self-heal tracking
       }));
     });
 
     const runDueJob = async (params: {
       id: string;
       job: CronJob;
+      scheduledAtMs?: number;
     }): Promise<TimedCronRunOutcome> => {
-      const { id, job } = params;
+      const { id, job, scheduledAtMs } = params;
       const startedAt = state.deps.nowMs();
       job.state.runningAtMs = startedAt;
       emit(state, { jobId: job.id, action: "started", runAtMs: startedAt });
@@ -633,7 +659,7 @@ export async function onTimer(state: CronServiceState) {
 
       try {
         const result = await executeJobCoreWithTimeout(state, job);
-        return { jobId: id, ...result, startedAt, endedAt: state.deps.nowMs() };
+        return { jobId: id, scheduledAtMs, ...result, startedAt, endedAt: state.deps.nowMs() };
       } catch (err) {
         const errorText = isAbortError(err) ? timeoutErrorMessage() : String(err);
         state.deps.log.warn(
@@ -642,6 +668,7 @@ export async function onTimer(state: CronServiceState) {
         );
         return {
           jobId: id,
+          scheduledAtMs,
           status: "error",
           error: errorText,
           startedAt,
