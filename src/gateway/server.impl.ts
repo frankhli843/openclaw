@@ -1017,8 +1017,10 @@ export async function startGatewayServer(
       : () => {};
 
   // Recover pending outbound deliveries from previous crash/restart.
+  // Also runs periodically (every 2 min) so deferred quiet-hours messages
+  // are delivered promptly after the DNR window ends. (frankclaw extension)
   if (!minimalTestGateway) {
-    void (async () => {
+    const runDeliveryRecovery = async () => {
       const { recoverPendingDeliveries } = await import("../infra/outbound/delivery-queue.js");
       const { deliverOutboundPayloads } = await import("../infra/outbound/deliver.js");
       const logRecovery = log.child("delivery-recovery");
@@ -1027,7 +1029,15 @@ export async function startGatewayServer(
         log: logRecovery,
         cfg: cfgAtStart,
       });
-    })().catch((err) => log.error(`Delivery recovery failed: ${String(err)}`));
+    };
+    void runDeliveryRecovery().catch((err) => log.error(`Delivery recovery failed: ${String(err)}`));
+    // Periodic sweep every 2 min for deferred DNR deliveries (frankclaw)
+    const deliveryRecoveryIntervalMs = 2 * 60_000;
+    setInterval(() => {
+      void runDeliveryRecovery().catch((err) =>
+        log.error(`Periodic delivery recovery failed: ${String(err)}`),
+      );
+    }, deliveryRecoveryIntervalMs);
   }
 
   const execApprovalManager = new ExecApprovalManager();
