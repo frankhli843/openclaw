@@ -27,6 +27,8 @@ export * from "../infra/net/proxy-env.js";
 export * from "../infra/net/proxy-fetch.js";
 export * from "../infra/net/ssrf.js";
 export * from "../infra/outbound/identity.js";
+export * from "../infra/outbound/discord-dnr.js";
+export * from "../infra/outbound/delivery-queue.js";
 export * from "../infra/retry.js";
 export * from "../infra/retry-policy.js";
 export * from "../infra/scp-host.ts";

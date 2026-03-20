@@ -17,6 +17,11 @@ import type { ChunkMode } from "openclaw/plugin-sdk/reply-runtime";
 import type { ReplyPayload } from "openclaw/plugin-sdk/reply-runtime";
 import type { RuntimeEnv } from "openclaw/plugin-sdk/runtime-env";
 import { convertMarkdownTables } from "openclaw/plugin-sdk/text-runtime";
+import {
+  enforceDiscordDnrWindow,
+  DiscordDnrSuppressedError,
+  deferDelivery,
+} from "openclaw/plugin-sdk/infra-runtime";
 import { resolveDiscordAccount } from "../accounts.js";
 import { chunkDiscordTextWithMode } from "../chunk.js";
 import { createDiscordRetryRunner } from "../retry.js";
@@ -215,6 +220,10 @@ async function sendDiscordChunkWithFallback(params: {
   );
 }
 
+export type DeliverDiscordReplyResult = {
+  dnrSuppressed?: boolean;
+};
+
 export async function deliverDiscordReply(params: {
   cfg: OpenClawConfig;
   replies: ReplyPayload[];
@@ -232,7 +241,21 @@ export async function deliverDiscordReply(params: {
   sessionKey?: string;
   threadBindings?: DiscordThreadBindingLookup;
   mediaLocalRoots?: readonly string[];
-}) {
+}): Promise<DeliverDiscordReplyResult> {
+  // ── Frankclaw: Discord DNR (Do-Not-Reply) quiet window enforcement ──
+  const dnrCtx = { channel: "discord" as const, to: params.target };
+  try {
+    enforceDiscordDnrWindow(dnrCtx);
+  } catch (err) {
+    if (err instanceof DiscordDnrSuppressedError) {
+      // Queue the reply for delivery when the quiet window ends.
+      const queueId = `discord-reply:${params.target}:${Date.now()}`;
+      await deferDelivery(queueId, err.nextEligibleAtMs, "discord-dnr-window").catch(() => {});
+      return { dnrSuppressed: true };
+    }
+    throw err;
+  }
+
   const chunkLimit = Math.min(params.textLimit, 2000);
   const replyTo = params.replyToId?.trim() || undefined;
   const replyToMode = params.replyToMode ?? "all";
@@ -396,4 +419,5 @@ export async function deliverDiscordReply(params: {
   if (binding && deliveredAny) {
     params.threadBindings?.touchThread?.({ threadId: binding.threadId });
   }
+  return {};
 }

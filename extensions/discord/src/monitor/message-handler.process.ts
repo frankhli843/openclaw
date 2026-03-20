@@ -685,7 +685,7 @@ export async function processDiscordMessage(ctx: DiscordMessagePreflightContext)
         }
 
         const replyToId = replyReference.use();
-        await deliverDiscordReply({
+        const deliveryResult = await deliverDiscordReply({
           cfg,
           replies: [payload],
           target: deliverTarget,
@@ -703,6 +703,13 @@ export async function processDiscordMessage(ctx: DiscordMessagePreflightContext)
           threadBindings,
           mediaLocalRoots,
         });
+        if (deliveryResult.dnrSuppressed) {
+          // React with 🛏️ to indicate the response was queued for quiet hours.
+          await reactMessageDiscord(messageChannelId, message.id, "🛏️", {
+            rest: client.rest as never,
+          }).catch(() => {});
+          return;
+        }
         replyReference.markSent();
       },
       onError: (err, info) => {
