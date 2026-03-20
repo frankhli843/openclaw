@@ -48,6 +48,11 @@ import {
   resolveDiscordSystemLocation,
   resolveTimestampMs,
 } from "./format.js";
+import {
+  resolveDiscordGateModeCheck,
+  resolveSessionExistsFallback,
+  resolveWebhookRelay,
+} from "./message-handler.preflight.frankclaw.js";
 import type {
   DiscordMessagePreflightContext,
   DiscordMessagePreflightParams,
@@ -249,6 +254,51 @@ export async function preflightDiscordMessage(
     // Always ignore own messages to prevent self-reply loops
     return null;
   }
+
+  // ── frankclaw: webhook relay check ──────────────────────────────
+  // Must run BEFORE the bot-drop gate so relay webhook messages are
+  // not silently discarded. When matched, we rewrite the author to
+  // impersonate the configured owner and let the message flow through
+  // as a normal user message.
+  let webhookRelayResult: ReturnType<typeof resolveWebhookRelay> | undefined;
+  if (author.bot) {
+    const rawText = message.content ?? "";
+    webhookRelayResult = resolveWebhookRelay({
+      authorId: author.id,
+      authorBot: true,
+      messageText: rawText,
+    });
+    if (webhookRelayResult.matched && webhookRelayResult.ownerUserId) {
+      // Rewrite author identity so downstream logic treats this as
+      // a message from the owner.
+      try {
+        author.id = webhookRelayResult.ownerUserId;
+      } catch {
+        /* noop */
+      }
+      try {
+        Object.defineProperty(author, "bot", { value: false, writable: true, configurable: true });
+      } catch {
+        (message as Record<string, unknown>).author = {
+          ...author,
+          id: webhookRelayResult.ownerUserId,
+          bot: false,
+        };
+      }
+      if (webhookRelayResult.rewrittenText != null) {
+        try {
+          Object.defineProperty(message, "content", {
+            value: webhookRelayResult.rewrittenText,
+            writable: true,
+            configurable: true,
+          });
+        } catch {
+          // Silently proceed — downstream will see the original text
+        }
+      }
+    }
+  }
+  // ── end frankclaw: webhook relay ────────────────────────────────
 
   message = await hydrateDiscordMessageIfEmpty({
     client: params.client,
@@ -495,7 +545,12 @@ export async function preflightDiscordMessage(
     matchedBy: "binding.channel",
   });
   const boundAgentId = boundSessionKey ? effectiveRoute.agentId : undefined;
-  const isBoundThreadSession = Boolean(threadBinding && earlyThreadChannel);
+  const isBoundThreadSession =
+    Boolean(threadBinding && earlyThreadChannel) ||
+    resolveSessionExistsFallback({
+      channelId: messageChannelId,
+      isThread: Boolean(earlyThreadChannel),
+    });
   const bypassMentionRequirement = isBoundThreadSession || Boolean(configuredBinding);
   if (
     isBoundThreadBotSystemMessage({
@@ -771,8 +826,44 @@ export async function preflightDiscordMessage(
     }
   }
 
+  // [frankclaw] gateMode check (takes priority over legacy requireMention when configured)
+  const gateModeCheck = resolveDiscordGateModeCheck({
+    cfg: params.cfg,
+    isGuildMessage,
+    messageChannelId,
+    channelName,
+    channelInfo: channelInfo ?? undefined,
+    guildData: { guild: params.data.guild ?? undefined, guild_id: params.data.guild_id },
+    discordConfig: params.discordConfig,
+    senderId: sender.id,
+    senderName: sender.name,
+    senderTag: sender.tag,
+    wasMentioned,
+    baseText: baseText || "",
+    logDebug,
+    recordHistory: () =>
+      recordPendingHistoryEntryIfEnabled({
+        historyMap: params.guildHistories,
+        historyKey: messageChannelId,
+        limit: params.historyLimit,
+        entry: historyEntry ?? null,
+      }),
+  });
+  if (gateModeCheck.shouldDrop) {
+    return null;
+  }
+  const gateModeApproved = gateModeCheck.approved;
+  const gateModeEffectiveMention = gateModeCheck.effectiveMention;
+
   const canDetectMention = Boolean(botId) || mentionRegexes.length > 0;
-  const mentionGate = resolveMentionGatingWithBypass({
+  // When gateMode already approved the message, skip legacy mention gating entirely.
+  const mentionGate = gateModeApproved
+    ? {
+        effectiveWasMentioned: gateModeEffectiveMention,
+        shouldSkip: false,
+        shouldBypassMention: false,
+      }
+    : resolveMentionGatingWithBypass({
     isGroup: isGuildMessage,
     requireMention: Boolean(shouldRequireMention),
     canDetectMention,
@@ -785,9 +876,9 @@ export async function preflightDiscordMessage(
   });
   const effectiveWasMentioned = mentionGate.effectiveWasMentioned;
   logDebug(
-    `[discord-preflight] shouldRequireMention=${shouldRequireMention} baseRequireMention=${shouldRequireMentionByConfig} boundThreadSession=${isBoundThreadSession} mentionGate.shouldSkip=${mentionGate.shouldSkip} wasMentioned=${wasMentioned}`,
+    `[discord-preflight] shouldRequireMention=${shouldRequireMention} baseRequireMention=${shouldRequireMentionByConfig} boundThreadSession=${isBoundThreadSession} mentionGate.shouldSkip=${mentionGate.shouldSkip} wasMentioned=${wasMentioned} gateModeApproved=${gateModeApproved}`,
   );
-  if (isGuildMessage && shouldRequireMention) {
+  if (isGuildMessage && shouldRequireMention && !gateModeApproved) {
     if (botId && mentionGate.shouldSkip) {
       logDebug(`[discord-preflight] drop: no-mention`);
       logVerbose(`discord: drop guild message (mention required, botId=${botId})`);
@@ -940,5 +1031,11 @@ export async function preflightDiscordMessage(
     historyEntry,
     threadBindings: params.threadBindings,
     discordRestFetch: params.discordRestFetch,
+
+    // ── frankclaw: webhook relay mention ──
+    webhookRelayMentionUserId:
+      webhookRelayResult?.matched && webhookRelayResult.ownerUserId
+        ? webhookRelayResult.ownerUserId
+        : undefined,
   };
 }

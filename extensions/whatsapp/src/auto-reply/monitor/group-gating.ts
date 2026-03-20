@@ -9,6 +9,7 @@ import { buildMentionConfig, debugMention, resolveOwnerList } from "../mentions.
 import type { WebInboundMsg } from "../types.js";
 import { stripMentionsForCommand } from "./commands.js";
 import { resolveGroupActivationFor, resolveGroupPolicyFor } from "./group-activation.js";
+import { resolveWebGroupGateModeCheck } from "./group-gating.frankclaw.js";
 import { noteGroupMember } from "./group-members.js";
 
 export type GroupHistoryEntry = {
@@ -33,6 +34,10 @@ type ApplyGroupGatingParams = {
   groupMemberNames: Map<string, Map<string, string>>;
   logVerbose: (msg: string) => void;
   replyLogger: { debug: (obj: unknown, msg: string) => void };
+  /** Channel identifier (e.g. "whatsapp", "signal") for gateMode resolution. */
+  channel?: string;
+  verbose?: boolean;
+  accountId?: string;
 };
 
 function isOwnerSender(baseMentionConfig: MentionConfig, msg: WebInboundMsg) {
@@ -86,6 +91,45 @@ export function applyGroupGating(params: ApplyGroupGatingParams) {
     return { shouldProcess: false };
   }
 
+  const mentionConfig = buildMentionConfig(params.cfg, params.agentId);
+  const mentionDebug = debugMention(params.msg, mentionConfig, params.authDir);
+  params.msg.wasMentioned = mentionDebug.wasMentioned;
+  params.replyLogger.debug(
+    {
+      conversationId: params.conversationId,
+      wasMentioned: mentionDebug.wasMentioned,
+      ...mentionDebug.details,
+    },
+    "group mention debug",
+  );
+
+  // [frankclaw] gateMode check (takes priority over legacy requireMention when configured)
+  const gateModeCheck = resolveWebGroupGateModeCheck({
+    cfg: params.cfg,
+    channel: params.channel ?? "whatsapp",
+    conversationId: params.conversationId,
+    msg: params.msg,
+    groupHistoryKey: params.groupHistoryKey,
+    groupMemberNames: params.groupMemberNames,
+    logVerbose: params.logVerbose,
+    verbose: params.verbose ?? false,
+    accountId: params.accountId,
+    recordHistory: () =>
+      recordPendingGroupHistoryEntry({
+        msg: params.msg,
+        groupHistories: params.groupHistories,
+        groupHistoryKey: params.groupHistoryKey,
+        groupHistoryLimit: params.groupHistoryLimit,
+      }),
+  });
+  if (gateModeCheck.shouldDrop) {
+    return { shouldProcess: false };
+  }
+  if (gateModeCheck.approved) {
+    params.msg.wasMentioned = gateModeCheck.effectiveMention;
+    return { shouldProcess: true };
+  }
+
   noteGroupMember(
     params.groupMemberNames,
     params.groupHistoryKey,
@@ -93,7 +137,6 @@ export function applyGroupGating(params: ApplyGroupGatingParams) {
     params.msg.senderName,
   );
 
-  const mentionConfig = buildMentionConfig(params.cfg, params.agentId);
   const commandBody = stripMentionsForCommand(
     params.msg.body,
     mentionConfig.mentionRegexes,
@@ -110,15 +153,6 @@ export function applyGroupGating(params: ApplyGroupGatingParams) {
     );
   }
 
-  const mentionDebug = debugMention(params.msg, mentionConfig, params.authDir);
-  params.replyLogger.debug(
-    {
-      conversationId: params.conversationId,
-      wasMentioned: mentionDebug.wasMentioned,
-      ...mentionDebug.details,
-    },
-    "group mention debug",
-  );
   const wasMentioned = mentionDebug.wasMentioned;
   const activation = resolveGroupActivationFor({
     cfg: params.cfg,
