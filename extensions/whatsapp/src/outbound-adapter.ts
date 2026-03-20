@@ -8,8 +8,15 @@ import {
 import { resolveSendableOutboundReplyParts } from "openclaw/plugin-sdk/reply-payload";
 import { chunkText } from "openclaw/plugin-sdk/reply-runtime";
 import { shouldLogVerbose } from "openclaw/plugin-sdk/runtime-env";
+import { createSubsystemLogger } from "openclaw/plugin-sdk/runtime-env";
 import { resolveWhatsAppOutboundTarget } from "./runtime-api.js";
 import { sendMessageWhatsApp, sendPollWhatsApp } from "./send.js";
+import {
+  enforceWhatsAppDnrWindow,
+  WhatsAppDnrSuppressedError,
+} from "../../../src/infra/outbound/discord-dnr.js";
+
+const dnrLog = createSubsystemLogger("whatsapp-dnr");
 
 function trimLeadingWhitespace(text: string | undefined): string {
   return text?.trimStart() ?? "";
@@ -28,6 +35,16 @@ export const whatsappOutbound: ChannelOutboundAdapter = {
     const hasMedia = resolveSendableOutboundReplyParts(ctx.payload).hasMedia;
     if (!text && !hasMedia) {
       return createEmptyChannelResult("whatsapp");
+    }
+    // Enforce WhatsApp DNR quiet hours (frankclaw extension)
+    try {
+      enforceWhatsAppDnrWindow(ctx.to);
+    } catch (err) {
+      if (err instanceof WhatsAppDnrSuppressedError) {
+        dnrLog.info(`WhatsApp DNR: suppressed message to ${ctx.to} (quiet until ${new Date(err.nextEligibleAtMs).toISOString()})`);
+        return createEmptyChannelResult("whatsapp");
+      }
+      throw err;
     }
     return await sendTextMediaPayload({
       channel: "whatsapp",

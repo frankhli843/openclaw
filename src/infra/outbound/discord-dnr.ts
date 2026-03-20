@@ -36,6 +36,37 @@ type DiscordDnrPolicyStore = {
   oneOff?: DiscordDnrOneOffPolicy[];
 };
 
+// ── WhatsApp DNR policy types (frankclaw extension) ──
+
+export type WhatsAppDnrRecurringPolicy = {
+  id: string;
+  channel: "whatsapp";
+  groupId: string;
+  enabled?: boolean;
+  window: DiscordDnrWindow;
+};
+
+type WhatsAppDnrOneOffPolicy = {
+  id: string;
+  channel: "whatsapp";
+  groupId: string;
+  startAtMs: number;
+  endAtMs: number;
+  expiresAtMs?: number;
+};
+
+/**
+ * Channel-agnostic DNR policy store. Lives at `state/channel-dnr-policies.json`.
+ * Separate from the Discord-only file to avoid migration complexity.
+ */
+type ChannelDnrPolicyStore = {
+  version: 1;
+  whatsapp?: {
+    recurring?: WhatsAppDnrRecurringPolicy[];
+    oneOff?: WhatsAppDnrOneOffPolicy[];
+  };
+};
+
 const DEFAULT_RECURRING: DiscordDnrRecurringPolicy[] = [
   {
     id: "discord-all-default",
@@ -58,8 +89,15 @@ let cache: {
   oneOff: DiscordDnrOneOffPolicy[];
 } | null = null;
 
+let whatsappCache: {
+  loadedAtMs: number;
+  recurring: WhatsAppDnrRecurringPolicy[];
+  oneOff: WhatsAppDnrOneOffPolicy[];
+} | null = null;
+
 export function __resetDiscordDnrPolicyCacheForTests(): void {
   cache = null;
+  whatsappCache = null;
 }
 
 function resolveOpenClawHome(): string {
@@ -72,6 +110,10 @@ function resolveOpenClawHome(): string {
 
 function resolvePolicyPath(): string {
   return path.join(resolveOpenClawHome(), "state", "discord-dnr-policies.json");
+}
+
+function resolveChannelDnrPolicyPath(): string {
+  return path.join(resolveOpenClawHome(), "state", "channel-dnr-policies.json");
 }
 
 function parseMinutes(raw: string): number | null {
@@ -376,4 +418,195 @@ export function inspectDiscordDnrWindow(nowMs = Date.now()): {
     nextEligibleAtMs: effective.nextEligibleAtMs,
     window: effective.window ?? DEFAULT_RECURRING[0].window,
   };
+}
+
+// ── WhatsApp DNR (frankclaw extension) ──
+
+function readWhatsAppPolicyStore(nowMs: number): {
+  recurring: WhatsAppDnrRecurringPolicy[];
+  oneOff: WhatsAppDnrOneOffPolicy[];
+} {
+  if (whatsappCache && nowMs - whatsappCache.loadedAtMs < POLICY_CACHE_TTL_MS) {
+    return { recurring: whatsappCache.recurring, oneOff: whatsappCache.oneOff };
+  }
+
+  const recurring: WhatsAppDnrRecurringPolicy[] = [];
+  let oneOff: WhatsAppDnrOneOffPolicy[] = [];
+  const policyPath = resolveChannelDnrPolicyPath();
+
+  try {
+    const raw = fs.readFileSync(policyPath, "utf-8");
+    const parsed = JSON.parse(raw) as ChannelDnrPolicyStore;
+    const wa = parsed.whatsapp;
+    if (!wa) {
+      whatsappCache = { loadedAtMs: nowMs, recurring, oneOff };
+      return { recurring, oneOff };
+    }
+
+    if (Array.isArray(wa.recurring)) {
+      for (const p of wa.recurring) {
+        if (!p || typeof p !== "object") continue;
+        const groupId = String(p.groupId ?? "").trim();
+        if (!groupId) continue;
+        if (!p.window || typeof p.window !== "object") continue;
+        recurring.push({
+          id: String(p.id ?? `wa-recurring-${groupId}`),
+          channel: "whatsapp",
+          groupId,
+          enabled: p.enabled !== false,
+          window: {
+            timeZone: String(p.window.timeZone ?? "America/Toronto"),
+            start: String(p.window.start ?? "18:00"),
+            end: String(p.window.end ?? "08:00"),
+          },
+        });
+      }
+    }
+
+    let hadPruned = false;
+    if (Array.isArray(wa.oneOff)) {
+      for (const p of wa.oneOff) {
+        if (!p || typeof p !== "object") continue;
+        const groupId = String(p.groupId ?? "").trim();
+        const startAtMs = Number(p.startAtMs);
+        const endAtMs = Number(p.endAtMs);
+        const expiresAtMs = p.expiresAtMs === undefined ? undefined : Number(p.expiresAtMs);
+        const invalid =
+          !groupId ||
+          !Number.isFinite(startAtMs) ||
+          !Number.isFinite(endAtMs) ||
+          endAtMs <= startAtMs;
+        if (invalid) {
+          hadPruned = true;
+          continue;
+        }
+        const isExpiredByEnd = endAtMs <= nowMs;
+        const isExpiredByExplicit =
+          typeof expiresAtMs === "number" && Number.isFinite(expiresAtMs) && expiresAtMs <= nowMs;
+        if (isExpiredByEnd || isExpiredByExplicit) {
+          hadPruned = true;
+          continue;
+        }
+        oneOff.push({
+          id: String(p.id ?? `wa-oneoff-${groupId}-${startAtMs}`),
+          channel: "whatsapp",
+          groupId,
+          startAtMs,
+          endAtMs,
+          ...(typeof expiresAtMs === "number" && Number.isFinite(expiresAtMs)
+            ? { expiresAtMs }
+            : {}),
+        });
+      }
+    }
+
+    if (hadPruned) {
+      try {
+        fs.mkdirSync(path.dirname(policyPath), { recursive: true });
+        const nextStore: ChannelDnrPolicyStore = {
+          version: 1,
+          whatsapp: { recurring: wa.recurring, oneOff },
+        };
+        fs.writeFileSync(policyPath, JSON.stringify(nextStore, null, 2));
+      } catch {
+        // best effort cleanup only
+      }
+    }
+  } catch {
+    // no file -> no whatsapp policies
+  }
+
+  whatsappCache = { loadedAtMs: nowMs, recurring, oneOff };
+  return { recurring, oneOff };
+}
+
+type WhatsAppDnrContext = {
+  channel: "whatsapp";
+  groupId: string;
+};
+
+function resolveWhatsAppEffectiveRule(
+  ctx: WhatsAppDnrContext,
+  nowMs: number,
+): {
+  active: boolean;
+  nextEligibleAtMs: number;
+  window?: DiscordDnrWindow;
+} {
+  const { recurring, oneOff } = readWhatsAppPolicyStore(nowMs);
+
+  // One-off policies take precedence.
+  for (const p of oneOff) {
+    const appliesToAll = p.groupId === "*";
+    const appliesToTarget = p.groupId === ctx.groupId;
+    if (!appliesToAll && !appliesToTarget) continue;
+    if (nowMs >= p.startAtMs && nowMs < p.endAtMs) {
+      return { active: true, nextEligibleAtMs: p.endAtMs };
+    }
+  }
+
+  for (const p of recurring) {
+    const appliesToAll = p.groupId === "*";
+    const appliesToTarget = p.groupId === ctx.groupId;
+    if (!p.enabled || (!appliesToAll && !appliesToTarget)) continue;
+    if (isWithinWindow(nowMs, p.window)) {
+      return {
+        active: true,
+        nextEligibleAtMs: resolveNextReleaseMs(nowMs, p.window),
+        window: p.window,
+      };
+    }
+  }
+
+  return { active: false, nextEligibleAtMs: nowMs };
+}
+
+export class WhatsAppDnrSuppressedError extends Error {
+  readonly nextEligibleAtMs: number;
+
+  constructor(nextEligibleAtMs: number) {
+    super("whatsapp outbound suppressed by DNR window");
+    this.name = "WhatsAppDnrSuppressedError";
+    this.nextEligibleAtMs = nextEligibleAtMs;
+  }
+}
+
+/**
+ * Enforce WhatsApp DNR quiet window. Throws WhatsAppDnrSuppressedError if
+ * the target group is within a configured quiet window.
+ */
+export function enforceWhatsAppDnrWindow(groupId: string, nowMs = Date.now()): void {
+  const effective = resolveWhatsAppEffectiveRule(
+    { channel: "whatsapp", groupId },
+    nowMs,
+  );
+  if (!effective.active) return;
+  throw new WhatsAppDnrSuppressedError(effective.nextEligibleAtMs);
+}
+
+/**
+ * Check if a WhatsApp group has any DNR policy (recurring or one-off).
+ */
+export function isWhatsAppDnrTarget(groupId: string): boolean {
+  const nowMs = Date.now();
+  const { recurring, oneOff } = readWhatsAppPolicyStore(nowMs);
+  return (
+    recurring.some(
+      (p) => p.enabled !== false && (p.groupId === "*" || p.groupId === groupId),
+    ) || oneOff.some((p) => p.groupId === "*" || p.groupId === groupId)
+  );
+}
+
+/**
+ * Inspect the current WhatsApp DNR state for a specific group.
+ */
+export function inspectWhatsAppDnrWindow(
+  groupId: string,
+  nowMs = Date.now(),
+): {
+  active: boolean;
+  nextEligibleAtMs: number;
+  window?: DiscordDnrWindow;
+} {
+  return resolveWhatsAppEffectiveRule({ channel: "whatsapp", groupId }, nowMs);
 }

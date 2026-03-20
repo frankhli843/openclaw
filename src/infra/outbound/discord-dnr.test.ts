@@ -5,9 +5,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   __resetDiscordDnrPolicyCacheForTests,
   enforceDiscordDnrWindow,
+  enforceWhatsAppDnrWindow,
   isDiscordDnrTarget,
+  isWhatsAppDnrTarget,
   isWithinDiscordDnrWindow,
+  inspectWhatsAppDnrWindow,
   resolveNextDiscordDnrReleaseMs,
+  WhatsAppDnrSuppressedError,
 } from "./discord-dnr.js";
 
 describe("discord DNR policy", () => {
@@ -100,5 +104,237 @@ describe("discord DNR policy", () => {
     const saved = JSON.parse(fs.readFileSync(policyPath, "utf-8"));
     expect(saved.oneOff).toHaveLength(1);
     expect(saved.oneOff[0]?.id).toBe("active");
+  });
+});
+
+describe("whatsapp DNR policy", () => {
+  afterEach(() => {
+    __resetDiscordDnrPolicyCacheForTests();
+    vi.unstubAllEnvs();
+  });
+
+  function setupWhatsAppPolicy(tmpDir: string, policy: object) {
+    vi.stubEnv("OPENCLAW_HOME", tmpDir);
+    const stateDir = path.join(tmpDir, "state");
+    fs.mkdirSync(stateDir, { recursive: true });
+    const policyPath = path.join(stateDir, "channel-dnr-policies.json");
+    fs.writeFileSync(policyPath, JSON.stringify(policy, null, 2));
+    return policyPath;
+  }
+
+  it("returns false for groups with no policy", () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "wa-dnr-"));
+    vi.stubEnv("OPENCLAW_HOME", tmp);
+    expect(isWhatsAppDnrTarget("120363421390336301@g.us")).toBe(false);
+  });
+
+  it("detects a group with a recurring policy", () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "wa-dnr-"));
+    setupWhatsAppPolicy(tmp, {
+      version: 1,
+      whatsapp: {
+        recurring: [
+          {
+            id: "test",
+            channel: "whatsapp",
+            groupId: "120363421390336301@g.us",
+            enabled: true,
+            window: { timeZone: "America/Toronto", start: "18:00", end: "08:00" },
+          },
+        ],
+      },
+    });
+    expect(isWhatsAppDnrTarget("120363421390336301@g.us")).toBe(true);
+    expect(isWhatsAppDnrTarget("some-other-group@g.us")).toBe(false);
+  });
+
+  it("enforces recurring window and throws WhatsAppDnrSuppressedError", () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "wa-dnr-"));
+    setupWhatsAppPolicy(tmp, {
+      version: 1,
+      whatsapp: {
+        recurring: [
+          {
+            id: "casual-mon",
+            channel: "whatsapp",
+            groupId: "120363421390336301@g.us",
+            enabled: true,
+            window: { timeZone: "America/Toronto", start: "18:00", end: "08:00" },
+          },
+        ],
+      },
+    });
+
+    // 2026-03-05 20:30 America/Toronto => inside DNR
+    const eveningTs = Date.parse("2026-03-06T01:30:00.000Z");
+    expect(() => enforceWhatsAppDnrWindow("120363421390336301@g.us", eveningTs)).toThrow(
+      WhatsAppDnrSuppressedError,
+    );
+
+    // 2026-03-06 10:00 America/Toronto => outside DNR
+    const morningTs = Date.parse("2026-03-06T15:00:00.000Z");
+    expect(() => enforceWhatsAppDnrWindow("120363421390336301@g.us", morningTs)).not.toThrow();
+  });
+
+  it("does not enforce for non-matching groups", () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "wa-dnr-"));
+    setupWhatsAppPolicy(tmp, {
+      version: 1,
+      whatsapp: {
+        recurring: [
+          {
+            id: "casual-mon",
+            channel: "whatsapp",
+            groupId: "120363421390336301@g.us",
+            enabled: true,
+            window: { timeZone: "America/Toronto", start: "18:00", end: "08:00" },
+          },
+        ],
+      },
+    });
+
+    // Inside window but different group
+    const eveningTs = Date.parse("2026-03-06T01:30:00.000Z");
+    expect(() => enforceWhatsAppDnrWindow("some-other-group@g.us", eveningTs)).not.toThrow();
+  });
+
+  it("supports wildcard groupId for all WhatsApp groups", () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "wa-dnr-"));
+    setupWhatsAppPolicy(tmp, {
+      version: 1,
+      whatsapp: {
+        recurring: [
+          {
+            id: "all-wa",
+            channel: "whatsapp",
+            groupId: "*",
+            enabled: true,
+            window: { timeZone: "America/Toronto", start: "22:00", end: "06:00" },
+          },
+        ],
+      },
+    });
+
+    // 2026-03-06 23:00 Toronto = 2026-03-07 04:00Z => inside window
+    const lateNight = Date.parse("2026-03-07T04:00:00.000Z");
+    expect(() => enforceWhatsAppDnrWindow("any-group@g.us", lateNight)).toThrow(
+      WhatsAppDnrSuppressedError,
+    );
+  });
+
+  it("one-off policies take precedence and get pruned when expired", () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "wa-dnr-"));
+    const now = Date.now();
+    const policyPath = setupWhatsAppPolicy(tmp, {
+      version: 1,
+      whatsapp: {
+        oneOff: [
+          {
+            id: "expired",
+            channel: "whatsapp",
+            groupId: "120363421390336301@g.us",
+            startAtMs: now - 20_000,
+            endAtMs: now - 10_000,
+          },
+          {
+            id: "active",
+            channel: "whatsapp",
+            groupId: "120363421390336301@g.us",
+            startAtMs: now - 5_000,
+            endAtMs: now + 60_000,
+          },
+        ],
+      },
+    });
+
+    expect(() => enforceWhatsAppDnrWindow("120363421390336301@g.us")).toThrow(
+      WhatsAppDnrSuppressedError,
+    );
+
+    // Expired one-off should be pruned
+    const saved = JSON.parse(fs.readFileSync(policyPath, "utf-8"));
+    expect(saved.whatsapp.oneOff).toHaveLength(1);
+    expect(saved.whatsapp.oneOff[0]?.id).toBe("active");
+  });
+
+  it("inspectWhatsAppDnrWindow returns active state and next eligible time", () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "wa-dnr-"));
+    setupWhatsAppPolicy(tmp, {
+      version: 1,
+      whatsapp: {
+        recurring: [
+          {
+            id: "test",
+            channel: "whatsapp",
+            groupId: "120363421390336301@g.us",
+            enabled: true,
+            window: { timeZone: "America/Toronto", start: "18:00", end: "08:00" },
+          },
+        ],
+      },
+    });
+
+    // Inside window
+    const eveningTs = Date.parse("2026-03-06T01:30:00.000Z");
+    const result = inspectWhatsAppDnrWindow("120363421390336301@g.us", eveningTs);
+    expect(result.active).toBe(true);
+    expect(result.nextEligibleAtMs).toBeGreaterThan(eveningTs);
+
+    // Outside window
+    const afternoonTs = Date.parse("2026-03-06T19:00:00.000Z");
+    const result2 = inspectWhatsAppDnrWindow("120363421390336301@g.us", afternoonTs);
+    expect(result2.active).toBe(false);
+  });
+
+  it("disabled policies are skipped", () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "wa-dnr-"));
+    setupWhatsAppPolicy(tmp, {
+      version: 1,
+      whatsapp: {
+        recurring: [
+          {
+            id: "disabled",
+            channel: "whatsapp",
+            groupId: "120363421390336301@g.us",
+            enabled: false,
+            window: { timeZone: "America/Toronto", start: "18:00", end: "08:00" },
+          },
+        ],
+      },
+    });
+
+    const eveningTs = Date.parse("2026-03-06T01:30:00.000Z");
+    expect(() => enforceWhatsAppDnrWindow("120363421390336301@g.us", eveningTs)).not.toThrow();
+  });
+
+  it("does not interfere with Discord DNR (separate policy files)", () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "wa-dnr-"));
+    vi.stubEnv("OPENCLAW_HOME", tmp);
+
+    // Only WhatsApp policy, no Discord file
+    const stateDir = path.join(tmp, "state");
+    fs.mkdirSync(stateDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(stateDir, "channel-dnr-policies.json"),
+      JSON.stringify({
+        version: 1,
+        whatsapp: {
+          recurring: [
+            {
+              id: "wa-test",
+              channel: "whatsapp",
+              groupId: "*",
+              enabled: true,
+              window: { timeZone: "America/Toronto", start: "00:00", end: "23:59" },
+            },
+          ],
+        },
+      }),
+    );
+
+    // Discord still uses its own default policy (from DEFAULT_RECURRING)
+    expect(isDiscordDnrTarget({ channel: "discord", to: "channel:123" })).toBe(true);
+    // WhatsApp policy also works independently
+    expect(isWhatsAppDnrTarget("any@g.us")).toBe(true);
   });
 });

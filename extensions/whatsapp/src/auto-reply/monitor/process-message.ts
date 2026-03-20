@@ -6,6 +6,10 @@ import type { loadConfig } from "openclaw/plugin-sdk/config-runtime";
 import { resolveMarkdownTableMode } from "openclaw/plugin-sdk/config-runtime";
 import { recordSessionMetaFromInbound } from "openclaw/plugin-sdk/config-runtime";
 import { getAgentScopedMediaLocalRoots } from "openclaw/plugin-sdk/media-runtime";
+import {
+  enforceWhatsAppDnrWindow,
+  WhatsAppDnrSuppressedError,
+} from "../../../../../src/infra/outbound/discord-dnr.js";
 import { resolveSendableOutboundReplyParts } from "openclaw/plugin-sdk/reply-payload";
 import { resolveChunkMode, resolveTextChunkLimit } from "openclaw/plugin-sdk/reply-runtime";
 import { shouldComputeCommandAuthorized } from "openclaw/plugin-sdk/reply-runtime";
@@ -409,6 +413,25 @@ export async function processMessage(params: {
           // web UI only; sending them here leaks chain-of-thought to end users.
           return;
         }
+
+        // ── Frankclaw: WhatsApp DNR quiet window enforcement ──
+        if (params.msg.chatType === "group") {
+          const groupJid = (params.msg.conversationId ?? params.msg.from ?? "").trim();
+          if (groupJid) {
+            try {
+              enforceWhatsAppDnrWindow(groupJid);
+            } catch (dnrErr) {
+              if (dnrErr instanceof WhatsAppDnrSuppressedError) {
+                whatsappOutboundLog.info(
+                  `WhatsApp DNR: suppressed reply to ${groupJid} (next eligible at ${new Date(dnrErr.nextEligibleAtMs).toISOString()})`,
+                );
+                return;
+              }
+              throw dnrErr;
+            }
+          }
+        }
+
         await deliverWebReply({
           replyResult: payload,
           msg: params.msg,
