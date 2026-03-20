@@ -55,6 +55,10 @@ import { monitorTelegramProvider } from "./monitor.js";
 import { looksLikeTelegramTargetId, normalizeTelegramMessagingTarget } from "./normalize.js";
 import { sendTelegramPayloadMessages } from "./outbound-adapter.js";
 import { parseTelegramReplyToMessageId, parseTelegramThreadId } from "./outbound-params.js";
+import {
+  enforceDiscordDnrWindow,
+  DiscordDnrSuppressedError,
+} from "../../../src/infra/outbound/discord-dnr.js";
 import { probeTelegram, type TelegramProbe } from "./probe.js";
 import { getTelegramRuntime } from "./runtime.js";
 import { sendTypingTelegram } from "./send.js";
@@ -500,6 +504,15 @@ export const telegramPlugin: ChannelPlugin<ResolvedTelegramAccount, TelegramProb
       silent,
       forceDocument,
     }) => {
+      // Enforce Telegram DNR quiet hours (frankclaw extension)
+      try {
+        enforceDiscordDnrWindow({ channel: "discord", to: "telegram-global", threadId: "*" });
+      } catch (err) {
+        if (err instanceof DiscordDnrSuppressedError) {
+          return attachChannelToResult("telegram", { messageId: "dnr-suppressed" } as any);
+        }
+        throw err;
+      }
       const send =
         resolveOutboundSendDep<TelegramSendFn>(deps, "telegram") ??
         getTelegramRuntime().channel.telegram.sendMessageTelegram;
