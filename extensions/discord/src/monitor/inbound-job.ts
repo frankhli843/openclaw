@@ -123,7 +123,15 @@ export function rehydrateCarbonMessage(message: any): void {
   if (!raw || typeof raw !== "object") {
     return;
   }
-  const fields = ["attachments", "embeds", "content", "author", "member", "mentions", "sticker_items"];
+  const fields = [
+    "attachments",
+    "embeds",
+    "content",
+    "author",
+    "member",
+    "mentions",
+    "sticker_items",
+  ];
   for (const field of fields) {
     if (raw[field] !== undefined && message[field] === undefined) {
       message[field] = raw[field];

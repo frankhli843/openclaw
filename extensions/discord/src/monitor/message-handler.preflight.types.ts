@@ -91,6 +91,8 @@ export type DiscordMessagePreflightContext = DiscordMessagePreflightSharedFields
   historyEntry?: HistoryEntry;
   threadBindings: DiscordThreadBindingLookup;
   discordRestFetch?: typeof fetch;
+  // [frankclaw] Webhook relay mention user ID (for voice pipeline).
+  webhookRelayMentionUserId?: string;
 };
 
 export type DiscordMessagePreflightParams = DiscordMessagePreflightSharedFields & {

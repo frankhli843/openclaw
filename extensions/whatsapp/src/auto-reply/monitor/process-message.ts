@@ -6,10 +6,6 @@ import type { loadConfig } from "openclaw/plugin-sdk/config-runtime";
 import { resolveMarkdownTableMode } from "openclaw/plugin-sdk/config-runtime";
 import { recordSessionMetaFromInbound } from "openclaw/plugin-sdk/config-runtime";
 import { getAgentScopedMediaLocalRoots } from "openclaw/plugin-sdk/media-runtime";
-import {
-  enforceWhatsAppDnrWindow,
-  WhatsAppDnrSuppressedError,
-} from "../../../../../src/infra/outbound/discord-dnr.js";
 import { resolveSendableOutboundReplyParts } from "openclaw/plugin-sdk/reply-payload";
 import { resolveChunkMode, resolveTextChunkLimit } from "openclaw/plugin-sdk/reply-runtime";
 import { shouldComputeCommandAuthorized } from "openclaw/plugin-sdk/reply-runtime";
@@ -34,6 +30,10 @@ import {
   resolveDmGroupAccessWithCommandGate,
 } from "openclaw/plugin-sdk/security-runtime";
 import { jidToE164, normalizeE164 } from "openclaw/plugin-sdk/text-runtime";
+import {
+  enforceWhatsAppDnrWindow,
+  WhatsAppDnrSuppressedError,
+} from "../../../../../src/infra/outbound/discord-dnr.js";
 import { resolveWhatsAppAccount } from "../../accounts.js";
 import { newConnectionId } from "../../reconnect.js";
 import { formatError } from "../../session.js";

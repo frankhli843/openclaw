@@ -1,7 +1,14 @@
 import type { AgentToolResult } from "@mariozechner/pi-agent-core";
 import { ChannelType } from "discord-api-types/v10";
+// [frankclaw] Discord DNR + delivery queue + target parsing
+import { parseDiscordTarget } from "../../../extensions/discord/src/targets.js";
 import type { DiscordActionConfig } from "../../config/config.js";
 import type { OpenClawConfig } from "../../config/config.js";
+import { deferDelivery, enqueueDelivery } from "../../infra/outbound/delivery-queue.js";
+import {
+  DiscordDnrSuppressedError,
+  enforceDiscordDnrWindow,
+} from "../../infra/outbound/discord-dnr.js";
 import { readBooleanParam } from "../../plugin-sdk/boolean-param.js";
 import {
   createThreadDiscord,
@@ -29,15 +36,6 @@ import {
   unpinMessageDiscord,
 } from "../../plugin-sdk/discord.js";
 import type { DiscordSendComponents, DiscordSendEmbeds } from "../../plugin-sdk/discord.js";
-// [frankclaw] Discord DNR + delivery queue + target parsing
-import {
-  parseDiscordTarget,
-} from "../../../extensions/discord/src/targets.js";
-import { deferDelivery, enqueueDelivery } from "../../infra/outbound/delivery-queue.js";
-import {
-  DiscordDnrSuppressedError,
-  enforceDiscordDnrWindow,
-} from "../../infra/outbound/discord-dnr.js";
 import { resolvePollMaxSelections } from "../../polls.js";
 import { withNormalizedTimestamp } from "../date-time.js";
 import { assertMediaNotDataUrl } from "../sandbox-paths.js";

@@ -25,6 +25,12 @@ import {
   waitForGatewayHealthyListener,
   waitForGatewayHealthyRestart,
 } from "./restart-health.js";
+import {
+  validateReasonFile,
+  clearReasonFile,
+  getReasonFilePath,
+  runSelfHeal,
+} from "./restart-selfheal.frankclaw.js";
 import { parsePortFromArgs, renderGatewayServiceStartHints } from "./shared.js";
 import type { DaemonLifecycleOptions } from "./types.js";
 
@@ -149,6 +155,27 @@ export async function runDaemonStop(opts: DaemonLifecycleOptions = {}) {
  */
 export async function runDaemonRestart(opts: DaemonLifecycleOptions = {}): Promise<boolean> {
   const json = Boolean(opts.json);
+
+  // --- frankclaw: validate reason file ---
+  const reasonFilePath = opts.reason ?? getReasonFilePath();
+  let reasonContent: string;
+  try {
+    reasonContent = validateReasonFile(reasonFilePath);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (!json) {
+      defaultRuntime.log(theme.error(message));
+    } else {
+      defaultRuntime.log(JSON.stringify({ error: message }));
+    }
+    process.exit(2);
+  }
+
+  if (!json) {
+    defaultRuntime.log(theme.muted(`Restart reason loaded from: ${reasonFilePath}`));
+  }
+  // --- end frankclaw reason validation ---
+
   const service = resolveGatewayService();
   let restartedWithoutServiceManager = false;
   const restartPort = await resolveGatewayLifecyclePort(service).catch(() =>
@@ -178,6 +205,8 @@ export async function runDaemonRestart(opts: DaemonLifecycleOptions = {}): Promi
           delayMs: POST_RESTART_HEALTH_DELAY_MS,
         });
         if (health.healthy) {
+          // --- frankclaw: clear reason file on success ---
+          clearReasonFile();
           return;
         }
 
@@ -230,6 +259,8 @@ export async function runDaemonRestart(opts: DaemonLifecycleOptions = {}): Promi
       }
 
       if (health.healthy) {
+        // --- frankclaw: clear reason file on success ---
+        clearReasonFile();
         return;
       }
 
@@ -255,9 +286,37 @@ export async function runDaemonRestart(opts: DaemonLifecycleOptions = {}): Promi
         warnings.push(...diagnostics);
       }
 
-      fail(`Gateway restart timed out after ${restartWaitSeconds}s waiting for health checks.`, [
+      // --- frankclaw: self-heal on failure ---
+      if (!json) {
+        defaultRuntime.log(theme.warn("Launching self-heal agent..."));
+      }
+      const healed = await runSelfHeal(reasonContent);
+      if (healed) {
+        if (!json) {
+          defaultRuntime.log(theme.success("Self-heal agent reports success. Verifying..."));
+        }
+        // Re-check health after self-heal
+        const postHealHealth = await waitForGatewayHealthyRestart({
+          service,
+          port: restartPort,
+          attempts: POST_RESTART_HEALTH_ATTEMPTS,
+          delayMs: POST_RESTART_HEALTH_DELAY_MS,
+          includeUnknownListenersAsStale: process.platform === "win32",
+        });
+        if (postHealHealth.healthy) {
+          clearReasonFile();
+          if (!json) {
+            defaultRuntime.log(theme.success("✅ Gateway recovered via self-heal."));
+          }
+          return;
+        }
+      }
+      // --- end frankclaw self-heal ---
+
+      fail(`Gateway restart failed. Self-heal attempted but gateway is still unhealthy.`, [
         formatCliCommand("openclaw gateway status --deep"),
         formatCliCommand("openclaw doctor"),
+        `Check self-heal log: cat /tmp/gateway-selfheal.log`,
       ]);
     },
   });

@@ -9,6 +9,11 @@ import {
   type RetryRunner,
 } from "openclaw/plugin-sdk/infra-runtime";
 import {
+  enforceDiscordDnrWindow,
+  DiscordDnrSuppressedError,
+  deferDelivery,
+} from "openclaw/plugin-sdk/infra-runtime";
+import {
   resolveSendableOutboundReplyParts,
   resolveTextChunksWithFallback,
   sendMediaWithLeadingCaption,
@@ -17,11 +22,6 @@ import type { ChunkMode } from "openclaw/plugin-sdk/reply-runtime";
 import type { ReplyPayload } from "openclaw/plugin-sdk/reply-runtime";
 import type { RuntimeEnv } from "openclaw/plugin-sdk/runtime-env";
 import { convertMarkdownTables } from "openclaw/plugin-sdk/text-runtime";
-import {
-  enforceDiscordDnrWindow,
-  DiscordDnrSuppressedError,
-  deferDelivery,
-} from "openclaw/plugin-sdk/infra-runtime";
 import { resolveDiscordAccount } from "../accounts.js";
 import { chunkDiscordTextWithMode } from "../chunk.js";
 import { createDiscordRetryRunner } from "../retry.js";

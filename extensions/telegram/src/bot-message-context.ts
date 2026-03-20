@@ -15,9 +15,15 @@ import { logVerbose } from "openclaw/plugin-sdk/runtime-env";
 import { withTelegramApiErrorLogging } from "./api-logging.js";
 import { firstDefined, normalizeAllowFrom, normalizeDmAllowFromWithStore } from "./bot-access.js";
 import { resolveTelegramInboundBody } from "./bot-message-context.body.js";
+// [frankclaw] gateMode check for Telegram groups.
+import { resolveTelegramGateModeCheck } from "./bot-message-context.frankclaw.js";
 import { buildTelegramInboundContextPayload } from "./bot-message-context.session.js";
 import type { BuildTelegramMessageContextParams } from "./bot-message-context.types.js";
-import { buildTypingThreadParams, resolveTelegramThreadSpec } from "./bot/helpers.js";
+import {
+  buildSenderName,
+  buildTypingThreadParams,
+  resolveTelegramThreadSpec,
+} from "./bot/helpers.js";
 import {
   resolveTelegramConversationBaseSessionKey,
   resolveTelegramConversationRoute,
@@ -290,6 +296,25 @@ export const buildTelegramMessageContext = async ({
     logger,
   });
   if (!bodyResult) {
+    return null;
+  }
+
+  // [frankclaw] gateMode check for Telegram groups — runs after bodyResult
+  // so we can use its computed values (rawBody, effectiveWasMentioned, etc.)
+  const tgGateModeCheck = resolveTelegramGateModeCheck({
+    cfg,
+    isGroup,
+    chatId,
+    chatTitle: msg.chat.title,
+    chatUsername: (msg.chat as { username?: string }).username,
+    chatType: msg.chat.type,
+    senderId,
+    senderName: buildSenderName(msg),
+    senderUsername,
+    wasMentioned: bodyResult.effectiveWasMentioned,
+    rawBody: bodyResult.rawBody ?? "",
+  });
+  if (tgGateModeCheck.shouldDrop) {
     return null;
   }
 

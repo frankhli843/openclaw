@@ -25,4 +25,6 @@ export type DaemonInstallOptions = {
 
 export type DaemonLifecycleOptions = {
   json?: boolean;
+  /** [frankclaw] Override the reason file path for self-heal context. */
+  reason?: string;
 };

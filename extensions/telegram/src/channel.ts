@@ -19,6 +19,10 @@ import { buildOutboundBaseSessionKey, normalizeOutboundThreadId } from "openclaw
 import { resolveExecApprovalCommandDisplay } from "openclaw/plugin-sdk/infra-runtime";
 import { buildExecApprovalPendingReplyPayload } from "openclaw/plugin-sdk/infra-runtime";
 import { resolveThreadSessionKeys, type RoutePeer } from "openclaw/plugin-sdk/routing";
+import {
+  enforceDiscordDnrWindow,
+  DiscordDnrSuppressedError,
+} from "../../../src/infra/outbound/discord-dnr.js";
 import { parseTelegramTopicConversation } from "../runtime-api.js";
 import {
   buildTokenChannelStatusSummary,
@@ -55,10 +59,6 @@ import { monitorTelegramProvider } from "./monitor.js";
 import { looksLikeTelegramTargetId, normalizeTelegramMessagingTarget } from "./normalize.js";
 import { sendTelegramPayloadMessages } from "./outbound-adapter.js";
 import { parseTelegramReplyToMessageId, parseTelegramThreadId } from "./outbound-params.js";
-import {
-  enforceDiscordDnrWindow,
-  DiscordDnrSuppressedError,
-} from "../../../src/infra/outbound/discord-dnr.js";
 import { probeTelegram, type TelegramProbe } from "./probe.js";
 import { getTelegramRuntime } from "./runtime.js";
 import { sendTypingTelegram } from "./send.js";

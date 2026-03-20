@@ -1,3 +1,4 @@
+import { createThreadDiscord } from "../../extensions/discord/src/send.js";
 /**
  * Wires the gateMode blocked-message notifier to Discord delivery.
  * Import this module once during gateway startup to activate.
@@ -5,7 +6,6 @@
 import { loadConfig } from "../config/config.js";
 import { logVerbose } from "../globals.js";
 import { deliverOutboundPayloads } from "../infra/outbound/deliver.js";
-import { createThreadDiscord } from "../../extensions/discord/src/send.js";
 import { formatBlockedNotification, onBlockedNotification } from "./gate-notify.js";
 
 let registered = false;

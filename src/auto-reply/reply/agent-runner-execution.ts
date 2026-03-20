@@ -15,6 +15,7 @@ import {
   isTransientHttpError,
   sanitizeUserFacingText,
 } from "../../agents/pi-embedded-helpers.js";
+import { isRateLimitErrorMessage } from "../../agents/pi-embedded-helpers/failover-matches.js";
 import { runEmbeddedPiAgent } from "../../agents/pi-embedded.js";
 import {
   resolveGroupSessionKey,
@@ -40,6 +41,11 @@ import {
   SILENT_REPLY_TOKEN,
 } from "../tokens.js";
 import type { GetReplyOptions, ReplyPayload } from "../types.js";
+import {
+  isRetryableAgentFailure,
+  maybeRedirectCompactionResetToLogsGroup,
+  maybeRedirectErrorToLogsGroup,
+} from "./agent-runner-execution.frankclaw.js";
 import {
   buildEmbeddedRunExecutionParams,
   resolveModelFallbackOptions,
@@ -508,6 +514,16 @@ export async function runAgentTurnWithFallback(params: {
         (await params.resetSessionAfterCompactionFailure(embeddedError.message))
       ) {
         didResetAfterCompactionFailure = true;
+        const resetText =
+          "⚠️ Context limit exceeded. I've reset our conversation to start fresh - please try again.";
+        // [frankclaw] Redirect to logs group if configured
+        const compactionRedirect = maybeRedirectCompactionResetToLogsGroup({
+          resetText,
+          sessionKey: params.sessionKey,
+        });
+        if (compactionRedirect) {
+          return compactionRedirect;
+        }
         return {
           kind: "final",
           payload: {
@@ -627,6 +643,13 @@ export async function runAgentTurnWithFallback(params: {
         ? sanitizeUserFacingText(message, { errorContext: true })
         : message;
       const trimmedMessage = safeMessage.replace(/\.\s*$/, "");
+      // [frankclaw] Detect retryable failures for deferred retry system
+      const retryableFailure = isRetryableAgentFailure({
+        isTransientHttp,
+        errorMessage: message,
+        fallbackAttempts,
+        isRateLimitError: isRateLimitErrorMessage,
+      });
       const fallbackText = isBilling
         ? BILLING_ERROR_USER_MESSAGE
         : isContextOverflow
@@ -635,11 +658,29 @@ export async function runAgentTurnWithFallback(params: {
             ? "⚠️ Message ordering conflict - please try again. If this persists, use /new to start a fresh session."
             : `⚠️ Agent failed before reply: ${trimmedMessage}.\nLogs: openclaw logs --follow`;
 
+      // [frankclaw] Redirect errors to logs group if configured
+      const errorRedirect = await maybeRedirectErrorToLogsGroup({
+        fallbackText,
+        sessionKey: params.sessionKey,
+        isContextOverflow,
+        retryableFailure,
+        failureMessage: trimmedMessage,
+        resetSession:
+          isContextOverflow && params.sessionKey
+            ? (msg) => params.resetSessionAfterCompactionFailure(msg)
+            : undefined,
+      });
+      if (errorRedirect) {
+        return errorRedirect;
+      }
+
       return {
         kind: "final",
         payload: {
           text: fallbackText,
         },
+        retryableFailure,
+        failureMessage: trimmedMessage,
       };
     }
   }

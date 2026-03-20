@@ -1030,7 +1030,9 @@ export async function startGatewayServer(
         cfg: cfgAtStart,
       });
     };
-    void runDeliveryRecovery().catch((err) => log.error(`Delivery recovery failed: ${String(err)}`));
+    void runDeliveryRecovery().catch((err) =>
+      log.error(`Delivery recovery failed: ${String(err)}`),
+    );
     // Periodic sweep every 2 min for deferred DNR deliveries (frankclaw)
     const deliveryRecoveryIntervalMs = 2 * 60_000;
     setInterval(() => {

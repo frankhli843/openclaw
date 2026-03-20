@@ -445,10 +445,16 @@ function readWhatsAppPolicyStore(nowMs: number): {
 
     if (Array.isArray(wa.recurring)) {
       for (const p of wa.recurring) {
-        if (!p || typeof p !== "object") continue;
+        if (!p || typeof p !== "object") {
+          continue;
+        }
         const groupId = String(p.groupId ?? "").trim();
-        if (!groupId) continue;
-        if (!p.window || typeof p.window !== "object") continue;
+        if (!groupId) {
+          continue;
+        }
+        if (!p.window || typeof p.window !== "object") {
+          continue;
+        }
         recurring.push({
           id: String(p.id ?? `wa-recurring-${groupId}`),
           channel: "whatsapp",
@@ -466,7 +472,9 @@ function readWhatsAppPolicyStore(nowMs: number): {
     let hadPruned = false;
     if (Array.isArray(wa.oneOff)) {
       for (const p of wa.oneOff) {
-        if (!p || typeof p !== "object") continue;
+        if (!p || typeof p !== "object") {
+          continue;
+        }
         const groupId = String(p.groupId ?? "").trim();
         const startAtMs = Number(p.startAtMs);
         const endAtMs = Number(p.endAtMs);
@@ -539,7 +547,9 @@ function resolveWhatsAppEffectiveRule(
   for (const p of oneOff) {
     const appliesToAll = p.groupId === "*";
     const appliesToTarget = p.groupId === ctx.groupId;
-    if (!appliesToAll && !appliesToTarget) continue;
+    if (!appliesToAll && !appliesToTarget) {
+      continue;
+    }
     if (nowMs >= p.startAtMs && nowMs < p.endAtMs) {
       return { active: true, nextEligibleAtMs: p.endAtMs };
     }
@@ -548,7 +558,9 @@ function resolveWhatsAppEffectiveRule(
   for (const p of recurring) {
     const appliesToAll = p.groupId === "*";
     const appliesToTarget = p.groupId === ctx.groupId;
-    if (!p.enabled || (!appliesToAll && !appliesToTarget)) continue;
+    if (!p.enabled || (!appliesToAll && !appliesToTarget)) {
+      continue;
+    }
     if (isWithinWindow(nowMs, p.window)) {
       return {
         active: true,
@@ -576,11 +588,10 @@ export class WhatsAppDnrSuppressedError extends Error {
  * the target group is within a configured quiet window.
  */
 export function enforceWhatsAppDnrWindow(groupId: string, nowMs = Date.now()): void {
-  const effective = resolveWhatsAppEffectiveRule(
-    { channel: "whatsapp", groupId },
-    nowMs,
-  );
-  if (!effective.active) return;
+  const effective = resolveWhatsAppEffectiveRule({ channel: "whatsapp", groupId }, nowMs);
+  if (!effective.active) {
+    return;
+  }
   throw new WhatsAppDnrSuppressedError(effective.nextEligibleAtMs);
 }
 
@@ -591,9 +602,8 @@ export function isWhatsAppDnrTarget(groupId: string): boolean {
   const nowMs = Date.now();
   const { recurring, oneOff } = readWhatsAppPolicyStore(nowMs);
   return (
-    recurring.some(
-      (p) => p.enabled !== false && (p.groupId === "*" || p.groupId === groupId),
-    ) || oneOff.some((p) => p.groupId === "*" || p.groupId === groupId)
+    recurring.some((p) => p.enabled !== false && (p.groupId === "*" || p.groupId === groupId)) ||
+    oneOff.some((p) => p.groupId === "*" || p.groupId === groupId)
   );
 }
 

@@ -36,6 +36,7 @@ import {
 import { resolveSubagentCapabilities } from "./subagent-capabilities.js";
 import { getSubagentDepthFromSessionStore } from "./subagent-depth.js";
 import { countActiveRunsForSession, registerSubagentRun } from "./subagent-registry.js";
+import { runSpawnSubagentWithDurableQueue } from "./subagent-spawn.frankclaw.js";
 import { readStringParam } from "./tools/common.js";
 import {
   resolveDisplaySessionKey,
@@ -291,7 +292,19 @@ async function ensureThreadBindingForSubagentSpawn(params: {
   }
 }
 
+// [frankclaw] Wrap spawnSubagentDirect with durable queue for crash-resistant spawning.
 export async function spawnSubagentDirect(
+  params: SpawnSubagentParams,
+  ctx: SpawnSubagentContext,
+): Promise<SpawnSubagentResult> {
+  return await runSpawnSubagentWithDurableQueue({
+    params,
+    ctx,
+    runCore: spawnSubagentDirectCore,
+  });
+}
+
+async function spawnSubagentDirectCore(
   params: SpawnSubagentParams,
   ctx: SpawnSubagentContext,
 ): Promise<SpawnSubagentResult> {

@@ -864,16 +864,16 @@ export async function preflightDiscordMessage(
         shouldBypassMention: false,
       }
     : resolveMentionGatingWithBypass({
-    isGroup: isGuildMessage,
-    requireMention: Boolean(shouldRequireMention),
-    canDetectMention,
-    wasMentioned,
-    implicitMention,
-    hasAnyMention,
-    allowTextCommands,
-    hasControlCommand: hasControlCommandInMessage,
-    commandAuthorized,
-  });
+        isGroup: isGuildMessage,
+        requireMention: Boolean(shouldRequireMention),
+        canDetectMention,
+        wasMentioned,
+        implicitMention,
+        hasAnyMention,
+        allowTextCommands,
+        hasControlCommand: hasControlCommandInMessage,
+        commandAuthorized,
+      });
   const effectiveWasMentioned = mentionGate.effectiveWasMentioned;
   logDebug(
     `[discord-preflight] shouldRequireMention=${shouldRequireMention} baseRequireMention=${shouldRequireMentionByConfig} boundThreadSession=${isBoundThreadSession} mentionGate.shouldSkip=${mentionGate.shouldSkip} wasMentioned=${wasMentioned} gateModeApproved=${gateModeApproved}`,

@@ -575,7 +575,8 @@ export async function deliverReplies(params: {
 }): Promise<{ delivered: boolean }> {
   // Enforce Telegram DNR quiet hours (frankclaw extension)
   try {
-    const { enforceDiscordDnrWindow } = await import("../../../../src/infra/outbound/discord-dnr.js");
+    const { enforceDiscordDnrWindow } =
+      await import("../../../../src/infra/outbound/discord-dnr.js");
     enforceDiscordDnrWindow({ channel: "discord", to: "telegram-global", threadId: "*" });
   } catch (err: any) {
     if (err?.name === "DiscordDnrSuppressedError") {

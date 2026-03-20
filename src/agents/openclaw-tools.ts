@@ -17,6 +17,8 @@ import { createImageTool } from "./tools/image-tool.js";
 import { createMessageTool } from "./tools/message-tool.js";
 import { createNodesTool } from "./tools/nodes-tool.js";
 import { createPdfTool } from "./tools/pdf-tool.js";
+// [frankclaw] raw_send tool for direct cross-channel message delivery.
+import { createRawSendTool } from "./tools/raw-send.frankclaw.js";
 import { createSessionStatusTool } from "./tools/session-status-tool.js";
 import { createSessionsHistoryTool } from "./tools/sessions-history-tool.js";
 import { createSessionsListTool } from "./tools/sessions-list-tool.js";
@@ -168,6 +170,10 @@ export function createOpenClawTools(
       agentSessionKey: options?.agentSessionKey,
     }),
     ...(messageTool ? [messageTool] : []),
+    createRawSendTool({
+      cfg: options?.config,
+      agentSessionKey: options?.agentSessionKey,
+    }),
     createTtsTool({
       agentChannel: options?.agentChannel,
       config: options?.config,
