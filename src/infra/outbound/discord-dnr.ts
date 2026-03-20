@@ -74,8 +74,8 @@ const DEFAULT_RECURRING: DiscordDnrRecurringPolicy[] = [
     enabled: true,
     window: {
       timeZone: "America/Toronto",
-      start: "18:00",
-      end: "08:00",
+      start: "17:00",
+      end: "08:30",
     },
   },
 ];
