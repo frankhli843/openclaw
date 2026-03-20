@@ -582,8 +582,7 @@ export async function deliverReplies(params: {
       params.runtime.log?.(`Telegram DNR: suppressed reply to ${params.chatId} (quiet hours)`);
       return { delivered: false };
     }
-    // Import errors or non-DNR errors: continue normally (don't break Telegram if DNR module fails)
-    if (err?.code !== "ERR_MODULE_NOT_FOUND" && err?.name !== "DiscordDnrSuppressedError") {
+    if (err?.code !== "ERR_MODULE_NOT_FOUND") {
       throw err;
     }
   }
