@@ -105,6 +105,18 @@ export const TelegramGroupSchema = z
   })
   .strict();
 
+const AutoTopicLabelSchema = z
+  .union([
+    z.boolean(),
+    z
+      .object({
+        enabled: z.boolean().optional(),
+        prompt: z.string().optional(),
+      })
+      .strict(),
+  ])
+  .optional();
+
 export const TelegramDirectSchema = z
   .object({
     dmPolicy: DmPolicySchema.optional(),
@@ -116,6 +128,7 @@ export const TelegramDirectSchema = z
     systemPrompt: z.string().optional(),
     topics: z.record(z.string(), TelegramTopicSchema.optional()).optional(),
     requireTopic: z.boolean().optional(),
+    autoTopicLabel: AutoTopicLabelSchema,
   })
   .strict();
 
@@ -287,6 +300,7 @@ export const TelegramAccountSchemaBase = z
     responsePrefix: z.string().optional(),
     ackReaction: z.string().optional(),
     apiRoot: z.string().url().optional(),
+    autoTopicLabel: AutoTopicLabelSchema,
   })
   .strict();
 
