@@ -107,7 +107,9 @@ export const handleStopCommand: CommandHandler = async (params, allowTextCommand
   if (!allowTextCommands) {
     return null;
   }
-  if (params.command.commandBodyNormalized !== "/stop") {
+  // [frankclaw] Accept both /stop and doramon_stop as stop commands
+  const normalized = params.command.commandBodyNormalized;
+  if (normalized !== "/stop" && normalized !== "doramon_stop") {
     return null;
   }
   const unauthorizedStop = rejectUnauthorizedCommand(params, "/stop");
