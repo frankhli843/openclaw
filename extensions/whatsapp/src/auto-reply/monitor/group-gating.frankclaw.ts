@@ -3,11 +3,64 @@
  *
  * Implements gateMode check for web-channel group messages (WhatsApp, Signal, etc.).
  */
-import { notifyBlocked } from "../../../../../src/channels/gate-notify.js";
+import {
+  notifyBlocked,
+  onBlockedNotification,
+  formatBlockedNotification,
+} from "../../../../../src/channels/gate-notify.js";
 import { resolveGateMode } from "../../../../../src/channels/mention-gating.js";
 import type { OpenClawConfig } from "../../../../../src/config/config.js";
+import { loadConfig } from "../../../../../src/config/config.js";
 import { resolveChannelGroupGateMode } from "../../../../../src/config/group-policy.js";
+import { deliverOutboundPayloads } from "../../../../../src/infra/outbound/deliver.js";
 import { normalizeE164 } from "../../../../../src/utils.js";
+import { createThreadDiscord } from "../../send.js";
+
+// [frankclaw] Register gate-notify → Discord delivery from the SAME module context
+// that fires notifyBlocked events. This avoids the dual-module-instance problem
+// where dist and src get separate EventEmitter instances.
+let gateNotifyRegistered = false;
+function ensureGateNotifyDiscord() {
+  if (gateNotifyRegistered) return;
+  gateNotifyRegistered = true;
+
+  // Defer config read to first use (config may not be loaded at import time)
+  onBlockedNotification(async (event) => {
+    const cfg = loadConfig();
+    const gateChannel = (cfg.agents?.defaults as Record<string, unknown>)?.gateNotifyChannel as
+      | string
+      | undefined;
+    const gateOwner = (cfg.agents?.defaults as Record<string, unknown>)?.gateNotifyOwner as
+      | string
+      | undefined;
+    if (!gateChannel) return;
+
+    const ownerMention = gateOwner ? `<@${gateOwner}>` : undefined;
+    const message = formatBlockedNotification(event.info, { ownerMention });
+    try {
+      const results = await deliverOutboundPayloads({
+        cfg,
+        channel: "discord",
+        to: `channel:${gateChannel}`,
+        accountId: "default",
+        payloads: [{ text: message }],
+      });
+      const messageId = results?.[0]?.messageId;
+      if (messageId && gateOwner) {
+        try {
+          const chatName = event.info.chatName || event.info.chatId;
+          await createThreadDiscord(gateChannel, {
+            messageId,
+            name: `${chatName} blocked`,
+            content: `<@${gateOwner}> New blocked message from ${event.info.platform}: "${chatName}" (${event.info.chatId}). Reply here to set a gate mode.`,
+          });
+        } catch { /* thread creation non-fatal */ }
+      }
+    } catch (err) {
+      console.error(`[gate-notify-discord-ext] Failed: ${String(err)}`);
+    }
+  });
+}
 import type { WebInboundMsg } from "../types.js";
 import { formatGroupMembers } from "./group-members.js";
 import { maybeMarkWhatsAppRoamingSeen } from "./roaming-seen.js";
@@ -37,6 +90,9 @@ export type WebGroupGateModeCheckResult = {
 export function resolveWebGroupGateModeCheck(
   params: WebGroupGateModeCheckParams,
 ): WebGroupGateModeCheckResult {
+  // Ensure Discord delivery is registered from the same module context
+  ensureGateNotifyDiscord();
+
   const noGate: WebGroupGateModeCheckResult = {
     approved: false,
     effectiveMention: false,
