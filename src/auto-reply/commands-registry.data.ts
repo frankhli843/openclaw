@@ -550,7 +550,7 @@ function buildChatCommands(): ChatCommandDefinition[] {
       key: "stop",
       nativeName: "stop",
       description: "Stop the current run.",
-      textAlias: "/stop",
+      textAliases: ["/stop", "doramon_stop"],
       category: "session",
     }),
     defineChatCommand({
