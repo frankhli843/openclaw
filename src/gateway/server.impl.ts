@@ -1042,6 +1042,24 @@ export async function startGatewayServer(
     }, deliveryRecoveryIntervalMs);
   }
 
+  // [frankclaw] Wire gate-notify to Discord so blocked/unknown group messages
+  // get posted to #gate-control and tag Frank.
+  if (!minimalTestGateway) {
+    const gateChannel = cfgAtStart.agents?.defaults?.gateNotifyChannel;
+    const gateOwner = cfgAtStart.agents?.defaults?.gateNotifyOwner;
+    if (gateChannel) {
+      import("../channels/gate-notify-discord.js")
+        .then(({ registerGateNotifyDiscord }) => {
+          registerGateNotifyDiscord({
+            discordChannelId: gateChannel,
+            ownerDiscordId: gateOwner,
+          });
+          log.info(`[gate-notify-discord] Registered → channel ${gateChannel}`);
+        })
+        .catch((err) => log.error(`[gate-notify-discord] Registration failed: ${String(err)}`));
+    }
+  }
+
   const execApprovalManager = new ExecApprovalManager();
   const execApprovalForwarder = createExecApprovalForwarder();
   const execApprovalHandlers = createExecApprovalHandlers(execApprovalManager, {
