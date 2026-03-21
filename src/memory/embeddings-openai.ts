@@ -24,7 +24,7 @@ const OPENAI_MAX_INPUT_TOKENS: Record<string, number> = {
 export function normalizeOpenAiModel(model: string): string {
   return normalizeEmbeddingModelWithPrefixes({
     model,
-    defaultModel: DEFAULT_OPENAI_EMBEDDING_MODEL,
+    defaultModel: OPENAI_DEFAULT_EMBEDDING_MODEL,
     prefixes: ["openai/"],
   });
 }

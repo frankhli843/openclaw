@@ -14,7 +14,7 @@ import { resolveUserPath } from "../utils.js";
 import { DEFAULT_GEMINI_EMBEDDING_MODEL } from "./embeddings-gemini.js";
 import { DEFAULT_MISTRAL_EMBEDDING_MODEL } from "./embeddings-mistral.js";
 import { DEFAULT_OLLAMA_EMBEDDING_MODEL } from "./embeddings-ollama.js";
-import { DEFAULT_OPENAI_EMBEDDING_MODEL } from "./embeddings-openai.js";
+import { OPENAI_DEFAULT_EMBEDDING_MODEL } from "../providers/openai-defaults.js";
 import { DEFAULT_VOYAGE_EMBEDDING_MODEL } from "./embeddings-voyage.js";
 import {
   createEmbeddingProvider,
@@ -1108,7 +1108,7 @@ export abstract class MemoryManagerSyncOps {
       fallback === "gemini"
         ? DEFAULT_GEMINI_EMBEDDING_MODEL
         : fallback === "openai"
-          ? DEFAULT_OPENAI_EMBEDDING_MODEL
+          ? OPENAI_DEFAULT_EMBEDDING_MODEL
           : fallback === "voyage"
             ? DEFAULT_VOYAGE_EMBEDDING_MODEL
             : fallback === "mistral"
