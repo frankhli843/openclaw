@@ -2,9 +2,17 @@ import {
   attachChannelToResult,
   type ChannelOutboundAdapter,
   createAttachedChannelResultAdapter,
+  createEmptyChannelResult,
 } from "openclaw/plugin-sdk/channel-send-result";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-runtime";
-import { resolveOutboundSendDep, type OutboundIdentity } from "openclaw/plugin-sdk/infra-runtime";
+import {
+  resolveOutboundSendDep,
+  type OutboundIdentity,
+  enforceDiscordDnrWindow,
+  DiscordDnrSuppressedError,
+  deferDelivery,
+} from "openclaw/plugin-sdk/infra-runtime";
+import { createSubsystemLogger } from "openclaw/plugin-sdk/runtime-env";
 import {
   resolvePayloadMediaUrls,
   sendPayloadMediaSequenceOrFallback,
@@ -20,6 +28,8 @@ import {
   sendWebhookMessageDiscord,
 } from "./send.js";
 import { buildDiscordInteractiveComponents } from "./shared-interactive.js";
+
+const dnrLog = createSubsystemLogger("discord-outbound-dnr");
 
 export const DISCORD_TEXT_CHUNK_LIMIT = 2000;
 

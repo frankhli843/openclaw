@@ -12,6 +12,7 @@ import {
   enforceDiscordDnrWindow,
   DiscordDnrSuppressedError,
   deferDelivery,
+  enqueueDelivery,
 } from "openclaw/plugin-sdk/infra-runtime";
 import {
   resolveSendableOutboundReplyParts,
@@ -248,9 +249,19 @@ export async function deliverDiscordReply(params: {
     enforceDiscordDnrWindow(dnrCtx);
   } catch (err) {
     if (err instanceof DiscordDnrSuppressedError) {
-      // Queue the reply for delivery when the quiet window ends.
-      const queueId = `discord-reply:${params.target}:${Date.now()}`;
-      await deferDelivery(queueId, err.nextEligibleAtMs, "discord-dnr-window").catch(() => {});
+      // Enqueue the reply payloads to disk FIRST, then defer until quiet window ends.
+      // Previously deferDelivery was called on a non-existent queue entry (ENOENT),
+      // which was silently swallowed by .catch(() => {}), losing the reply forever.
+      const queueId = await enqueueDelivery({
+        channel: "discord",
+        to: params.target,
+        payloads: params.replies,
+        accountId: params.accountId,
+        replyToId: params.replyToId,
+      }).catch(() => undefined);
+      if (queueId) {
+        await deferDelivery(queueId, err.nextEligibleAtMs, "discord-dnr-window").catch(() => {});
+      }
       return { dnrSuppressed: true };
     }
     throw err;
