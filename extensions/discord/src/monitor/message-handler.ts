@@ -3,7 +3,7 @@ import { resolveAckReaction } from "openclaw/plugin-sdk/agent-runtime";
 import {
   createChannelInboundDebouncer,
   shouldDebounceTextInbound,
-} from "openclaw/plugin-sdk/channel-runtime";
+} from "openclaw/plugin-sdk/channel-inbound";
 import { resolveOpenProviderRuntimeGroupPolicy } from "openclaw/plugin-sdk/config-runtime";
 import { danger, logVerbose } from "openclaw/plugin-sdk/runtime-env";
 import { reactMessageDiscord } from "../send.reactions.js";
