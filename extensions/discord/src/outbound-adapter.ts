@@ -12,12 +12,12 @@ import {
   DiscordDnrSuppressedError,
   deferDelivery,
 } from "openclaw/plugin-sdk/infra-runtime";
-import { createSubsystemLogger } from "openclaw/plugin-sdk/runtime-env";
 import {
   resolvePayloadMediaUrls,
   sendPayloadMediaSequenceOrFallback,
   sendTextMediaPayload,
 } from "openclaw/plugin-sdk/reply-payload";
+import { createSubsystemLogger } from "openclaw/plugin-sdk/runtime-env";
 import type { DiscordComponentMessageSpec } from "./components.js";
 import { getThreadBindingManager, type ThreadBindingRecord } from "./monitor/thread-bindings.js";
 import { normalizeDiscordOutboundTarget } from "./normalize.js";
