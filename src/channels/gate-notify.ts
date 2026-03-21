@@ -39,9 +39,12 @@ export function notifyBlocked(info: BlockedMessageInfo): void {
   const now = Date.now();
   const last = lastNotifiedAt.get(key) ?? 0;
   if (now - last < THROTTLE_MS) {
+    console.debug(`[gate-notify] throttled for ${key} (${Math.round((THROTTLE_MS - (now - last)) / 1000)}s remaining)`);
     return;
   }
   lastNotifiedAt.set(key, now);
+  const listenerCount = gateNotifier.listenerCount("blocked");
+  console.info(`[gate-notify] Emitting blocked event for ${key} (${listenerCount} listeners)`);
   const event: BlockedNotificationEvent = { info };
   logVerbose(`[gate-notify] ${formatBlockedNotification(info)}`);
   gateNotifier.emit("blocked", event);

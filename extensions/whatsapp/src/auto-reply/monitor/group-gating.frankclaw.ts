@@ -14,7 +14,6 @@ import { loadConfig } from "../../../../../src/config/config.js";
 import { resolveChannelGroupGateMode } from "../../../../../src/config/group-policy.js";
 import { deliverOutboundPayloads } from "../../../../../src/infra/outbound/deliver.js";
 import { normalizeE164 } from "../../../../../src/utils.js";
-import { createThreadDiscord } from "../../send.js";
 
 // [frankclaw] Register gate-notify → Discord delivery from the SAME module context
 // that fires notifyBlocked events. This avoids the dual-module-instance problem
@@ -24,40 +23,39 @@ function ensureGateNotifyDiscord() {
   if (gateNotifyRegistered) return;
   gateNotifyRegistered = true;
 
-  // Defer config read to first use (config may not be loaded at import time)
   onBlockedNotification(async (event) => {
-    const cfg = loadConfig();
+    let cfg: OpenClawConfig;
+    try {
+      cfg = loadConfig();
+    } catch (err) {
+      console.error(`[gate-notify-ext] loadConfig failed: ${String(err)}`);
+      return;
+    }
     const gateChannel = (cfg.agents?.defaults as Record<string, unknown>)?.gateNotifyChannel as
       | string
       | undefined;
     const gateOwner = (cfg.agents?.defaults as Record<string, unknown>)?.gateNotifyOwner as
       | string
       | undefined;
-    if (!gateChannel) return;
+    if (!gateChannel) {
+      console.warn(`[gate-notify-ext] No gateNotifyChannel configured, skipping`);
+      return;
+    }
 
     const ownerMention = gateOwner ? `<@${gateOwner}>` : undefined;
     const message = formatBlockedNotification(event.info, { ownerMention });
+    console.info(`[gate-notify-ext] Delivering to Discord channel ${gateChannel}...`);
     try {
-      const results = await deliverOutboundPayloads({
+      await deliverOutboundPayloads({
         cfg,
         channel: "discord",
         to: `channel:${gateChannel}`,
         accountId: "default",
         payloads: [{ text: message }],
       });
-      const messageId = results?.[0]?.messageId;
-      if (messageId && gateOwner) {
-        try {
-          const chatName = event.info.chatName || event.info.chatId;
-          await createThreadDiscord(gateChannel, {
-            messageId,
-            name: `${chatName} blocked`,
-            content: `<@${gateOwner}> New blocked message from ${event.info.platform}: "${chatName}" (${event.info.chatId}). Reply here to set a gate mode.`,
-          });
-        } catch { /* thread creation non-fatal */ }
-      }
+      console.info(`[gate-notify-ext] Delivered successfully`);
     } catch (err) {
-      console.error(`[gate-notify-discord-ext] Failed: ${String(err)}`);
+      console.error(`[gate-notify-ext] Delivery failed: ${String(err)}`);
     }
   });
 }
