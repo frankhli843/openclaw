@@ -122,6 +122,10 @@ export function applyGroupGating(params: ApplyGroupGatingParams) {
         groupHistoryLimit: params.groupHistoryLimit,
       }),
   });
+  params.replyLogger.debug(
+    { conversationId: params.conversationId, gateModeCheck },
+    "gateModeCheck result",
+  );
   if (gateModeCheck.shouldDrop) {
     return { shouldProcess: false };
   }

@@ -51,6 +51,10 @@ export function resolveWebGroupGateModeCheck(
     accountId: params.accountId,
   });
 
+  params.logVerbose(
+    `[gate-control-debug] conversationId=${params.conversationId} gateMode=${gateModeResult?.gateMode ?? "undefined"}`,
+  );
+
   if (!gateModeResult?.gateMode) {
     // Unknown group (not in channel-policy): notify gate-control and drop
     notifyBlocked({
