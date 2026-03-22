@@ -20,6 +20,8 @@ import {
 import {
   createRuntimeOutboundDelegates,
   resolveOutboundSendDep,
+  enforceDiscordDnrWindow,
+  DiscordDnrSuppressedError,
 } from "openclaw/plugin-sdk/infra-runtime";
 import {
   buildOutboundBaseSessionKey,
@@ -434,6 +436,16 @@ export const discordPlugin: ChannelPlugin<ResolvedDiscordAccount> = {
     ...createAttachedChannelResultAdapter({
       channel: "discord",
       sendText: async ({ cfg, to, text, accountId, deps, replyToId, silent }) => {
+        // Frankclaw: Discord DNR quiet window enforcement
+        const dnrCtx = { channel: "discord" as const, to };
+        try {
+          enforceDiscordDnrWindow(dnrCtx);
+        } catch (err) {
+          if (err instanceof DiscordDnrSuppressedError) {
+            return { messageId: "", channelId: to };
+          }
+          throw err;
+        }
         const send =
           resolveOutboundSendDep<DiscordSendFn>(deps, "discord") ??
           getDiscordRuntime().channel.discord.sendMessageDiscord;
@@ -456,6 +468,16 @@ export const discordPlugin: ChannelPlugin<ResolvedDiscordAccount> = {
         replyToId,
         silent,
       }) => {
+        // Frankclaw: Discord DNR quiet window enforcement
+        const dnrCtx = { channel: "discord" as const, to };
+        try {
+          enforceDiscordDnrWindow(dnrCtx);
+        } catch (err) {
+          if (err instanceof DiscordDnrSuppressedError) {
+            return { messageId: "", channelId: to };
+          }
+          throw err;
+        }
         const send =
           resolveOutboundSendDep<DiscordSendFn>(deps, "discord") ??
           getDiscordRuntime().channel.discord.sendMessageDiscord;

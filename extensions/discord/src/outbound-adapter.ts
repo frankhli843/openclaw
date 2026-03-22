@@ -31,6 +31,25 @@ import { buildDiscordInteractiveComponents } from "./shared-interactive.js";
 
 const dnrLog = createSubsystemLogger("discord-outbound-dnr");
 
+/** Check DNR and return true if suppressed. Logs + defers when suppressed. */
+async function checkDiscordOutboundDnr(target: string, label: string): Promise<boolean> {
+  const dnrCtx = { channel: "discord" as const, to: target };
+  try {
+    enforceDiscordDnrWindow(dnrCtx);
+    return false;
+  } catch (err) {
+    if (err instanceof DiscordDnrSuppressedError) {
+      dnrLog.info(
+        `[outbound-adapter/${label}] suppressed send to ${target} until ${new Date(err.nextEligibleAtMs).toISOString()}`,
+      );
+      const queueId = `discord-outbound:${target}:${Date.now()}`;
+      await deferDelivery(queueId, err.nextEligibleAtMs, "discord-dnr-window").catch(() => {});
+      return true;
+    }
+    throw err;
+  }
+}
+
 export const DISCORD_TEXT_CHUNK_LIMIT = 2000;
 
 function resolveDiscordOutboundTarget(params: {
@@ -105,6 +124,10 @@ export const discordOutbound: ChannelOutboundAdapter = {
   pollMaxOptions: 10,
   resolveTarget: ({ to }) => normalizeDiscordOutboundTarget(to),
   sendPayload: async (ctx) => {
+    const target = resolveDiscordOutboundTarget({ to: ctx.to, threadId: ctx.threadId });
+    if (await checkDiscordOutboundDnr(target, "sendPayload")) {
+      return createEmptyChannelResult("discord");
+    }
     const payload = {
       ...ctx.payload,
       text: ctx.payload.text ?? "",
@@ -134,7 +157,6 @@ export const discordOutbound: ChannelOutboundAdapter = {
     }
     const send =
       resolveOutboundSendDep<typeof sendMessageDiscord>(ctx.deps, "discord") ?? sendMessageDiscord;
-    const target = resolveDiscordOutboundTarget({ to: ctx.to, threadId: ctx.threadId });
     const mediaUrls = resolvePayloadMediaUrls(payload);
     const result = await sendPayloadMediaSequenceOrFallback({
       text: payload.text ?? "",
@@ -174,6 +196,10 @@ export const discordOutbound: ChannelOutboundAdapter = {
   ...createAttachedChannelResultAdapter({
     channel: "discord",
     sendText: async ({ cfg, to, text, accountId, deps, replyToId, threadId, identity, silent }) => {
+      const resolvedTarget = resolveDiscordOutboundTarget({ to, threadId });
+      if (await checkDiscordOutboundDnr(resolvedTarget, "sendText")) {
+        return { messageId: "", channelId: resolvedTarget };
+      }
       if (!silent) {
         const webhookResult = await maybeSendDiscordWebhookText({
           cfg,
@@ -209,6 +235,10 @@ export const discordOutbound: ChannelOutboundAdapter = {
       threadId,
       silent,
     }) => {
+      const resolvedTarget = resolveDiscordOutboundTarget({ to, threadId });
+      if (await checkDiscordOutboundDnr(resolvedTarget, "sendMedia")) {
+        return { messageId: "", channelId: resolvedTarget };
+      }
       const send =
         resolveOutboundSendDep<typeof sendMessageDiscord>(deps, "discord") ?? sendMessageDiscord;
       return await send(resolveDiscordOutboundTarget({ to, threadId }), text, {

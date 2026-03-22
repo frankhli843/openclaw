@@ -1,4 +1,9 @@
 import type { AgentToolResult } from "@mariozechner/pi-agent-core";
+import {
+  enforceDiscordDnrWindow,
+  DiscordDnrSuppressedError,
+} from "openclaw/plugin-sdk/infra-runtime";
+import { createSubsystemLogger } from "openclaw/plugin-sdk/runtime-env";
 import { readDiscordComponentSpec } from "../components.js";
 import {
   assertMediaNotDataUrl,
@@ -38,6 +43,25 @@ import {
 } from "../send.js";
 import type { DiscordSendComponents, DiscordSendEmbeds } from "../send.shared.js";
 import { resolveDiscordChannelId } from "../targets.js";
+
+const actionDnrLog = createSubsystemLogger("discord-action-dnr");
+
+/** Returns true if DNR suppresses the send. Throws for non-DNR errors. */
+function isDiscordActionDnrSuppressed(target: string, actionName: string): boolean {
+  const dnrCtx = { channel: "discord" as const, to: target };
+  try {
+    enforceDiscordDnrWindow(dnrCtx);
+    return false;
+  } catch (err) {
+    if (err instanceof DiscordDnrSuppressedError) {
+      actionDnrLog.info(
+        `[action/${actionName}] suppressed send to ${target} until ${new Date(err.nextEligibleAtMs).toISOString()}`,
+      );
+      return true;
+    }
+    throw err;
+  }
+}
 
 export const discordMessagingActionRuntime = {
   createThreadDiscord,
@@ -296,6 +320,13 @@ export async function handleDiscordMessagingAction(
         throw new Error("Discord message sends are disabled.");
       }
       const to = readStringParam(params, "to", { required: true });
+      if (isDiscordActionDnrSuppressed(to, "sendMessage")) {
+        return jsonResult({
+          ok: true,
+          dnrSuppressed: true,
+          message: "Suppressed by quiet hours. Will be delivered later.",
+        });
+      }
       const asVoice = params.asVoice === true;
       const silent = params.silent === true;
       const rawComponents = params.components;
@@ -435,6 +466,9 @@ export async function handleDiscordMessagingAction(
         throw new Error("Discord threads are disabled.");
       }
       const channelId = resolveChannelId();
+      if (isDiscordActionDnrSuppressed(`channel:${channelId}`, "threadCreate")) {
+        return jsonResult({ ok: true, dnrSuppressed: true, message: "Suppressed by quiet hours." });
+      }
       const name = readStringParam(params, "name", { required: true });
       const messageId = readStringParam(params, "messageId");
       const content = readStringParam(params, "content");
@@ -494,6 +528,9 @@ export async function handleDiscordMessagingAction(
         throw new Error("Discord threads are disabled.");
       }
       const channelId = resolveChannelId();
+      if (isDiscordActionDnrSuppressed(`channel:${channelId}`, "threadReply")) {
+        return jsonResult({ ok: true, dnrSuppressed: true, message: "Suppressed by quiet hours." });
+      }
       const content = readStringParam(params, "content", {
         required: true,
       });
