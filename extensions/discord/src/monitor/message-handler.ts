@@ -5,6 +5,7 @@ import {
   shouldDebounceTextInbound,
 } from "openclaw/plugin-sdk/channel-inbound";
 import { resolveOpenProviderRuntimeGroupPolicy } from "openclaw/plugin-sdk/config-runtime";
+import { createDedupeCache } from "openclaw/plugin-sdk/infra-runtime";
 import { danger, logVerbose } from "openclaw/plugin-sdk/runtime-env";
 import { reactMessageDiscord } from "../send.reactions.js";
 import { buildDiscordInboundJob } from "./inbound-job.js";
@@ -36,6 +37,27 @@ export type DiscordMessageHandlerWithLifecycle = DiscordMessageHandler & {
   deactivate: () => void;
 };
 
+const RECENT_DISCORD_MESSAGE_TTL_MS = 5 * 60_000;
+const RECENT_DISCORD_MESSAGE_MAX = 5000;
+
+function buildDiscordInboundDedupeKey(params: {
+  accountId: string;
+  data: DiscordMessageEvent;
+}): string | null {
+  const messageId = params.data.message?.id?.trim();
+  if (!messageId) {
+    return null;
+  }
+  const channelId = resolveDiscordMessageChannelId({
+    message: params.data.message,
+    eventChannelId: params.data.channel_id,
+  });
+  if (!channelId) {
+    return null;
+  }
+  return `${params.accountId}:${channelId}:${messageId}`;
+}
+
 export function createDiscordMessageHandler(
   params: DiscordMessageHandlerParams,
 ): DiscordMessageHandlerWithLifecycle {
@@ -55,6 +77,11 @@ export function createDiscordMessageHandler(
     channel: "discord",
     accountId: params.accountId,
   });
+  const recentInboundMessages = createDedupeCache({
+    ttlMs: RECENT_DISCORD_MESSAGE_TTL_MS,
+    maxSize: RECENT_DISCORD_MESSAGE_MAX,
+  });
+
   // [frankclaw] Use durable worker when client is available (crash-resistant).
   // Falls back to in-memory worker if client ref is not provided.
   const inboundWorker = params.client
@@ -208,6 +235,13 @@ export function createDiscordMessageHandler(
       // slowdown (see #15874).
       const msgAuthorId = data.message?.author?.id ?? data.author?.id;
       if (params.botUserId && msgAuthorId === params.botUserId) {
+        return;
+      }
+      const dedupeKey = buildDiscordInboundDedupeKey({
+        accountId: params.accountId,
+        data,
+      });
+      if (dedupeKey && recentInboundMessages.check(dedupeKey)) {
         return;
       }
 
