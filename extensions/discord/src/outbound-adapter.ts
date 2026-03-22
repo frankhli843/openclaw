@@ -8,6 +8,8 @@ import type { OpenClawConfig } from "openclaw/plugin-sdk/config-runtime";
 import {
   resolveOutboundSendDep,
   type OutboundIdentity,
+} from "openclaw/plugin-sdk/outbound-runtime";
+import {
   enforceDiscordDnrWindow,
   DiscordDnrSuppressedError,
   deferDelivery,
