@@ -15,11 +15,15 @@ vi.mock("../../../../../src/config/group-policy.js", () => ({
 }));
 
 const notifyBlockedCalls: any[] = [];
-vi.mock("../../../../../src/channels/gate-notify.js", () => ({
-  notifyBlocked: vi.fn((params: any) => {
-    notifyBlockedCalls.push(params);
-  }),
-}));
+vi.mock("../../../../../src/channels/gate-notify.js", async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    notifyBlocked: vi.fn((params: any) => {
+      notifyBlockedCalls.push(params);
+    }),
+  };
+});
 
 vi.mock("../../../../../src/channels/mention-gating.js", async () => {
   const actual = await vi.importActual<any>("../../../../../src/channels/gate-mode.frankclaw.js");
