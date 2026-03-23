@@ -27,6 +27,22 @@ const normalizeManifestEntries = (entries) =>
     )
     .filter((entry) => entry.file.length > 0);
 
+const mergeManifestEntries = (section, keys) => {
+  const merged = [];
+  const seenFiles = new Set();
+  for (const key of keys) {
+    const normalizedEntries = normalizeManifestEntries(section?.[key] ?? []);
+    for (const entry of normalizedEntries) {
+      if (seenFiles.has(entry.file)) {
+        continue;
+      }
+      seenFiles.add(entry.file);
+      merged.push(entry);
+    }
+  }
+  return merged;
+};
+
 export function loadTestRunnerBehavior() {
   const raw = tryReadJsonFile(behaviorManifestPath, {});
   const unit = raw.unit ?? {};
@@ -34,16 +50,14 @@ export function loadTestRunnerBehavior() {
   const extensions = raw.extensions ?? {};
   return {
     base: {
-      threadSingleton: normalizeManifestEntries(base.threadSingleton ?? []),
-    },
-    unit: {
-      isolated: normalizeManifestEntries(unit.isolated ?? []),
-      singletonIsolated: normalizeManifestEntries(unit.singletonIsolated ?? []),
-      threadSingleton: normalizeManifestEntries(unit.threadSingleton ?? []),
-      vmForkSingleton: normalizeManifestEntries(unit.vmForkSingleton ?? []),
+      threadPinned: mergeManifestEntries(base, ["threadPinned", "threadSingleton"]),
     },
     extensions: {
-      singletonIsolated: normalizeManifestEntries(extensions.singletonIsolated ?? []),
+      isolated: mergeManifestEntries(extensions, ["isolated"]),
+    },
+    unit: {
+      isolated: mergeManifestEntries(unit, ["isolated"]),
+      threadPinned: mergeManifestEntries(unit, ["threadPinned", "threadSingleton"]),
     },
   };
 }
