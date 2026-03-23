@@ -16,7 +16,7 @@ Docs: https://docs.openclaw.ai
 - Browser/CDP: reuse an already-running loopback browser after a short initial reachability miss instead of immediately falling back to relaunch detection, which fixes second-run browser start/open regressions on slower headless Linux setups. Fixes #53004. Thanks @vincentkoc.
 - ClawHub/skills: resolve the local ClawHub auth token for gateway skill browsing and switch browse-all requests to search so ClawControl stops falling into unauthenticated 429s and empty authenticated skill lists. Fixes #52949. Thanks @vincentkoc.
 - ClawHub/macOS auth: honor macOS auth config and XDG auth paths for saved ClawHub credentials, so `openclaw skills ...` and gateway skill browsing keep using the signed-in auth state instead of silently falling back to unauthenticated mode. Fixes #53034.
-- Agents/web_search: use the active runtime `web_search` provider instead of stale/default selection, so agent turns keep hitting the provider you actually configured. Fixes #53020.
+- Agents/web_search: use the active runtime `web_search` provider instead of stale/default selection, so agent turns keep hitting the provider you actually configured. Fixes #53020. Thanks @jzakirov.
 - Channels/catalog: let external channel catalogs override shipped fallback metadata and honor overridden npm specs during channel setup, so custom channel catalogs no longer fall back to bundled packages when a channel id matches. (#52988)
 - Gateway/auth: require auth for canvas routes and admin scope for agent session reset, so anonymous canvas access and non-admin reset requests fail closed.
 - Gateway/probe: stop successful gateway handshakes from timing out as unreachable while post-connect detail RPCs are still loading, so slow devices report a reachable RPC failure instead of a false negative dead gateway. Fixes #52927. Thanks @vincentkoc.
@@ -30,6 +30,7 @@ Docs: https://docs.openclaw.ai
 - Telegram/auto-reply: preserve same-chat inbound debounce order without stranding stale busy-session followups, and keep same-key overflow turns ordered when tracked debounce keys are saturated. (#52998) Thanks @osolmaz.
 - ClawHub/macOS: read the local ClawHub login from the macOS Application Support path and still honor XDG config on macOS, so skill browsing uses the logged-in token on both default and XDG-style setups. Fixes #52949. Thanks @scoootscooob.
 - Discord/commands: return an explicit unauthorized reply for privileged native slash commands instead of falling through to Discord's misleading generic completion when auth gates reject the sender. Fixes #53041. Thanks @scoootscooob.
+- Models/OpenAI Codex OAuth: bootstrap the env-configured HTTP/HTTPS proxy dispatcher on the stored-credential refresh path before token renewal runs, so expired Codex OAuth profiles can refresh successfully in proxy-required environments instead of locking users out after the first token expiry.
 
 ## 2026.3.22
 
