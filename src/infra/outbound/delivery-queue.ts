@@ -15,3 +15,5 @@ export {
   recoverPendingDeliveries,
 } from "./delivery-queue-recovery.js";
 export type { DeliverFn, RecoveryLogger, RecoverySummary } from "./delivery-queue-recovery.js";
+// Frankclaw: deferDelivery for DNR quiet window support
+export { deferDelivery } from "./delivery-queue.frankclaw.js";

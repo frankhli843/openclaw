@@ -12,7 +12,6 @@ import type {
   GroupToolPolicyBySenderConfig,
   GroupToolPolicyConfig,
 } from "../../config/types.tools.js";
-import { resolveExactLineGroupConfigKey } from "../../line/group-keys.js";
 import { inspectSlackAccount } from "../../plugin-sdk/slack.js";
 import { normalizeAtHashSlug, normalizeHyphenSlug } from "../../shared/string-normalization.js";
 import type { ChannelGroupContext } from "./types.js";
@@ -351,36 +350,7 @@ export function resolveBlueBubblesGroupToolPolicy(
   return resolveChannelToolPolicyForSender(params, "bluebubbles");
 }
 
-export function resolveLineGroupRequireMention(params: GroupMentionParams): boolean {
-  const exactGroupId = resolveExactLineGroupConfigKey({
-    cfg: params.cfg,
-    accountId: params.accountId,
-    groupId: params.groupId,
-  });
-  if (exactGroupId) {
-    return resolveChannelGroupRequireMention({
-      cfg: params.cfg,
-      channel: "line",
-      groupId: exactGroupId,
-      accountId: params.accountId,
-    });
-  }
-  return resolveChannelRequireMention(params, "line");
-}
-
-export function resolveLineGroupToolPolicy(
-  params: GroupMentionParams,
-): GroupToolPolicyConfig | undefined {
-  const exactGroupId = resolveExactLineGroupConfigKey({
-    cfg: params.cfg,
-    accountId: params.accountId,
-    groupId: params.groupId,
-  });
-  if (exactGroupId) {
-    return resolveChannelToolPolicyForSender(params, "line", exactGroupId);
-  }
-  return resolveChannelToolPolicyForSender(params, "line");
-}
+// LINE functions moved to extensions/line/src/group-policy.ts by upstream
 
 // ---- GateMode resolvers ----
 

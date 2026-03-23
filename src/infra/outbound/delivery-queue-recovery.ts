@@ -113,6 +113,13 @@ export function isEntryEligibleForRecoveryRetry(
   entry: QueuedDelivery,
   now: number,
 ): { eligible: true } | { eligible: false; remainingBackoffMs: number } {
+  // Frankclaw: respect deferUntilMs from DNR quiet window
+  const deferUntilMs = (entry as { deferUntilMs?: number }).deferUntilMs;
+  if (typeof deferUntilMs === "number" && Number.isFinite(deferUntilMs)) {
+    if (now < deferUntilMs) {
+      return { eligible: false, remainingBackoffMs: deferUntilMs - now };
+    }
+  }
   const backoff = computeBackoffMs(entry.retryCount + 1);
   if (backoff <= 0) {
     return { eligible: true };
