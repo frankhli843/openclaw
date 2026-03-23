@@ -1,0 +1,405 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Frankclaw feature verification registry. Source of truth for all custom features in the frankclaw fork. Used by verify-frankclaw-features.sh for automated three-probe verification.",
+  "version": "1.0.0",
+  "features": [
+    {
+      "name": "Discord DNR quiet hours (replies)",
+      "description": "Enforces quiet hours on Discord conversational replies via enforceDiscordDnrWindow",
+      "static": [
+        {
+          "file": "extensions/discord/src/monitor/reply-delivery.ts",
+          "pattern": "enforceDiscordDnrWindow",
+          "minCount": 1
+        }
+      ],
+      "tests": [],
+      "runtime": []
+    },
+    {
+      "name": "Discord DNR quiet hours (outbound)",
+      "description": "Enforces quiet hours on Discord outbound messages from cron/sub-agents/raw_send",
+      "static": [
+        {
+          "file": "extensions/discord/src/outbound-adapter.ts",
+          "pattern": "enforceDiscordDnrWindow",
+          "minCount": 1
+        },
+        {
+          "file": "extensions/discord/src/outbound-adapter.ts",
+          "pattern": "checkDiscordOutboundDnr",
+          "minCount": 1
+        }
+      ],
+      "tests": [],
+      "runtime": []
+    },
+    {
+      "name": "Discord DNR quiet hours (actions)",
+      "description": "Enforces quiet hours on Discord action-based sends (sendMessage/threadCreate/threadReply)",
+      "static": [
+        {
+          "file": "extensions/discord/src/actions/runtime.messaging.ts",
+          "pattern": "enforceDiscordDnrWindow",
+          "minCount": 1
+        },
+        {
+          "file": "extensions/discord/src/actions/runtime.messaging.ts",
+          "pattern": "isDiscordActionDnrSuppressed",
+          "minCount": 1
+        }
+      ],
+      "tests": [],
+      "runtime": []
+    },
+    {
+      "name": "Discord DNR quiet hours (channel)",
+      "description": "Enforces quiet hours on Discord channel-level outbound (sendText/sendMedia)",
+      "static": [
+        {
+          "file": "extensions/discord/src/channel.ts",
+          "pattern": "enforceDiscordDnrWindow",
+          "minCount": 1
+        }
+      ],
+      "tests": [],
+      "runtime": []
+    },
+    {
+      "name": "Bed reaction on DNR",
+      "description": "Reacts with bed emoji when a message is suppressed by DNR quiet hours",
+      "static": [
+        {
+          "file": "extensions/discord/src/monitor/message-handler.process.ts",
+          "pattern": "dnrSuppressed",
+          "minCount": 1
+        }
+      ],
+      "tests": [],
+      "runtime": []
+    },
+    {
+      "name": "DNR deferred delivery",
+      "description": "Enqueues then defers delivery when DNR suppresses a reply (enqueueDelivery before deferDelivery)",
+      "static": [
+        {
+          "file": "extensions/discord/src/monitor/reply-delivery.ts",
+          "pattern": "enqueueDelivery",
+          "minCount": 1
+        }
+      ],
+      "tests": [],
+      "runtime": []
+    },
+    {
+      "name": "Durable inbound queue",
+      "description": "Frankclaw durable worker for Discord inbound message processing with crash recovery",
+      "static": [
+        {
+          "file": "extensions/discord/src/monitor/message-handler.ts",
+          "pattern": "durable",
+          "minCount": 1
+        },
+        {
+          "file": "extensions/discord/src/monitor/message-handler.ts",
+          "pattern": "frankclaw",
+          "minCount": 1
+        },
+        {
+          "file": "extensions/discord/src/monitor/inbound-worker.durable.frankclaw.ts",
+          "pattern": "frankclaw-durable-worker",
+          "minCount": 1
+        }
+      ],
+      "tests": [
+        "extensions/discord/src/monitor/inbound-worker.durable.frankclaw.test.ts",
+        "extensions/discord/src/monitor/message-handler.worker.frankclaw.test.ts"
+      ],
+      "runtime": [
+        {
+          "logPattern": "[frankclaw-durable-worker] started",
+          "withinSeconds": 120
+        }
+      ]
+    },
+    {
+      "name": "Message coalescing",
+      "description": "Batches rapid-fire Discord messages into coalesced groups for efficient processing",
+      "static": [
+        {
+          "file": "extensions/discord/src/monitor/message-handler.coalesce.ts",
+          "pattern": "coalesce",
+          "minCount": 1
+        },
+        {
+          "file": "extensions/discord/src/monitor/inbound-durable-queue.ts",
+          "pattern": "coalesce",
+          "minCount": 1
+        }
+      ],
+      "tests": [],
+      "runtime": []
+    },
+    {
+      "name": "Thread binding recovery",
+      "description": "Recovers thread session bindings when preflight check fails, preventing orphaned threads",
+      "static": [
+        {
+          "file": "extensions/discord/src/monitor/message-handler.preflight.ts",
+          "pattern": "frankclaw",
+          "minCount": 1
+        },
+        {
+          "file": "extensions/discord/src/monitor/message-handler.preflight.frankclaw.ts",
+          "pattern": "resolveSessionExistsFallback",
+          "minCount": 1
+        }
+      ],
+      "tests": ["extensions/discord/src/monitor/message-handler.preflight.frankclaw.test.ts"],
+      "runtime": []
+    },
+    {
+      "name": "Gate-control unknown groups",
+      "description": "WhatsApp group gating with frankclaw-specific mention keywords and gate modes",
+      "static": [
+        {
+          "file": "extensions/whatsapp/src/auto-reply/monitor/group-gating.ts",
+          "pattern": "frankclaw",
+          "minCount": 1
+        },
+        {
+          "file": "extensions/whatsapp/src/auto-reply/monitor/group-gating.frankclaw.ts",
+          "pattern": "frankclaw",
+          "minCount": 1
+        }
+      ],
+      "tests": ["extensions/whatsapp/src/auto-reply/monitor/group-gating.frankclaw.test.ts"],
+      "runtime": []
+    },
+    {
+      "name": "Raw send tool",
+      "description": "Agent tool for direct cross-channel message delivery (raw_send)",
+      "static": [
+        {
+          "file": "src/agents/tools/raw-send.frankclaw.ts",
+          "pattern": "raw_send",
+          "minCount": 1
+        },
+        {
+          "file": "src/agents/openclaw-tools.ts",
+          "pattern": "raw-send.frankclaw",
+          "minCount": 1
+        }
+      ],
+      "tests": [],
+      "runtime": []
+    },
+    {
+      "name": "Periodic delivery recovery",
+      "description": "2-minute interval recovery loop for failed/deferred deliveries",
+      "static": [
+        {
+          "file": "src/gateway/server.impl.ts",
+          "pattern": "deliveryRecoveryIntervalMs",
+          "minCount": 1
+        }
+      ],
+      "tests": [],
+      "runtime": []
+    },
+    {
+      "name": "WhatsApp DNR quiet hours",
+      "description": "Enforces quiet hours on WhatsApp outbound messages",
+      "static": [
+        {
+          "file": "extensions/whatsapp/src/outbound-adapter.ts",
+          "pattern": "enforceWhatsAppDnr",
+          "minCount": 1
+        }
+      ],
+      "tests": [],
+      "runtime": []
+    },
+    {
+      "name": "Telegram DNR quiet hours",
+      "description": "Enforces quiet hours on Telegram delivery replies and channel outbound",
+      "static": [
+        {
+          "file": "extensions/telegram/src/bot/delivery.replies.ts",
+          "pattern": "enforceDiscordDnrWindow",
+          "minCount": 1
+        },
+        {
+          "file": "extensions/telegram/src/channel.ts",
+          "pattern": "enforceDiscordDnrWindow",
+          "minCount": 1
+        }
+      ],
+      "tests": [],
+      "runtime": []
+    },
+    {
+      "name": "Discord autoThread",
+      "description": "Auto-creates threads for all Discord replies when autoThread config is enabled",
+      "static": [
+        {
+          "file": "extensions/discord/src/monitor/threading.ts",
+          "pattern": "autoThread",
+          "minCount": 1
+        }
+      ],
+      "tests": [],
+      "runtime": []
+    },
+    {
+      "name": "doramon_stop command",
+      "description": "Typing doramon_stop in any channel aborts the current session run",
+      "static": [
+        {
+          "file": "src/auto-reply/commands-registry.data.ts",
+          "pattern": "doramon_stop",
+          "minCount": 1
+        },
+        {
+          "file": "src/auto-reply/reply/commands-session-abort.ts",
+          "pattern": "doramon_stop",
+          "minCount": 1
+        }
+      ],
+      "tests": [],
+      "runtime": []
+    },
+    {
+      "name": "DNR policy exports in plugin-sdk",
+      "description": "Exports discord-dnr and delivery-queue modules via plugin-sdk for extensions to consume",
+      "static": [
+        {
+          "file": "src/plugin-sdk/infra-runtime.ts",
+          "pattern": "discord-dnr",
+          "minCount": 1
+        },
+        {
+          "file": "src/plugin-sdk/infra-runtime.ts",
+          "pattern": "delivery-queue",
+          "minCount": 1
+        }
+      ],
+      "tests": [],
+      "runtime": []
+    },
+    {
+      "name": "Telegram gateMode",
+      "description": "Per-chat gate mode support for Telegram groups (blocked/silent/open/frank-only/allowlist/mention)",
+      "static": [
+        {
+          "file": "extensions/telegram/src/bot-message-context.frankclaw.ts",
+          "pattern": "gateMode",
+          "minCount": 1
+        },
+        {
+          "file": "src/channels/gate-mode.frankclaw.ts",
+          "pattern": "gateMode",
+          "minCount": 1
+        }
+      ],
+      "tests": [
+        "src/channels/gate-mode.frankclaw.test.ts",
+        "src/config/config.telegram-gatemode.frankclaw.test.ts"
+      ],
+      "runtime": []
+    },
+    {
+      "name": "Durable subagent spawn",
+      "description": "Wraps subagent spawning with durable queue for crash recovery",
+      "static": [
+        {
+          "file": "src/agents/subagent-spawn.ts",
+          "pattern": "subagent-spawn.frankclaw",
+          "minCount": 1
+        },
+        {
+          "file": "src/agents/subagent-spawn.frankclaw.ts",
+          "pattern": "DurableJobQueue",
+          "minCount": 1
+        }
+      ],
+      "tests": [],
+      "runtime": []
+    },
+    {
+      "name": "Agent runner deferred retry",
+      "description": "Detects retryable agent failures and implements deferred retry with backoff",
+      "static": [
+        {
+          "file": "src/auto-reply/reply/agent-runner.ts",
+          "pattern": "agent-runner.frankclaw",
+          "minCount": 1
+        },
+        {
+          "file": "src/auto-reply/reply/agent-runner-execution.ts",
+          "pattern": "agent-runner-execution.frankclaw",
+          "minCount": 1
+        }
+      ],
+      "tests": [],
+      "runtime": []
+    },
+    {
+      "name": "Restart selfheal integration",
+      "description": "Frankclaw restart self-heal logic integrated into the gateway CLI lifecycle",
+      "static": [
+        {
+          "file": "src/cli/daemon-cli/lifecycle.ts",
+          "pattern": "restart-selfheal.frankclaw",
+          "minCount": 1
+        },
+        {
+          "file": "src/cli/daemon-cli/restart-selfheal.frankclaw.ts",
+          "pattern": "frankclaw",
+          "minCount": 1
+        }
+      ],
+      "tests": ["src/cli/daemon-cli/restart-selfheal.frankclaw.test.ts"],
+      "runtime": []
+    },
+    {
+      "name": "Cron self-heal",
+      "description": "Frankclaw cron timer self-heal for stuck/failed jobs",
+      "static": [
+        {
+          "file": "src/cron/service/timer.ts",
+          "pattern": "self-heal.frankclaw",
+          "minCount": 1
+        },
+        {
+          "file": "src/cron/service/self-heal.frankclaw.ts",
+          "pattern": "frankclaw",
+          "minCount": 1
+        }
+      ],
+      "tests": [
+        "src/cron/service.timer.frankclaw.test.ts",
+        "src/cron/service/self-heal.frankclaw.test.ts"
+      ],
+      "runtime": []
+    },
+    {
+      "name": "Delivery queue (frankclaw)",
+      "description": "Frankclaw delivery queue with enqueue-before-defer pattern for reliable deferred delivery",
+      "static": [
+        {
+          "file": "src/infra/outbound/delivery-queue.frankclaw.ts",
+          "pattern": "deferDelivery",
+          "minCount": 1
+        },
+        {
+          "file": "src/plugin-sdk/infra-runtime.ts",
+          "pattern": "delivery-queue",
+          "minCount": 1
+        }
+      ],
+      "tests": [],
+      "runtime": []
+    }
+  ]
+}
