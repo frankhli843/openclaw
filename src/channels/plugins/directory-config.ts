@@ -1,6 +1,6 @@
 import type { OpenClawConfig } from "../../config/types.js";
 import { mapAllowFromEntries } from "../../plugin-sdk/channel-config-helpers.js";
-import { isWhatsAppGroupJid, normalizeWhatsAppTarget } from "../../whatsapp/normalize.js";
+import { isWhatsAppGroupJid, normalizeWhatsAppTarget } from "../../../extensions/whatsapp/src/normalize.js";
 import type { InspectedDiscordAccount } from "../read-only-account-inspect.discord.runtime.js";
 import { inspectReadOnlyChannelAccount } from "../read-only-account-inspect.js";
 import type { InspectedSlackAccount } from "../read-only-account-inspect.slack.runtime.js";
