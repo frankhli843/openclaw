@@ -109,6 +109,13 @@
           "file": "extensions/discord/src/monitor/inbound-worker.durable.frankclaw.ts",
           "pattern": "frankclaw-durable-worker",
           "minCount": 1
+        },
+        {
+          "file": "extensions/discord/src/monitor/provider.ts",
+          "pattern": "client",
+          "context": "createDiscordMessageHandler",
+          "minCount": 1,
+          "note": "client must be passed so durable worker activates"
         }
       ],
       "tests": [
@@ -155,7 +162,9 @@
           "minCount": 1
         }
       ],
-      "tests": ["extensions/discord/src/monitor/message-handler.preflight.frankclaw.test.ts"],
+      "tests": [
+        "extensions/discord/src/monitor/message-handler.preflight.frankclaw.test.ts"
+      ],
       "runtime": []
     },
     {
@@ -173,7 +182,9 @@
           "minCount": 1
         }
       ],
-      "tests": ["extensions/whatsapp/src/auto-reply/monitor/group-gating.frankclaw.test.ts"],
+      "tests": [
+        "extensions/whatsapp/src/auto-reply/monitor/group-gating.frankclaw.test.ts"
+      ],
       "runtime": []
     },
     {
@@ -359,7 +370,9 @@
           "minCount": 1
         }
       ],
-      "tests": ["src/cli/daemon-cli/restart-selfheal.frankclaw.test.ts"],
+      "tests": [
+        "src/cli/daemon-cli/restart-selfheal.frankclaw.test.ts"
+      ],
       "runtime": []
     },
     {
@@ -399,6 +412,27 @@
         }
       ],
       "tests": [],
+      "runtime": []
+    },
+    {
+      "name": "Carbon message rehydration (attachments)",
+      "static": [
+        {
+          "file": "extensions/discord/src/monitor/inbound-job.ts",
+          "pattern": "rehydrateCarbonMessage",
+          "minCount": 2,
+          "note": "must be exported AND called in materializeDiscordInboundJob"
+        },
+        {
+          "file": "extensions/discord/src/monitor/message-handler.coalesce.ts",
+          "pattern": "rehydrateCarbonMessage",
+          "minCount": 1,
+          "note": "called in toDiscordMessageEvent for batch path"
+        }
+      ],
+      "tests": [
+        "extensions/discord/src/monitor/inbound-job.rehydrate.test.ts"
+      ],
       "runtime": []
     }
   ]
