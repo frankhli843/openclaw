@@ -77,11 +77,24 @@ export function materializeDiscordInboundJob(
   job: DiscordInboundJob,
   abortSignal?: AbortSignal,
 ): DiscordMessagePreflightContext {
-  return {
+  const ctx = {
     ...job.payload,
     ...job.runtime,
     abortSignal: abortSignal ?? job.runtime.abortSignal,
   };
+
+  // [frankclaw] After JSON round-trip through the durable queue, Carbon Message
+  // instances become plain objects. Carbon getter fields (attachments, content,
+  // embeds, mentions, etc.) only exist in _rawData. Hoist them so downstream
+  // code that reads message.attachments etc. works correctly.
+  if (ctx.message) {
+    rehydrateCarbonMessage(ctx.message);
+  }
+  if (ctx.data?.message && ctx.data.message !== ctx.message) {
+    rehydrateCarbonMessage(ctx.data.message);
+  }
+
+  return ctx;
 }
 
 function sanitizeDiscordInboundMessage<T extends object>(message: T): T {
