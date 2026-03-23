@@ -79,6 +79,7 @@ export async function runReplyAgent(params: {
   shouldSteer: boolean;
   shouldFollowup: boolean;
   isActive: boolean;
+  isRunActive?: () => boolean;
   isStreaming: boolean;
   opts?: GetReplyOptions;
   typing: TypingController;
@@ -110,6 +111,7 @@ export async function runReplyAgent(params: {
     shouldSteer,
     shouldFollowup,
     isActive,
+    isRunActive,
     isStreaming,
     opts,
     typing,
@@ -224,13 +226,37 @@ export async function runReplyAgent(params: {
     queueMode: resolvedQueue.mode,
   });
 
+  const queuedRunFollowupTurn = createFollowupRunner({
+    opts,
+    typing,
+    typingMode,
+    sessionEntry: activeSessionEntry,
+    sessionStore: activeSessionStore,
+    sessionKey,
+    storePath,
+    defaultModel,
+    agentCfgContextTokens,
+  });
+
   if (activeRunQueueAction === "drop") {
     typing.cleanup();
     return undefined;
   }
 
   if (activeRunQueueAction === "enqueue-followup") {
-    enqueueFollowupRun(queueKey, followupRun, resolvedQueue);
+    enqueueFollowupRun(
+      queueKey,
+      followupRun,
+      resolvedQueue,
+      "message-id",
+      queuedRunFollowupTurn,
+      false,
+    );
+    // Re-check liveness after enqueue so a stale active snapshot cannot leave
+    // the followup queue idle if the original run already finished.
+    if (!isRunActive?.()) {
+      finalizeWithFollowup(undefined, queueKey, queuedRunFollowupTurn);
+    }
     await touchActiveSessionEntry();
     typing.cleanup();
     return undefined;
