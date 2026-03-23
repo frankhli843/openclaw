@@ -394,7 +394,7 @@ export async function runReplyAgent(params: {
     });
   try {
     const runStartedAt = Date.now();
-    const runOutcome = await runAgentTurnWithFallback({
+    let runOutcome = await runAgentTurnWithFallback({
       commandBody,
       followupRun,
       sessionCtx,
