@@ -943,6 +943,8 @@ export async function monitorDiscordProvider(opts: MonitorDiscordOpts = {}) {
       guildEntries,
       threadBindings,
       discordRestFetch,
+      // [frankclaw] Pass client so durable worker can be used instead of in-memory.
+      client,
     });
     deactivateMessageHandler = messageHandler.deactivate;
     const trackInboundEvent = opts.setStatus
