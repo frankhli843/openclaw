@@ -22,6 +22,7 @@ import type { BuildTelegramMessageContextParams } from "./bot-message-context.ty
 import {
   buildSenderName,
   buildTypingThreadParams,
+  resolveTelegramForumFlag,
   resolveTelegramThreadSpec,
 } from "./bot/helpers.js";
 import {
@@ -70,7 +71,24 @@ export const buildTelegramMessageContext = async ({
   const isGroup = msg.chat.type === "group" || msg.chat.type === "supergroup";
   const senderId = msg.from?.id ? String(msg.from.id) : "";
   const messageThreadId = (msg as { message_thread_id?: number }).message_thread_id;
-  const isForum = (msg.chat as { is_forum?: boolean }).is_forum === true;
+  const api = bot.api as unknown as {
+    setMessageReaction?: (
+      chatId: number | string,
+      messageId: number,
+      reactions: Array<{ type: "emoji"; emoji: string }>,
+    ) => Promise<void>;
+    getChat?: (chatId: number | string) => Promise<unknown>;
+  };
+  const reactionApi =
+    typeof api.setMessageReaction === "function" ? api.setMessageReaction.bind(api) : null;
+  const getChatApi = typeof api.getChat === "function" ? api.getChat.bind(api) : null;
+  const isForum = await resolveTelegramForumFlag({
+    chatId,
+    chatType: msg.chat.type,
+    isGroup,
+    isForum: (msg.chat as { is_forum?: boolean }).is_forum,
+    getChat: getChatApi ?? undefined,
+  });
   const threadSpec = resolveTelegramThreadSpec({
     isGroup,
     isForum,
@@ -342,18 +360,6 @@ export const buildTelegramMessageContext = async ({
         shouldBypassMention: bodyResult.shouldBypassMention,
       }),
     );
-  const api = bot.api as unknown as {
-    setMessageReaction?: (
-      chatId: number | string,
-      messageId: number,
-      reactions: Array<{ type: "emoji"; emoji: string }>,
-    ) => Promise<void>;
-    getChat?: (chatId: number | string) => Promise<unknown>;
-  };
-  const reactionApi =
-    typeof api.setMessageReaction === "function" ? api.setMessageReaction.bind(api) : null;
-  const getChatApi = typeof api.getChat === "function" ? api.getChat.bind(api) : null;
-
   // Status Reactions controller (lifecycle reactions)
   const statusReactionsConfig = cfg.messages?.statusReactions;
   const statusReactionsEnabled =
