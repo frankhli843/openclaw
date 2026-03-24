@@ -35,6 +35,7 @@ import {
 } from "./subagent-attachments.js";
 import { resolveSubagentCapabilities } from "./subagent-capabilities.js";
 import { getSubagentDepthFromSessionStore } from "./subagent-depth.js";
+import { loadSubagentInstructions, prependSubagentInstructions } from "./subagent-instructions.js";
 import { countActiveRunsForSession, registerSubagentRun } from "./subagent-registry.js";
 import { runSpawnSubagentWithDurableQueue } from "./subagent-spawn.frankclaw.js";
 import { readStringParam } from "./tools/common.js";
@@ -613,15 +614,25 @@ async function spawnSubagentDirectCore(
     childSystemPrompt = `${childSystemPrompt}\n\n${materializedAttachments.systemPromptSuffix}`;
   }
 
-  const childTaskMessage = [
-    `[Subagent Context] You are running as a subagent (depth ${childDepth}/${maxSpawnDepth}). Results auto-announce to your requester; do not busy-poll for status.`,
-    spawnMode === "session"
-      ? "[Subagent Context] This subagent session is persistent and remains available for thread follow-up messages."
-      : undefined,
-    `[Subagent Task]: ${task}`,
-  ]
-    .filter((line): line is string => Boolean(line))
-    .join("\n\n");
+  // Load workspace SUBAGENTS.md global instructions to prepend to task message.
+  // Uses the spawning agent's workspace (ctx.workspaceDir) so the instructions
+  // come from the parent, not a potentially different child workspace.
+  const subagentGlobalInstructions = ctx.workspaceDir
+    ? await loadSubagentInstructions(ctx.workspaceDir)
+    : undefined;
+
+  const childTaskMessage = prependSubagentInstructions(
+    [
+      `[Subagent Context] You are running as a subagent (depth ${childDepth}/${maxSpawnDepth}). Results auto-announce to your requester; do not busy-poll for status.`,
+      spawnMode === "session"
+        ? "[Subagent Context] This subagent session is persistent and remains available for thread follow-up messages."
+        : undefined,
+      `[Subagent Task]: ${task}`,
+    ]
+      .filter((line): line is string => Boolean(line))
+      .join("\n\n"),
+    subagentGlobalInstructions,
+  );
 
   const toolSpawnMetadata = mapToolContextToSpawnedRunMetadata({
     agentGroupId: ctx.agentGroupId,

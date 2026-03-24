@@ -162,9 +162,7 @@
           "minCount": 1
         }
       ],
-      "tests": [
-        "extensions/discord/src/monitor/message-handler.preflight.frankclaw.test.ts"
-      ],
+      "tests": ["extensions/discord/src/monitor/message-handler.preflight.frankclaw.test.ts"],
       "runtime": []
     },
     {
@@ -182,9 +180,7 @@
           "minCount": 1
         }
       ],
-      "tests": [
-        "extensions/whatsapp/src/auto-reply/monitor/group-gating.frankclaw.test.ts"
-      ],
+      "tests": ["extensions/whatsapp/src/auto-reply/monitor/group-gating.frankclaw.test.ts"],
       "runtime": []
     },
     {
@@ -370,9 +366,7 @@
           "minCount": 1
         }
       ],
-      "tests": [
-        "src/cli/daemon-cli/restart-selfheal.frankclaw.test.ts"
-      ],
+      "tests": ["src/cli/daemon-cli/restart-selfheal.frankclaw.test.ts"],
       "runtime": []
     },
     {
@@ -430,10 +424,45 @@
           "note": "called in toDiscordMessageEvent for batch path"
         }
       ],
-      "tests": [
-        "extensions/discord/src/monitor/inbound-job.rehydrate.test.ts"
-      ],
+      "tests": ["extensions/discord/src/monitor/inbound-job.rehydrate.test.ts"],
       "runtime": []
+    },
+    {
+      "name": "SUBAGENTS.md global prepend",
+      "description": "Loads SUBAGENTS.md from workspace and prepends its content to sub-agent spawn tasks and cron agentTurn prompts",
+      "static": [
+        {
+          "file": "src/agents/subagent-spawn.ts",
+          "pattern": "loadSubagentInstructions",
+          "minCount": 1,
+          "note": "import and call in spawn path"
+        },
+        {
+          "file": "src/agents/subagent-spawn.ts",
+          "pattern": "prependSubagentInstructions",
+          "minCount": 1,
+          "note": "wraps childTaskMessage with global instructions"
+        },
+        {
+          "file": "src/cron/isolated-agent/run.ts",
+          "pattern": "loadSubagentInstructions",
+          "minCount": 1,
+          "note": "import and call in cron agentTurn path"
+        },
+        {
+          "file": "src/cron/isolated-agent/run.ts",
+          "pattern": "prependSubagentInstructions",
+          "minCount": 1,
+          "note": "wraps commandBody with global instructions for cron runs"
+        }
+      ],
+      "tests": ["src/agents/subagent-instructions.test.ts"],
+      "runtime": [
+        {
+          "logPattern": "Subagent Global Instructions",
+          "note": "prepended header visible in sub-agent task messages"
+        }
+      ]
     }
   ]
 }

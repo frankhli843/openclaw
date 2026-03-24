@@ -19,6 +19,10 @@ import { runWithModelFallback } from "../../agents/model-fallback.js";
 import { isCliProvider, resolveThinkingDefault } from "../../agents/model-selection.js";
 import { runEmbeddedPiAgent } from "../../agents/pi-embedded.js";
 import {
+  loadSubagentInstructions,
+  prependSubagentInstructions,
+} from "../../agents/subagent-instructions.js";
+import {
   countActiveDescendantRuns,
   listDescendantRunsForRequester,
 } from "../../agents/subagent-registry.js";
@@ -377,6 +381,13 @@ export async function runCronIsolatedAgentTurn(params: {
     commandBody = `${base}\n${timeLine}`.trim();
   }
   commandBody = appendCronDeliveryInstruction({ commandBody, deliveryRequested });
+
+  // Prepend workspace SUBAGENTS.md global instructions to cron agentTurn prompts.
+  // This gives cron jobs the same global worker defaults as spawned sub-agents.
+  const subagentGlobalInstructions = await loadSubagentInstructions(workspaceDir);
+  if (subagentGlobalInstructions) {
+    commandBody = prependSubagentInstructions(commandBody, subagentGlobalInstructions);
+  }
 
   const existingSkillsSnapshot = cronSession.sessionEntry.skillsSnapshot;
   const skillsSnapshot = resolveCronSkillsSnapshot({
