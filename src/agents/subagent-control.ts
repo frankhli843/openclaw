@@ -29,7 +29,7 @@ import { resolveStoredSubagentCapabilities } from "./subagent-capabilities.js";
 import {
   clearSubagentRunSteerRestart,
   countPendingDescendantRuns,
-  getSubagentRunByChildSessionKey,
+  getLatestSubagentRunByChildSessionKey,
   getSubagentSessionRuntimeMs,
   getSubagentSessionStartedAt,
   listSubagentRunsForController,
@@ -159,7 +159,21 @@ export function resolveSubagentController(params: {
 }
 
 export function listControlledSubagentRuns(controllerSessionKey: string): SubagentRunRecord[] {
-  return sortSubagentRuns(listSubagentRunsForController(controllerSessionKey));
+  const filtered: SubagentRunRecord[] = [];
+  for (const entry of sortSubagentRuns(listSubagentRunsForController(controllerSessionKey))) {
+    const latest = getLatestSubagentRunByChildSessionKey(entry.childSessionKey);
+    const latestControllerSessionKey =
+      latest?.controllerSessionKey?.trim() || latest?.requesterSessionKey?.trim();
+    if (
+      !latest ||
+      latest.runId !== entry.runId ||
+      latestControllerSessionKey !== controllerSessionKey
+    ) {
+      continue;
+    }
+    filtered.push(entry);
+  }
+  return filtered;
 }
 
 export function createPendingDescendantCounter() {
@@ -272,6 +286,15 @@ export function buildSubagentList(params: {
 }): BuiltSubagentList {
   const now = Date.now();
   const recentCutoff = now - params.recentMinutes * 60_000;
+  const dedupedRuns: SubagentRunRecord[] = [];
+  const seenChildSessionKeys = new Set<string>();
+  for (const entry of sortSubagentRuns(params.runs)) {
+    if (seenChildSessionKeys.has(entry.childSessionKey)) {
+      continue;
+    }
+    seenChildSessionKeys.add(entry.childSessionKey);
+    dedupedRuns.push(entry);
+  }
   const cache = new Map<string, Record<string, SessionEntry>>();
   const pendingDescendantCount = createPendingDescendantCounter();
   let index = 1;
@@ -289,7 +312,15 @@ export function buildSubagentList(params: {
     });
     const childSessions = Array.from(
       new Set(
-        listSubagentRunsForController(entry.childSessionKey).map((run) => run.childSessionKey),
+        listSubagentRunsForController(entry.childSessionKey)
+          .map((run) => run.childSessionKey?.trim())
+          .filter((childSessionKey): childSessionKey is string => Boolean(childSessionKey))
+          .filter((childSessionKey) => {
+            const latest = getLatestSubagentRunByChildSessionKey(childSessionKey);
+            const latestControllerSessionKey =
+              latest?.controllerSessionKey?.trim() || latest?.requesterSessionKey?.trim();
+            return latestControllerSessionKey === entry.childSessionKey;
+          }),
       ),
     );
     const runtime = formatDurationCompact(runtimeMs);
@@ -316,10 +347,10 @@ export function buildSubagentList(params: {
     index += 1;
     return view;
   };
-  const active = params.runs
+  const active = dedupedRuns
     .filter((entry) => isActiveSubagentRun(entry, pendingDescendantCount))
     .map((entry) => buildListEntry(entry, getSubagentSessionRuntimeMs(entry, now) ?? 0));
-  const recent = params.runs
+  const recent = dedupedRuns
     .filter(
       (entry) =>
         !isActiveSubagentRun(entry, pendingDescendantCount) &&
@@ -330,7 +361,7 @@ export function buildSubagentList(params: {
       buildListEntry(entry, getSubagentSessionRuntimeMs(entry, entry.endedAt ?? now) ?? 0),
     );
   return {
-    total: params.runs.length,
+    total: dedupedRuns.length,
     active,
     recent,
     text: buildListText({ active, recent, recentMinutes: params.recentMinutes }),
@@ -404,7 +435,28 @@ async function cascadeKillChildren(params: {
   cache: Map<string, Record<string, SessionEntry>>;
   seenChildSessionKeys?: Set<string>;
 }): Promise<{ killed: number; labels: string[] }> {
-  const childRuns = listSubagentRunsForController(params.parentChildSessionKey);
+  const childRunsBySessionKey = new Map<string, SubagentRunRecord>();
+  for (const run of listSubagentRunsForController(params.parentChildSessionKey)) {
+    const childKey = run.childSessionKey?.trim();
+    if (!childKey) {
+      continue;
+    }
+    const latest = getLatestSubagentRunByChildSessionKey(childKey);
+    const latestControllerSessionKey =
+      latest?.controllerSessionKey?.trim() || latest?.requesterSessionKey?.trim();
+    if (
+      !latest ||
+      latest.runId !== run.runId ||
+      latestControllerSessionKey !== params.parentChildSessionKey
+    ) {
+      continue;
+    }
+    const existing = childRunsBySessionKey.get(childKey);
+    if (!existing || run.createdAt >= existing.createdAt) {
+      childRunsBySessionKey.set(childKey, run);
+    }
+  }
+  const childRuns = Array.from(childRunsBySessionKey.values());
   const seenChildSessionKeys = params.seenChildSessionKeys ?? new Set<string>();
   let killed = 0;
   const labels: string[] = [];
@@ -463,7 +515,7 @@ export async function killAllControlledSubagentRuns(params: {
     if (!childKey || seenChildSessionKeys.has(childKey)) {
       continue;
     }
-    const currentEntry = getSubagentRunByChildSessionKey(childKey);
+    const currentEntry = getLatestSubagentRunByChildSessionKey(childKey);
     if (!currentEntry || currentEntry.runId !== entry.runId) {
       continue;
     }
@@ -514,7 +566,7 @@ export async function killControlledSubagentRun(params: {
       error: "Leaf subagents cannot control other sessions.",
     };
   }
-  const currentEntry = getSubagentRunByChildSessionKey(params.entry.childSessionKey);
+  const currentEntry = getLatestSubagentRunByChildSessionKey(params.entry.childSessionKey);
   if (!currentEntry || currentEntry.runId !== params.entry.runId) {
     return {
       status: "done" as const,
@@ -570,7 +622,7 @@ export async function killSubagentRunAdmin(params: { cfg: OpenClawConfig; sessio
   if (!targetSessionKey) {
     return { found: false as const, killed: false };
   }
-  const entry = getSubagentRunByChildSessionKey(targetSessionKey);
+  const entry = getLatestSubagentRunByChildSessionKey(targetSessionKey);
   if (!entry) {
     return { found: false as const, killed: false };
   }
@@ -660,7 +712,7 @@ export async function steerControlledSubagentRun(params: {
       error: "Subagents cannot steer themselves.",
     };
   }
-  const currentEntry = getSubagentRunByChildSessionKey(params.entry.childSessionKey);
+  const currentEntry = getLatestSubagentRunByChildSessionKey(params.entry.childSessionKey);
   const currentHasPendingDescendants =
     currentEntry && countPendingDescendantRuns(currentEntry.childSessionKey) > 0;
   if (
@@ -805,7 +857,7 @@ export async function sendControlledSubagentMessage(params: {
       error: "Leaf subagents cannot control other sessions.",
     };
   }
-  const currentEntry = getSubagentRunByChildSessionKey(params.entry.childSessionKey);
+  const currentEntry = getLatestSubagentRunByChildSessionKey(params.entry.childSessionKey);
   if (!currentEntry || currentEntry.runId !== params.entry.runId) {
     return {
       status: "done" as const,
