@@ -132,22 +132,36 @@ export function rehydrateCarbonMessage(message: any): void {
   if (!message || typeof message !== "object") {
     return;
   }
+
+  // Skip live Carbon Message instances whose prototype getters already resolve
+  if (Object.getPrototypeOf(message) !== Object.prototype) {
+    return;
+  }
+
   const raw = message._rawData ?? message.rawData;
   if (!raw || typeof raw !== "object") {
     return;
   }
-  const fields = [
-    "attachments",
-    "embeds",
-    "content",
-    "author",
-    "member",
-    "mentions",
-    "sticker_items",
-  ];
-  for (const field of fields) {
-    if (raw[field] !== undefined && message[field] === undefined) {
+
+  // Hoist all raw fields that are not already own properties
+  for (const field of Object.keys(raw)) {
+    if (raw[field] !== undefined && !Object.prototype.hasOwnProperty.call(message, field)) {
       message[field] = raw[field];
+    }
+  }
+
+  // Create camelCase aliases that Carbon Message getters would normally provide
+  const camelAliases: Record<string, string> = {
+    mentions: "mentionedUsers",
+    mention_roles: "mentionedRoles",
+    mention_everyone: "mentionedEveryone",
+    referenced_message: "referencedMessage",
+    edited_timestamp: "editedTimestamp",
+    sticker_items: "stickerItems",
+  };
+  for (const [snake, camel] of Object.entries(camelAliases)) {
+    if (message[snake] !== undefined && message[camel] === undefined) {
+      message[camel] = message[snake];
     }
   }
 }
