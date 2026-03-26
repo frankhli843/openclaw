@@ -20,7 +20,7 @@ import {
   isTransientHttpError,
   sanitizeUserFacingText,
 } from "../../agents/pi-embedded-helpers.js";
-import { isRateLimitErrorMessage } from "../../agents/pi-embedded-helpers/failover-matches.js";
+
 import { runEmbeddedPiAgent } from "../../agents/pi-embedded.js";
 import {
   resolveGroupSessionKey,
