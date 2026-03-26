@@ -9,7 +9,10 @@ import { createDedupeCache } from "openclaw/plugin-sdk/infra-runtime";
 import { danger, logVerbose } from "openclaw/plugin-sdk/runtime-env";
 import { reactMessageDiscord } from "../send.reactions.js";
 import { buildDiscordInboundJob } from "./inbound-job.js";
-import { createDiscordInboundWorker } from "./inbound-worker.js";
+import {
+  createDiscordInboundWorker,
+  type DiscordInboundWorkerTestingHooks,
+} from "./inbound-worker.js";
 import type { DiscordMessageEvent, DiscordMessageHandler } from "./listeners.js";
 import { preflightDiscordMessage } from "./message-handler.preflight.js";
 import type { DiscordMessagePreflightParams } from "./message-handler.preflight.types.js";
@@ -31,6 +34,11 @@ type DiscordMessageHandlerParams = Omit<
   workerRunTimeoutMs?: number;
   // [frankclaw] Client reference for durable worker runtime resolution.
   client?: import("@buape/carbon").Client;
+  __testing?: DiscordMessageHandlerTestingHooks;
+};
+
+type DiscordMessageHandlerTestingHooks = DiscordInboundWorkerTestingHooks & {
+  preflightDiscordMessage?: typeof preflightDiscordMessage;
 };
 
 export type DiscordMessageHandlerWithLifecycle = DiscordMessageHandler & {
@@ -77,6 +85,8 @@ export function createDiscordMessageHandler(
     channel: "discord",
     accountId: params.accountId,
   });
+  const preflightDiscordMessageImpl =
+    params.__testing?.preflightDiscordMessage ?? preflightDiscordMessage;
   const recentInboundMessages = createDedupeCache({
     ttlMs: RECENT_DISCORD_MESSAGE_TTL_MS,
     maxSize: RECENT_DISCORD_MESSAGE_MAX,
@@ -105,6 +115,7 @@ export function createDiscordMessageHandler(
         setStatus: params.setStatus,
         abortSignal: params.abortSignal,
         runTimeoutMs: params.workerRunTimeoutMs,
+        __testing: params.__testing,
       });
 
   const { debouncer } = createChannelInboundDebouncer<{
@@ -160,7 +171,7 @@ export function createDiscordMessageHandler(
         return;
       }
       if (entries.length === 1) {
-        const ctx = await preflightDiscordMessage({
+        const ctx = await preflightDiscordMessageImpl({
           ...params,
           ackReactionScope,
           groupPolicy,
@@ -192,7 +203,7 @@ export function createDiscordMessageHandler(
         ...last.data,
         message: syntheticMessage,
       };
-      const ctx = await preflightDiscordMessage({
+      const ctx = await preflightDiscordMessageImpl({
         ...params,
         ackReactionScope,
         groupPolicy,
