@@ -6,7 +6,7 @@ import {
 import {
   createMemorySearchToolOrThrow,
   expectUnavailableMemorySearchDetails,
-} from "./memory-tool.test-helpers.js";
+} from "./tools.test-helpers.js";
 
 describe("memory_search unavailable payloads", () => {
   beforeEach(() => {

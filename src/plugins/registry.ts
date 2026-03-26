@@ -8,6 +8,7 @@ import type {
 } from "../gateway/server-methods/types.js";
 import { registerInternalHook } from "../hooks/internal-hooks.js";
 import type { HookEntry } from "../hooks/types.js";
+import { registerMemoryFlushPlanResolver } from "../memory/flush-plan.js";
 import { registerMemoryPromptSection } from "../memory/prompt-section.js";
 import { resolveUserPath } from "../utils.js";
 import { registerPluginCommand, validatePluginCommandDefinition } from "./command-registration.js";
@@ -29,6 +30,7 @@ import type {
   ImageGenerationProviderPlugin,
   OpenClawPluginApi,
   OpenClawPluginChannelRegistration,
+  OpenClawPluginCliCommandDescriptor,
   OpenClawPluginCliRegistrar,
   OpenClawPluginCommandDefinition,
   PluginConversationBindingResolvedEvent,
@@ -72,6 +74,7 @@ export type PluginCliRegistration = {
   pluginName?: string;
   register: OpenClawPluginCliRegistrar;
   commands: string[];
+  descriptors: OpenClawPluginCliCommandDescriptor[];
   source: string;
   rootDir?: string;
 };
@@ -702,9 +705,21 @@ export function createPluginRegistry(registryParams: PluginRegistryParams) {
   const registerCli = (
     record: PluginRecord,
     registrar: OpenClawPluginCliRegistrar,
-    opts?: { commands?: string[] },
+    opts?: { commands?: string[]; descriptors?: OpenClawPluginCliCommandDescriptor[] },
   ) => {
-    const commands = (opts?.commands ?? []).map((cmd) => cmd.trim()).filter(Boolean);
+    const descriptors = (opts?.descriptors ?? [])
+      .map((descriptor) => ({
+        name: descriptor.name.trim(),
+        description: descriptor.description.trim(),
+        hasSubcommands: descriptor.hasSubcommands,
+      }))
+      .filter((descriptor) => descriptor.name && descriptor.description);
+    const commands = [
+      ...(opts?.commands ?? []),
+      ...descriptors.map((descriptor) => descriptor.name),
+    ]
+      .map((cmd) => cmd.trim())
+      .filter(Boolean);
     if (commands.length === 0) {
       pushDiagnostic({
         level: "error",
@@ -733,6 +748,7 @@ export function createPluginRegistry(registryParams: PluginRegistryParams) {
       pluginName: record.name,
       register: registrar,
       commands,
+      descriptors,
       source: record.source,
       rootDir: record.rootDir,
     });
@@ -1041,6 +1057,21 @@ export function createPluginRegistry(registryParams: PluginRegistryParams) {
           return;
         }
         registerMemoryPromptSection(builder);
+      },
+      registerMemoryFlushPlan: (resolver) => {
+        if (registrationMode !== "full") {
+          return;
+        }
+        if (record.kind !== "memory") {
+          pushDiagnostic({
+            level: "error",
+            pluginId: record.id,
+            source: record.source,
+            message: "only memory plugins can register a memory flush plan",
+          });
+          return;
+        }
+        registerMemoryFlushPlanResolver(resolver);
       },
       resolvePath: (input: string) => resolveUserPath(input),
       on: (hookName, handler, opts) =>

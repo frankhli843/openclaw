@@ -1,6 +1,6 @@
+import type { OpenClawConfig } from "openclaw/plugin-sdk/memory-core";
 import { expect } from "vitest";
-import type { OpenClawConfig } from "../../config/config.js";
-import { createMemoryGetTool, createMemorySearchTool } from "./memory-tool.js";
+import { createMemoryGetTool, createMemorySearchTool } from "./tools.js";
 
 export function asOpenClawConfig(config: Partial<OpenClawConfig>): OpenClawConfig {
   return config as OpenClawConfig;

@@ -15,7 +15,7 @@ import {
   createMemoryGetToolOrThrow,
   createMemorySearchToolOrThrow,
   expectUnavailableMemorySearchDetails,
-} from "./memory-tool.test-helpers.js";
+} from "./tools.test-helpers.js";
 
 beforeEach(() => {
   resetMemoryToolMockState({

@@ -1,15 +1,13 @@
 import type { Command } from "commander";
-import { formatDocsLink } from "../terminal/links.js";
-import { theme } from "../terminal/theme.js";
-import { formatHelpExamples } from "./help-format.js";
-import type { MemoryCommandOptions, MemorySearchCommandOptions } from "./memory-cli.types.js";
+import { formatDocsLink, formatHelpExamples, theme } from "openclaw/plugin-sdk/memory-core";
+import type { MemoryCommandOptions, MemorySearchCommandOptions } from "./cli.types.js";
 
-type MemoryCliRuntime = typeof import("./memory-cli.runtime.js");
+type MemoryCliRuntime = typeof import("./cli.runtime.js");
 
 let memoryCliRuntimePromise: Promise<MemoryCliRuntime> | null = null;
 
 async function loadMemoryCliRuntime(): Promise<MemoryCliRuntime> {
-  memoryCliRuntimePromise ??= import("./memory-cli.runtime.js");
+  memoryCliRuntimePromise ??= import("./cli.runtime.js");
   return await memoryCliRuntimePromise;
 }
 

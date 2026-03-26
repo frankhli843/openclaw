@@ -1273,6 +1273,12 @@ export type OpenClawPluginCliContext = {
 
 export type OpenClawPluginCliRegistrar = (ctx: OpenClawPluginCliContext) => void | Promise<void>;
 
+export type OpenClawPluginCliCommandDescriptor = {
+  name: string;
+  description: string;
+  hasSubcommands: boolean;
+};
+
 /** Context passed to long-lived plugin services. */
 export type OpenClawPluginServiceContext = {
   config: OpenClawConfig;
@@ -1364,7 +1370,13 @@ export type OpenClawPluginApi = {
   /** Register a native messaging channel plugin (channel capability). */
   registerChannel: (registration: OpenClawPluginChannelRegistration | ChannelPlugin) => void;
   registerGatewayMethod: (method: string, handler: GatewayRequestHandler) => void;
-  registerCli: (registrar: OpenClawPluginCliRegistrar, opts?: { commands?: string[] }) => void;
+  registerCli: (
+    registrar: OpenClawPluginCliRegistrar,
+    opts?: {
+      commands?: string[];
+      descriptors?: OpenClawPluginCliCommandDescriptor[];
+    },
+  ) => void;
   registerService: (service: OpenClawPluginService) => void;
   /** Register a text-only CLI backend used by the local CLI runner. */
   registerCliBackend: (backend: CliBackendPlugin) => void;
@@ -1396,6 +1408,10 @@ export type OpenClawPluginApi = {
   /** Register the system prompt section builder for this memory plugin (exclusive slot). */
   registerMemoryPromptSection: (
     builder: import("../memory/prompt-section.js").MemoryPromptSectionBuilder,
+  ) => void;
+  /** Register the pre-compaction flush plan resolver for this memory plugin (exclusive slot). */
+  registerMemoryFlushPlan: (
+    resolver: import("../memory/flush-plan.js").MemoryFlushPlanResolver,
   ) => void;
   resolvePath: (input: string) => string;
   /** Register a lifecycle hook handler */

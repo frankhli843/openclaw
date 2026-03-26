@@ -1,22 +1,28 @@
 import { Type } from "@sinclair/typebox";
-import type { OpenClawConfig } from "../../config/config.js";
-import type { MemoryCitationsMode } from "../../config/types.memory.js";
-import type { MemorySearchResult } from "../../memory/types.js";
-import { parseAgentSessionKey } from "../../routing/session-key.js";
-import { resolveSessionAgentId } from "../agent-scope.js";
-import { resolveMemorySearchConfig } from "../memory-search.js";
-import type { AnyAgentTool } from "./common.js";
-import { jsonResult, readNumberParam, readStringParam } from "./common.js";
+import type {
+  AnyAgentTool,
+  MemoryCitationsMode,
+  MemorySearchResult,
+  OpenClawConfig,
+} from "openclaw/plugin-sdk/memory-core";
+import {
+  jsonResult,
+  parseAgentSessionKey,
+  readNumberParam,
+  readStringParam,
+  resolveMemorySearchConfig,
+  resolveSessionAgentId,
+} from "openclaw/plugin-sdk/memory-core";
 
-type MemoryToolRuntime = typeof import("./memory-tool.runtime.js");
+type MemoryToolRuntime = typeof import("./tools.runtime.js");
 type MemorySearchManagerResult = Awaited<
-  ReturnType<(typeof import("../../memory/index.js"))["getMemorySearchManager"]>
+  ReturnType<(typeof import("openclaw/plugin-sdk/memory-core"))["getMemorySearchManager"]>
 >;
 
 let memoryToolRuntimePromise: Promise<MemoryToolRuntime> | null = null;
 
 async function loadMemoryToolRuntime(): Promise<MemoryToolRuntime> {
-  memoryToolRuntimePromise ??= import("./memory-tool.runtime.js");
+  memoryToolRuntimePromise ??= import("./tools.runtime.js");
   return await memoryToolRuntimePromise;
 }
 
