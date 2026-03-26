@@ -18,7 +18,8 @@ import { notifyBlocked } from "../../../../src/channels/gate-notify.js";
 import { resolveGateMode } from "../../../../src/channels/mention-gating.js";
 import { resolveDiscordGroupGateMode } from "../../../../src/channels/plugins/group-mentions.js";
 import type { OpenClawConfig } from "../../../../src/config/config.js";
-import { loadSessionStore, resolveStorePath } from "../../../../src/config/sessions.js";
+import { resolveStorePath } from "../../../../src/config/sessions/paths.js";
+import { loadSessionStore } from "../../../../src/config/sessions/store.js";
 import { logVerbose } from "../../../../src/globals.js";
 
 export type DiscordGateModeCheckParams = {
@@ -168,14 +169,22 @@ export function resolveSessionExistsFallback(params: {
   channelId: string;
   isThread: boolean;
   agentId?: string;
+  /** @internal Test-only DI overrides */
+  _deps?: {
+    resolveStorePath?: typeof resolveStorePath;
+    loadSessionStore?: typeof loadSessionStore;
+  };
 }): boolean {
   if (!params.isThread || !params.channelId) {
     return false;
   }
 
+  const _resolveStorePath = params._deps?.resolveStorePath ?? resolveStorePath;
+  const _loadSessionStore = params._deps?.loadSessionStore ?? loadSessionStore;
+
   try {
-    const storePath = resolveStorePath(undefined, { agentId: params.agentId });
-    const store = loadSessionStore(storePath);
+    const storePath = _resolveStorePath(undefined, { agentId: params.agentId });
+    const store = _loadSessionStore(storePath);
 
     // Session keys for Discord channels follow the pattern:
     // agent:<agentId>:discord:channel:<channelId>

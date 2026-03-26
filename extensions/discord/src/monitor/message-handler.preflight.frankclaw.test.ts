@@ -7,19 +7,6 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// Mock the session store and globals modules before importing the SUT.
-const loadSessionStoreMock = vi.hoisted(() => vi.fn());
-const resolveStorePathMock = vi.hoisted(() => vi.fn());
-
-vi.mock("../../../../src/config/sessions.js", async (importOriginal) => {
-  const original = await importOriginal<Record<string, unknown>>();
-  return {
-    ...original,
-    loadSessionStore: loadSessionStoreMock,
-    resolveStorePath: resolveStorePathMock,
-  };
-});
-
 vi.mock("../../../../src/globals.js", async (importOriginal) => {
   const original = await importOriginal<Record<string, unknown>>();
   return {
@@ -30,6 +17,15 @@ vi.mock("../../../../src/globals.js", async (importOriginal) => {
 });
 
 import { resolveSessionExistsFallback } from "./message-handler.preflight.frankclaw.js";
+
+// Use dependency injection instead of vi.mock for session store functions.
+// Vitest ESM barrel re-export mocking is unreliable with the forks pool.
+const loadSessionStoreMock = vi.fn();
+const resolveStorePathMock = vi.fn();
+const deps = {
+  resolveStorePath: resolveStorePathMock as (...args: unknown[]) => string,
+  loadSessionStore: loadSessionStoreMock as (...args: unknown[]) => Record<string, unknown>,
+};
 
 describe("resolveSessionExistsFallback", () => {
   beforeEach(() => {
@@ -46,6 +42,7 @@ describe("resolveSessionExistsFallback", () => {
       resolveSessionExistsFallback({
         channelId: "thread-123",
         isThread: false,
+        _deps: deps,
       }),
     ).toBe(false);
     // Should not even attempt to load the session store
@@ -57,6 +54,7 @@ describe("resolveSessionExistsFallback", () => {
       resolveSessionExistsFallback({
         channelId: "",
         isThread: true,
+        _deps: deps,
       }),
     ).toBe(false);
     expect(loadSessionStoreMock).not.toHaveBeenCalled();
@@ -72,6 +70,7 @@ describe("resolveSessionExistsFallback", () => {
       resolveSessionExistsFallback({
         channelId: "thread-456",
         isThread: true,
+        _deps: deps,
       }),
     ).toBe(false);
   });
@@ -86,6 +85,7 @@ describe("resolveSessionExistsFallback", () => {
       resolveSessionExistsFallback({
         channelId: "thread-456",
         isThread: true,
+        _deps: deps,
       }),
     ).toBe(true);
   });
@@ -99,6 +99,7 @@ describe("resolveSessionExistsFallback", () => {
       resolveSessionExistsFallback({
         channelId: "thread-789",
         isThread: true,
+        _deps: deps,
       }),
     ).toBe(true);
   });
@@ -112,6 +113,7 @@ describe("resolveSessionExistsFallback", () => {
       resolveSessionExistsFallback({
         channelId: "thread-123",
         isThread: true,
+        _deps: deps,
       }),
     ).toBe(false);
   });
@@ -126,6 +128,7 @@ describe("resolveSessionExistsFallback", () => {
       resolveSessionExistsFallback({
         channelId: "7890",
         isThread: true,
+        _deps: deps,
       }),
     ).toBe(false);
   });
@@ -137,6 +140,7 @@ describe("resolveSessionExistsFallback", () => {
       channelId: "thread-123",
       isThread: true,
       agentId: "custom",
+      _deps: deps,
     });
 
     expect(resolveStorePathMock).toHaveBeenCalledWith(undefined, { agentId: "custom" });
