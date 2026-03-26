@@ -272,7 +272,9 @@ function collectCoreSourceFiles(): string[] {
     rootDir: srcDir,
     shouldSkipEntry: ({ normalizedFullPath }) =>
       normalizedFullPath.includes(".test.") ||
+      normalizedFullPath.includes(".test-helpers.") ||
       normalizedFullPath.includes(".mock-harness.") ||
+      normalizedFullPath.includes(".suite.") ||
       normalizedFullPath.includes(".spec.") ||
       normalizedFullPath.includes(".fixture.") ||
       normalizedFullPath.includes(".snap") ||
