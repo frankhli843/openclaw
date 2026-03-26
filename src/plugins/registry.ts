@@ -2,19 +2,23 @@ import path from "node:path";
 import type { AnyAgentTool } from "../agents/tools/common.js";
 import type { ChannelPlugin } from "../channels/plugins/types.js";
 import { registerContextEngineForOwner } from "../context-engine/registry.js";
+import type { OperatorScope } from "../gateway/method-scopes.js";
 import type {
   GatewayRequestHandler,
   GatewayRequestHandlers,
 } from "../gateway/server-methods/types.js";
 import { registerInternalHook } from "../hooks/internal-hooks.js";
 import type { HookEntry } from "../hooks/types.js";
-import { registerMemoryFlushPlanResolver } from "../memory/flush-plan.js";
-import { registerMemoryPromptSection } from "../memory/prompt-section.js";
 import { resolveUserPath } from "../utils.js";
 import { registerPluginCommand, validatePluginCommandDefinition } from "./command-registration.js";
 import { normalizePluginHttpPath } from "./http-path.js";
 import { findOverlappingPluginHttpRoute } from "./http-route-overlap.js";
 import { registerPluginInteractiveHandler } from "./interactive.js";
+import {
+  registerMemoryFlushPlanResolver,
+  registerMemoryPromptSection,
+  registerMemoryRuntime,
+} from "./memory-state.js";
 import { normalizeRegisteredProvider } from "./provider-validation.js";
 import { createEmptyPluginRegistry } from "./registry-empty.js";
 import { withPluginRuntimePluginIdScope } from "./runtime/gateway-request-scope.js";
@@ -221,6 +225,7 @@ export type PluginRegistry = {
   imageGenerationProviders: PluginImageGenerationProviderRegistration[];
   webSearchProviders: PluginWebSearchProviderRegistration[];
   gatewayHandlers: GatewayRequestHandlers;
+  gatewayMethodScopes?: Partial<Record<string, OperatorScope>>;
   httpRoutes: PluginHttpRouteRegistration[];
   cliRegistrars: PluginCliRegistration[];
   services: PluginServiceRegistration[];
@@ -379,6 +384,7 @@ export function createPluginRegistry(registryParams: PluginRegistryParams) {
     record: PluginRecord,
     method: string,
     handler: GatewayRequestHandler,
+    opts?: { scope?: OperatorScope },
   ) => {
     const trimmed = method.trim();
     if (!trimmed) {
@@ -394,6 +400,10 @@ export function createPluginRegistry(registryParams: PluginRegistryParams) {
       return;
     }
     registry.gatewayHandlers[trimmed] = handler;
+    if (opts?.scope) {
+      registry.gatewayMethodScopes ??= {};
+      registry.gatewayMethodScopes[trimmed] = opts.scope;
+    }
     record.gatewayMethods.push(trimmed);
   };
 
@@ -985,7 +995,7 @@ export function createPluginRegistry(registryParams: PluginRegistryParams) {
           : () => {},
       registerGatewayMethod:
         registrationMode === "full"
-          ? (method, handler) => registerGatewayMethod(record, method, handler)
+          ? (method, handler, opts) => registerGatewayMethod(record, method, handler, opts)
           : () => {},
       registerCli:
         registrationMode === "full"
@@ -1072,6 +1082,21 @@ export function createPluginRegistry(registryParams: PluginRegistryParams) {
           return;
         }
         registerMemoryFlushPlanResolver(resolver);
+      },
+      registerMemoryRuntime: (runtime) => {
+        if (registrationMode !== "full") {
+          return;
+        }
+        if (record.kind !== "memory") {
+          pushDiagnostic({
+            level: "error",
+            pluginId: record.id,
+            source: record.source,
+            message: "only memory plugins can register a memory runtime",
+          });
+          return;
+        }
+        registerMemoryRuntime(runtime);
       },
       resolvePath: (input: string) => resolveUserPath(input),
       on: (hookName, handler, opts) =>
