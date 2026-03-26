@@ -1,4 +1,7 @@
+import fs from "node:fs";
+import path from "node:path";
 import type { OpenClawConfig } from "../../config/config.js";
+import { resolveStateDir } from "../../config/paths.js";
 import {
   ackDelivery,
   failDelivery,
@@ -7,6 +10,8 @@ import {
   type QueuedDelivery,
   type QueuedDeliveryPayload,
 } from "./delivery-queue-storage.js";
+
+const QUEUE_DIRNAME = "delivery-queue";
 
 export type RecoverySummary = {
   recovered: number;
@@ -92,6 +97,31 @@ async function moveEntryToFailedWithLogging(
   }
 }
 
+/**
+ * [frankclaw] Check if a Discord delivery target is currently in a DNR quiet window.
+ * Returns { nextEligibleAtMs } if suppressed, or null if delivery is allowed.
+ * Uses dynamic import to avoid circular dependency with discord-dnr module.
+ */
+function checkRecoveryDnr(target: string): { nextEligibleAtMs: number } | null {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { enforceDiscordDnrWindow, DiscordDnrSuppressedError } = require(
+      "../outbound/discord-dnr.js",
+    ) as {
+      enforceDiscordDnrWindow: (ctx: { channel: "discord"; to: string }) => void;
+      DiscordDnrSuppressedError: new (...args: unknown[]) => Error & { nextEligibleAtMs: number };
+    };
+    enforceDiscordDnrWindow({ channel: "discord", to: target });
+    return null;
+  } catch (err) {
+    if (err && typeof err === "object" && "nextEligibleAtMs" in err) {
+      return { nextEligibleAtMs: (err as { nextEligibleAtMs: number }).nextEligibleAtMs };
+    }
+    // Not a DNR error — let delivery proceed and handle normally
+    return null;
+  }
+}
+
 async function deferRemainingEntriesForBudget(
   entries: readonly QueuedDelivery[],
   stateDir: string | undefined,
@@ -115,12 +145,18 @@ export function isEntryEligibleForRecoveryRetry(
   entry: QueuedDelivery,
   now: number,
 ): { eligible: true } | { eligible: false; remainingBackoffMs: number } {
-  // Frankclaw: respect deferUntilMs from DNR quiet window
+  // Frankclaw: respect deferUntilMs from DNR quiet window.
+  // When deferUntilMs is set, it IS the intended delivery time — skip backoff entirely
+  // once it has elapsed.  Without this, the exponential backoff from retryCount
+  // (incremented by failed recovery attempts during quiet hours) can delay delivery
+  // well past the DNR end time.
   const deferUntilMs = (entry as { deferUntilMs?: number }).deferUntilMs;
   if (typeof deferUntilMs === "number" && Number.isFinite(deferUntilMs)) {
     if (now < deferUntilMs) {
       return { eligible: false, remainingBackoffMs: deferUntilMs - now };
     }
+    // deferUntilMs has elapsed — immediately eligible, bypass backoff
+    return { eligible: true };
   }
   const backoff = computeBackoffMs(entry.retryCount + 1);
   if (backoff <= 0) {
@@ -195,6 +231,36 @@ export async function recoverPendingDeliveries(opts: {
         `Delivery ${entry.id} not ready for retry yet — backoff ${retryEligibility.remainingBackoffMs}ms remaining`,
       );
       continue;
+    }
+
+    // [frankclaw] Pre-check DNR before attempting delivery.  Without this,
+    // the outbound adapter silently drops DNR-suppressed messages during
+    // recovery (returns empty result, not an error), and the entry gets
+    // ackDelivery'd — lost forever.  By checking DNR here, we defer the
+    // entry with the correct deferUntilMs and skip the deliver call entirely.
+    if (entry.channel === "discord") {
+      const dnrResult = checkRecoveryDnr(entry.to);
+      if (dnrResult) {
+        const frankcawEntry = entry as { deferUntilMs?: number; holdReason?: string };
+        frankcawEntry.deferUntilMs = dnrResult.nextEligibleAtMs;
+        frankcawEntry.holdReason = "discord-dnr-window";
+        entry.lastAttemptAt = Date.now();
+        entry.lastError = "discord-dnr-window";
+        const filePath = path.join(
+          opts.stateDir ?? resolveStateDir(),
+          QUEUE_DIRNAME,
+          `${entry.id}.json`,
+        );
+        await fs.promises.writeFile(filePath, JSON.stringify(entry, null, 2), {
+          encoding: "utf-8",
+          mode: 0o600,
+        });
+        summary.deferredBackoff += 1;
+        opts.log.info(
+          `Delivery ${entry.id} DNR-active — deferred until ${new Date(dnrResult.nextEligibleAtMs).toISOString()}`,
+        );
+        continue;
+      }
     }
 
     try {

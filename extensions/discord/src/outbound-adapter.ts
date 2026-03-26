@@ -44,6 +44,11 @@ async function checkDiscordOutboundDnr(target: string, label: string): Promise<b
       dnrLog.info(
         `[outbound-adapter/${label}] suppressed send to ${target} until ${new Date(err.nextEligibleAtMs).toISOString()}`,
       );
+      // [frankclaw note] The recovery loop now pre-checks DNR before calling deliver,
+      // so this path is only hit for non-recovery sends (cron, sub-agent, raw_send).
+      // For those, the write-ahead queue entry from deliverOutboundPayloads persists
+      // the payloads, so the message isn't lost even though this deferral uses a
+      // fabricated queueId.  Recovery will pick up the write-ahead entry later.
       const queueId = `discord-outbound:${target}:${Date.now()}`;
       await deferDelivery(queueId, err.nextEligibleAtMs, "discord-dnr-window").catch(() => {});
       return true;

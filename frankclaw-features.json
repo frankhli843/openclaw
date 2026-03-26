@@ -162,7 +162,9 @@
           "minCount": 1
         }
       ],
-      "tests": ["extensions/discord/src/monitor/message-handler.preflight.frankclaw.test.ts"],
+      "tests": [
+        "extensions/discord/src/monitor/message-handler.preflight.frankclaw.test.ts"
+      ],
       "runtime": []
     },
     {
@@ -180,7 +182,9 @@
           "minCount": 1
         }
       ],
-      "tests": ["extensions/whatsapp/src/auto-reply/monitor/group-gating.frankclaw.test.ts"],
+      "tests": [
+        "extensions/whatsapp/src/auto-reply/monitor/group-gating.frankclaw.test.ts"
+      ],
       "runtime": []
     },
     {
@@ -366,7 +370,9 @@
           "minCount": 1
         }
       ],
-      "tests": ["src/cli/daemon-cli/restart-selfheal.frankclaw.test.ts"],
+      "tests": [
+        "src/cli/daemon-cli/restart-selfheal.frankclaw.test.ts"
+      ],
       "runtime": []
     },
     {
@@ -424,7 +430,9 @@
           "note": "called in toDiscordMessageEvent for batch path"
         }
       ],
-      "tests": ["extensions/discord/src/monitor/inbound-job.rehydrate.test.ts"],
+      "tests": [
+        "extensions/discord/src/monitor/inbound-job.rehydrate.test.ts"
+      ],
       "runtime": []
     },
     {
@@ -456,13 +464,37 @@
           "note": "wraps commandBody with global instructions for cron runs"
         }
       ],
-      "tests": ["src/agents/subagent-instructions.test.ts"],
+      "tests": [
+        "src/agents/subagent-instructions.test.ts"
+      ],
       "runtime": [
         {
           "logPattern": "Subagent Global Instructions",
           "note": "prepended header visible in sub-agent task messages"
         }
       ]
+    },
+    {
+      "name": "DNR recovery pre-check (delivery queue)",
+      "static": [
+        {
+          "file": "src/infra/outbound/delivery-queue-recovery.ts",
+          "pattern": "checkRecoveryDnr",
+          "minCount": 2,
+          "note": "function defined AND called in recovery loop"
+        },
+        {
+          "file": "src/infra/outbound/delivery-queue-recovery.ts",
+          "pattern": "deferUntilMs",
+          "minCount": 2,
+          "note": "deferUntilMs bypass in isEntryEligibleForRecoveryRetry + recovery DNR defer"
+        }
+      ],
+      "tests": [
+        "src/infra/outbound/delivery-queue.recovery.test.ts",
+        "src/infra/outbound/delivery-queue.policy.test.ts"
+      ],
+      "runtime": []
     }
   ]
 }
