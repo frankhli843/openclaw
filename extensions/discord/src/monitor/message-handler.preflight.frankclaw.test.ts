@@ -7,7 +7,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// Mock the session store module before importing
+// Mock the session store and globals modules before importing the SUT.
 const loadSessionStoreMock = vi.hoisted(() => vi.fn());
 const resolveStorePathMock = vi.hoisted(() => vi.fn());
 

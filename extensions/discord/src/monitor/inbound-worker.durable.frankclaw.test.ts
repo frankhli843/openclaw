@@ -22,12 +22,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DiscordInboundJob } from "./inbound-job.js";
 
 // ── Mocks ────────────────────────────────────────────────────────────────────
+//
+// Use vi.spyOn instead of vi.mock to avoid vitest module-graph ordering issues
+// caused by upstream barrel re-exports (plugin-sdk/discord -> runtime-api ->
+// monitor/timeouts) that can load the real module before the mock is applied.
 
-const processDiscordMessageMock = vi.hoisted(() => vi.fn());
+import * as processModule from "./message-handler.process.js";
 
-vi.mock("./message-handler.process.js", () => ({
-  processDiscordMessage: processDiscordMessageMock,
-}));
+const processDiscordMessageMock = vi
+  .spyOn(processModule, "processDiscordMessage")
+  .mockImplementation(vi.fn());
 
 // ── Imports (after mocks) ────────────────────────────────────────────────────
 
