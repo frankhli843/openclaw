@@ -495,6 +495,30 @@
         "src/infra/outbound/delivery-queue.policy.test.ts"
       ],
       "runtime": []
+    },
+    {
+      "id": "channel-config-relax-additional-properties",
+      "name": "Channel config additionalProperties relaxation",
+      "description": "Relaxes additionalProperties: false in upstream channel config schemas to allow frankclaw custom properties (gateMode, requireMention, autoThread, etc.)",
+      "files": [
+        "src/config/bundled-channel-config-runtime.frankclaw.ts",
+        "src/config/bundled-channel-config-runtime.ts",
+        "src/config/validation.ts"
+      ],
+      "probes": {
+        "static": [
+          {
+            "grep": "patchChannelConfigSchemasForFrankclaw",
+            "file": "src/config/bundled-channel-config-runtime.ts"
+          },
+          {
+            "grep": "relaxChannelSchemaFromRegistry",
+            "file": "src/config/validation.ts"
+          }
+        ],
+        "test": [],
+        "runtime": []
+      }
     }
   ]
 }
