@@ -12,6 +12,7 @@ import type {
   ChannelConfigRuntimeSchema,
   ChannelConfigSchema,
 } from "../channels/plugins/types.plugin.js";
+import { patchChannelConfigSchemasForFrankclaw } from "./bundled-channel-config-runtime.frankclaw.js";
 
 type BundledChannelRuntimeMap = ReadonlyMap<string, ChannelConfigRuntimeSchema>;
 type BundledChannelConfigSchemaMap = ReadonlyMap<string, ChannelConfigSchema>;
@@ -42,6 +43,9 @@ for (const [channelId, channelSchema] of bundledChannelSchemaEntries) {
     bundledChannelRuntimeMap.set(channelId, channelSchema.runtime);
   }
 }
+
+// [frankclaw] Relax additionalProperties for channels with custom frankclaw properties
+patchChannelConfigSchemasForFrankclaw(bundledChannelConfigSchemaMap);
 
 export function getBundledChannelRuntimeMap(): BundledChannelRuntimeMap {
   return bundledChannelRuntimeMap;

@@ -21,6 +21,7 @@ import { isCanonicalDottedDecimalIPv4, isLoopbackIpAddress } from "../shared/net
 import { isRecord } from "../utils.js";
 import { findDuplicateAgentDirs, formatDuplicateAgentDirError } from "./agent-dirs.js";
 import { appendAllowedValuesHint, summarizeAllowedValues } from "./allowed-values.js";
+import { relaxChannelSchemaFromRegistry } from "./bundled-channel-config-runtime.frankclaw.js";
 import { getBundledChannelConfigSchemaMap } from "./bundled-channel-config-runtime.js";
 import { collectChannelSchemaMetadata } from "./channel-config-metadata.js";
 import { applyAgentDefaults, applyModelDefaults, applySessionDefaults } from "./defaults.js";
@@ -610,6 +611,13 @@ function validateConfigObjectWithPluginsBase(
           (entry) => [entry.id, { schema: entry.configSchema }] as const,
         ),
       );
+      // [frankclaw] Relax additionalProperties for channels with custom frankclaw properties
+      for (const channelId of ["whatsapp", "discord", "telegram"]) {
+        const entry = info.channelSchemas.get(channelId);
+        if (entry?.schema) {
+          relaxChannelSchemaFromRegistry(entry.schema);
+        }
+      }
     }
     return info.channelSchemas;
   };
