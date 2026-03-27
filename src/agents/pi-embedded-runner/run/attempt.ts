@@ -855,20 +855,50 @@ export async function runEmbeddedAttempt(
       ) {
         const wsApiKey = await params.authStorage.getApiKey(params.provider);
         if (wsApiKey) {
-          activeSession.agent.streamFn = createOpenAIWebSocketStreamFn(wsApiKey, params.sessionId, {
+          const wsStreamFn = createOpenAIWebSocketStreamFn(wsApiKey, params.sessionId, {
             signal: runAbortController.signal,
           });
+          // Wrap WS stream to inject apiKey into options so that the HTTP
+          // fallback inside openai-ws-stream can pass it to streamSimple.
+          activeSession.agent.streamFn = (model, context, options) =>
+            wsStreamFn(model, context, { ...options, apiKey: wsApiKey });
         } else {
           log.warn(`[ws-stream] no API key for provider=${params.provider}; using HTTP transport`);
-          activeSession.agent.streamFn = streamSimple;
+          activeSession.agent.streamFn = async (model, context, options) => {
+            const auth = await params.modelRegistry.getApiKeyAndHeaders(model);
+            if (auth.ok) {
+              return streamSimple(model, context, {
+                ...options,
+                apiKey: auth.apiKey ?? options?.apiKey,
+                headers: auth.headers || options?.headers
+                  ? { ...auth.headers, ...options?.headers }
+                  : undefined,
+              });
+            }
+            return streamSimple(model, context, options);
+          };
         }
       } else if (params.model.provider === "anthropic-vertex") {
         // Anthropic Vertex AI: inject AnthropicVertex client into pi-ai's
         // streamAnthropic for GCP IAM auth instead of Anthropic API keys.
         activeSession.agent.streamFn = createAnthropicVertexStreamFnForModel(params.model);
       } else {
-        // Force a stable streamFn reference so vitest can reliably mock @mariozechner/pi-ai.
-        activeSession.agent.streamFn = streamSimple;
+        // Wrap streamSimple to inject API key from modelRegistry/authStorage.
+        // Raw streamSimple does not consult AuthStorage, so providers like
+        // Anthropic that need options.apiKey would fail without this wrapper.
+        activeSession.agent.streamFn = async (model, context, options) => {
+          const auth = await params.modelRegistry.getApiKeyAndHeaders(model);
+          if (auth.ok) {
+            return streamSimple(model, context, {
+              ...options,
+              apiKey: auth.apiKey ?? options?.apiKey,
+              headers: auth.headers || options?.headers
+                ? { ...auth.headers, ...options?.headers }
+                : undefined,
+            });
+          }
+          return streamSimple(model, context, options);
+        };
       }
 
       const { effectiveExtraParams } = applyExtraParamsToAgent(
