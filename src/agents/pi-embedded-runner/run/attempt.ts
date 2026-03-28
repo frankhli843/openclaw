@@ -864,7 +864,7 @@ export async function runEmbeddedAttempt(
             signal: runAbortController.signal,
           });
           // Wrap WS stream to inject apiKey into options so that the HTTP
-          // fallback inside openai-ws-stream can pass it to streamSimple.
+          // fallback inside openai-ws-stream can pass it to the default stream function.
           activeSession.agent.streamFn = (model, context, options) =>
             wsStreamFn(model, context, { ...options, apiKey: wsApiKey });
         } else {
@@ -872,7 +872,7 @@ export async function runEmbeddedAttempt(
           activeSession.agent.streamFn = async (model, context, options) => {
             const auth = await params.modelRegistry.getApiKeyAndHeaders(model);
             if (auth.ok) {
-              return streamSimple(model, context, {
+              return defaultSessionStreamFn(model, context, {
                 ...options,
                 apiKey: auth.apiKey ?? options?.apiKey,
                 headers: auth.headers || options?.headers
@@ -880,7 +880,7 @@ export async function runEmbeddedAttempt(
                   : undefined,
               });
             }
-            return streamSimple(model, context, options);
+            return defaultSessionStreamFn(model, context, options);
           };
         }
       } else if (params.model.provider === "anthropic-vertex") {
@@ -888,13 +888,13 @@ export async function runEmbeddedAttempt(
         // streamAnthropic for GCP IAM auth instead of Anthropic API keys.
         activeSession.agent.streamFn = createAnthropicVertexStreamFnForModel(params.model);
       } else {
-        // Wrap streamSimple to inject API key from modelRegistry/authStorage.
-        // Raw streamSimple does not consult AuthStorage, so providers like
+        // Wrap defaultSessionStreamFn to inject API key from modelRegistry/authStorage.
+        // The default stream function does not consult AuthStorage, so providers like
         // Anthropic that need options.apiKey would fail without this wrapper.
         activeSession.agent.streamFn = async (model, context, options) => {
           const auth = await params.modelRegistry.getApiKeyAndHeaders(model);
           if (auth.ok) {
-            return streamSimple(model, context, {
+            return defaultSessionStreamFn(model, context, {
               ...options,
               apiKey: auth.apiKey ?? options?.apiKey,
               headers: auth.headers || options?.headers
@@ -902,7 +902,7 @@ export async function runEmbeddedAttempt(
                 : undefined,
             });
           }
-          return streamSimple(model, context, options);
+          return defaultSessionStreamFn(model, context, options);
         };
       }
 
