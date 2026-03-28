@@ -513,6 +513,26 @@
       "runtime": []
     },
     {
+      "name": "Matrix SDK Jiti singleton workaround",
+      "description": "Prevents matrix-js-sdk singleton guard crashes when upstream plugin SDK loading plus Jiti create separate module graphs per plugin by externalizing all matrix-js-sdk subpaths and resetting __js_sdk_entrypoint before each plugin load",
+      "static": [
+        {
+          "file": "tsdown.config.ts",
+          "pattern": "matrix-js-sdk",
+          "minCount": 1,
+          "note": "neverBundle must externalize the whole matrix-js-sdk package tree, not just the bare import"
+        },
+        {
+          "file": "src/plugins/loader.ts",
+          "pattern": "__js_sdk_entrypoint",
+          "minCount": 1,
+          "note": "plugin loader must reset the Matrix SDK singleton flag before each Jiti plugin import"
+        }
+      ],
+      "tests": [],
+      "runtime": []
+    },
+    {
       "id": "channel-config-relax-additional-properties",
       "name": "Channel config additionalProperties relaxation",
       "description": "Relaxes additionalProperties: false in upstream channel config schemas to allow frankclaw custom properties (gateMode, requireMention, autoThread, etc.)",

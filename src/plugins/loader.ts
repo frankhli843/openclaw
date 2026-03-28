@@ -1198,6 +1198,13 @@ export function loadOpenClawPlugins(options: PluginLoadOptions = {}): PluginRegi
 
     let mod: OpenClawPluginModule | null = null;
     try {
+      // Work around matrix-js-sdk singleton guard: when Jiti creates separate
+      // module graphs per plugin (different tryNative / aliasMap combos), the
+      // SDK entry-point guard fires on the second load even though it's the
+      // same physical package. Reset the flag so each Jiti context can load it.
+      // biome-ignore lint: globalThis access is intentional
+      (globalThis as Record<string, unknown>).__js_sdk_entrypoint = false;
+
       mod = getJiti(safeSource)(safeSource) as OpenClawPluginModule;
     } catch (err) {
       recordPluginError({
