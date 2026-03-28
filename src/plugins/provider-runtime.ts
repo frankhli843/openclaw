@@ -2,11 +2,7 @@ import type { AuthProfileCredential, OAuthCredential } from "../agents/auth-prof
 import { normalizeProviderId } from "../agents/provider-id.js";
 import type { OpenClawConfig } from "../config/config.js";
 import {
-  augmentBundledProviderCatalog,
-  resolveBundledProviderBuiltInModelSuppression,
-} from "./provider-catalog-metadata.js";
-import {
-  resolveNonBundledProviderPluginIds,
+  resolveCatalogHookProviderPluginIds,
   resolveOwningPluginIdsForProvider,
 } from "./providers.js";
 import { resolvePluginProviders } from "./providers.runtime.js";
@@ -23,6 +19,7 @@ import type {
   ProviderCreateStreamFnContext,
   ProviderDefaultThinkingPolicyContext,
   ProviderFetchUsageSnapshotContext,
+  ProviderNormalizeModelIdContext,
   ProviderModernModelPolicyContext,
   ProviderPrepareExtraParamsContext,
   ProviderPrepareDynamicModelContext,
@@ -82,6 +79,7 @@ function resolveHookProviderCacheBucket(params: {
 }
 
 function buildHookProviderCacheKey(params: {
+  config?: OpenClawConfig;
   workspaceDir?: string;
   onlyPluginIds?: string[];
   env?: NodeJS.ProcessEnv;
@@ -90,7 +88,7 @@ function buildHookProviderCacheKey(params: {
     workspaceDir: params.workspaceDir,
     env: params.env,
   });
-  return `${roots.workspace ?? ""}::${roots.global}::${roots.stock ?? ""}::${JSON.stringify(params.onlyPluginIds ?? [])}`;
+  return `${roots.workspace ?? ""}::${roots.global}::${roots.stock ?? ""}::${JSON.stringify(params.config ?? null)}::${JSON.stringify(params.onlyPluginIds ?? [])}`;
 }
 
 export function clearProviderRuntimeHookCache(): void {
@@ -120,6 +118,7 @@ function resolveProviderPluginsForHooks(params: {
     env,
   });
   const cacheKey = buildHookProviderCacheKey({
+    config: params.config,
     workspaceDir: params.workspaceDir,
     onlyPluginIds: params.onlyPluginIds,
     env,
@@ -145,7 +144,7 @@ function resolveProviderPluginsForCatalogHooks(params: {
   workspaceDir?: string;
   env?: NodeJS.ProcessEnv;
 }): ProviderPlugin[] {
-  const onlyPluginIds = resolveNonBundledProviderPluginIds({
+  const onlyPluginIds = resolveCatalogHookProviderPluginIds({
     config: params.config,
     workspaceDir: params.workspaceDir,
     env: params.env,
@@ -217,6 +216,25 @@ export function normalizeProviderResolvedModelWithPlugin(params: {
   return (
     resolveProviderRuntimePlugin(params)?.normalizeResolvedModel?.(params.context) ?? undefined
   );
+}
+
+export function normalizeProviderModelIdWithPlugin(params: {
+  provider: string;
+  config?: OpenClawConfig;
+  workspaceDir?: string;
+  env?: NodeJS.ProcessEnv;
+  context: ProviderNormalizeModelIdContext;
+}): string | undefined {
+  const plugin =
+    resolveProviderRuntimePlugin(params) ??
+    resolveProviderPluginsForHooks({
+      config: params.config,
+      workspaceDir: params.workspaceDir,
+      env: params.env,
+    }).find((candidate) => matchesProviderId(candidate, params.provider));
+  const normalized = plugin?.normalizeModelId?.(params.context);
+  const trimmed = normalized?.trim();
+  return trimmed ? trimmed : undefined;
 }
 
 export function resolveProviderCapabilitiesWithPlugin(params: {
@@ -416,10 +434,6 @@ export function resolveProviderBuiltInModelSuppression(params: {
   env?: NodeJS.ProcessEnv;
   context: ProviderBuiltInModelSuppressionContext;
 }) {
-  const bundledResult = resolveBundledProviderBuiltInModelSuppression(params.context);
-  if (bundledResult?.suppress) {
-    return bundledResult;
-  }
   for (const plugin of resolveProviderPluginsForCatalogHooks(params)) {
     const result = plugin.suppressBuiltInModel?.(params.context);
     if (result?.suppress) {
@@ -435,9 +449,7 @@ export async function augmentModelCatalogWithProviderPlugins(params: {
   env?: NodeJS.ProcessEnv;
   context: ProviderAugmentModelCatalogContext;
 }) {
-  const supplemental = [
-    ...augmentBundledProviderCatalog(params.context),
-  ] as ProviderAugmentModelCatalogContext["entries"];
+  const supplemental = [] as ProviderAugmentModelCatalogContext["entries"];
   for (const plugin of resolveProviderPluginsForCatalogHooks(params)) {
     const next = await plugin.augmentModelCatalog?.(params.context);
     if (!next || next.length === 0) {

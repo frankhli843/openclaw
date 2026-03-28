@@ -15,6 +15,17 @@ vi.mock("@mariozechner/pi-coding-agent", async (importOriginal) => {
 });
 
 const mockGenerateSummary = vi.mocked(piCodingAgent.generateSummary);
+type MockGenerateSummaryCompat = (
+  currentMessages: AgentMessage[],
+  model: NonNullable<ExtensionContext["model"]>,
+  reserveTokens: number,
+  apiKey: string,
+  headers: Record<string, string> | undefined,
+  signal?: AbortSignal,
+  customInstructions?: string,
+  previousSummary?: string,
+) => Promise<string>;
+const mockGenerateSummaryCompat = mockGenerateSummary as unknown as MockGenerateSummaryCompat;
 
 describe("compaction retry integration", () => {
   beforeEach(() => {
@@ -50,26 +61,13 @@ describe("compaction retry integration", () => {
     } satisfies AssistantMessage,
   ];
 
-  const testModel: NonNullable<ExtensionContext["model"]> = {
-    id: "claude-3-opus",
-    name: "Claude 3 Opus",
-    api: "anthropic-messages",
+  const testModel = {
     provider: "anthropic",
-    baseUrl: "https://api.anthropic.com",
-    reasoning: false,
-    input: ["text"],
-    cost: {
-      input: 0,
-      output: 0,
-      cacheRead: 0,
-      cacheWrite: 0,
-    },
-    contextWindow: 200_000,
-    maxTokens: 8_192,
-  };
+    model: "claude-3-opus",
+  } as unknown as NonNullable<ExtensionContext["model"]>;
 
   const invokeGenerateSummary = (signal = new AbortController().signal) =>
-    mockGenerateSummary(testMessages, testModel, 1000, "test-api-key", undefined, signal);
+    mockGenerateSummaryCompat(testMessages, testModel, 1000, "test-api-key", undefined, signal);
 
   const runSummaryRetry = (options: Parameters<typeof retryAsync>[1]) =>
     retryAsync(() => invokeGenerateSummary(), options);
