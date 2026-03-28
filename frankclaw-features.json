@@ -353,7 +353,7 @@
     },
     {
       "name": "Restart selfheal integration",
-      "description": "Frankclaw restart self-heal logic integrated into the gateway CLI lifecycle",
+      "description": "Frankclaw restart self-heal logic integrated into the gateway CLI lifecycle, with a real end-to-end agent probe that requires the gateway to answer GATEWAY_OK instead of only appearing active",
       "static": [
         {
           "file": "src/cli/daemon-cli/lifecycle.ts",
@@ -363,6 +363,11 @@
         {
           "file": "src/cli/daemon-cli/restart-selfheal.frankclaw.ts",
           "pattern": "frankclaw",
+          "minCount": 1
+        },
+        {
+          "file": "src/cli/daemon-cli/restart-selfheal.frankclaw.ts",
+          "pattern": "GATEWAY_OK",
           "minCount": 1
         }
       ],

@@ -363,7 +363,8 @@ ${reasonContent}
 1. Check gateway status: \`openclaw gateway status\`
 2. Check logs: \`journalctl --user -u openclaw-gateway -n 80 --no-pager\`
 3. Check file logs: \`tail -100 /tmp/openclaw/openclaw-${dateStr}.log\`
-4. Check recent git changes: \`cd ${WORKSPACE}/code/frankclaw && git log --oneline -5\`
+4. Run an end-to-end gateway probe, not just a service check: \`openclaw agent --session-id gateway-selfheal-probe --message "Reply with ONLY: GATEWAY_OK" --thinking off --timeout 30 --json\`
+5. Check recent git changes: \`cd ${WORKSPACE}/code/frankclaw && git log --oneline -5\`
 
 ## Fix attempts (most common first)
 
@@ -398,7 +399,10 @@ openclaw gateway restart
 sleep 20
 openclaw gateway status
 openclaw channels status --probe 2>&1
+openclaw agent --session-id gateway-selfheal-probe --message "Reply with ONLY: GATEWAY_OK" --thinking off --timeout 30 --json
 \`\`\`
+
+Do not stop at "gateway is active". The fix is only good if the gateway can complete that probe turn and return \`GATEWAY_OK\`.
 
 Iterate up to 5 fix rounds. If nothing works, revert to last known good state.
 
