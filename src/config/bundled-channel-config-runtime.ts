@@ -18,7 +18,10 @@ const staticBundledChannelSchemas = new Map<string, ChannelConfigSchema>([
   ["msteams", buildChannelConfigSchema(MSTeamsConfigSchema)],
   ["whatsapp", buildChannelConfigSchema(WhatsAppConfigSchema)],
 ]);
-for (const plugin of bundledChannelPlugins) {
+const runtimeBundledChannelPlugins = Array.isArray(bundledChannelPlugins)
+  ? bundledChannelPlugins
+  : [];
+for (const plugin of runtimeBundledChannelPlugins) {
   const channelSchema = plugin.configSchema;
   if (!channelSchema) {
     continue;
