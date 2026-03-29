@@ -9,8 +9,8 @@ import * as grammy from "grammy";
 import { recordChannelActivity } from "openclaw/plugin-sdk/channel-runtime";
 import { loadConfig } from "openclaw/plugin-sdk/config-runtime";
 import { resolveMarkdownTableMode } from "openclaw/plugin-sdk/config-runtime";
-import { isDiagnosticFlagEnabled } from "openclaw/plugin-sdk/infra-runtime";
-import { formatUncaughtError } from "openclaw/plugin-sdk/infra-runtime";
+import { isDiagnosticFlagEnabled } from "openclaw/plugin-sdk/diagnostic-runtime";
+import { formatUncaughtError } from "openclaw/plugin-sdk/error-runtime";
 import type { MediaKind } from "openclaw/plugin-sdk/media-runtime";
 import { buildOutboundMediaLoadOptions } from "openclaw/plugin-sdk/media-runtime";
 import { getImageMetadata } from "openclaw/plugin-sdk/media-runtime";
@@ -34,6 +34,7 @@ import {
   isSafeToRetrySendError,
   isTelegramServerError,
 } from "./network-errors.js";
+import { normalizeTelegramReplyToMessageId } from "./outbound-params.js";
 import { makeProxyFetch } from "./proxy.js";
 import { recordSentMessage } from "./sent-message-cache.js";
 import { maybePersistResolvedTelegramTarget } from "./target-writeback.js";
@@ -416,8 +417,8 @@ function buildTelegramThreadReplyParams(params: {
   const threadIdParams = buildTelegramThreadParams(threadSpec);
   const threadParams: TelegramThreadReplyParams = threadIdParams ? { ...threadIdParams } : {};
 
-  if (params.replyToMessageId != null) {
-    const replyToMessageId = Math.trunc(params.replyToMessageId);
+  const replyToMessageId = normalizeTelegramReplyToMessageId(params.replyToMessageId);
+  if (replyToMessageId != null) {
     if (params.quoteText?.trim()) {
       threadParams.reply_parameters = {
         message_id: replyToMessageId,

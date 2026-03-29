@@ -43,6 +43,10 @@ function expectResolvedCapabilityProviderIds(providers: Array<{ id: string }>, e
   expect(providers.map((provider) => provider.id)).toEqual(expected);
 }
 
+function expectNoResolvedCapabilityProviders(providers: Array<{ id: string }>) {
+  expectResolvedCapabilityProviderIds(providers, []);
+}
+
 function expectBundledCompatLoadPath(params: {
   cfg: OpenClawConfig;
   allowlistCompat: { plugins: { allow: string[] } };
@@ -121,9 +125,12 @@ function expectCompatChainApplied(params: {
   mocks.withBundledPluginAllowlistCompat.mockReturnValue(params.allowlistCompat);
   mocks.withBundledPluginEnablementCompat.mockReturnValue(params.enablementCompat);
   mocks.withBundledPluginVitestCompat.mockReturnValue(params.enablementCompat);
-  resolvePluginCapabilityProviders({ key: params.key, cfg: params.cfg });
+  expectNoResolvedCapabilityProviders(
+    resolvePluginCapabilityProviders({ key: params.key, cfg: params.cfg }),
+  );
   expectBundledCompatLoadPath(params);
 }
+
 describe("resolvePluginCapabilityProviders", () => {
   beforeEach(async () => {
     vi.resetModules();
@@ -144,11 +151,11 @@ describe("resolvePluginCapabilityProviders", () => {
     const active = createEmptyPluginRegistry();
     active.speechProviders.push({
       pluginId: "openai",
-      pluginName: "OpenAI",
+      pluginName: "openai",
       source: "test",
       provider: {
         id: "openai",
-        label: "OpenAI",
+        label: "openai",
         isConfigured: () => true,
         synthesize: async () => ({
           audioBuffer: Buffer.from("x"),
@@ -157,14 +164,49 @@ describe("resolvePluginCapabilityProviders", () => {
           fileExtension: ".mp3",
         }),
       },
-    });
+    } as never);
     mocks.resolveRuntimePluginRegistry.mockReturnValue(active);
 
     const providers = resolvePluginCapabilityProviders({ key: "speechProviders" });
 
     expectResolvedCapabilityProviderIds(providers, ["openai"]);
     expect(mocks.loadPluginManifestRegistry).not.toHaveBeenCalled();
-    expect(mocks.resolveRuntimePluginRegistry).toHaveBeenCalledWith(undefined);
+    expect(mocks.resolveRuntimePluginRegistry).toHaveBeenCalledWith();
+  });
+
+  it("keeps active capability providers even when cfg is passed", () => {
+    const active = createEmptyPluginRegistry();
+    active.speechProviders.push({
+      pluginId: "microsoft",
+      pluginName: "microsoft",
+      source: "test",
+      provider: {
+        id: "microsoft",
+        label: "microsoft",
+        aliases: ["edge"],
+        isConfigured: () => true,
+        synthesize: async () => ({
+          audioBuffer: Buffer.from("x"),
+          outputFormat: "mp3",
+          voiceCompatible: false,
+          fileExtension: ".mp3",
+        }),
+      },
+    } as never);
+    mocks.resolveRuntimePluginRegistry.mockImplementation((params?: unknown) =>
+      params === undefined ? active : createEmptyPluginRegistry(),
+    );
+
+    const providers = resolvePluginCapabilityProviders({
+      key: "speechProviders",
+      cfg: { messages: { tts: { provider: "edge" } } } as OpenClawConfig,
+    });
+
+    expectResolvedCapabilityProviderIds(providers, ["microsoft"]);
+    expect(mocks.resolveRuntimePluginRegistry).toHaveBeenCalledWith();
+    expect(mocks.resolveRuntimePluginRegistry).not.toHaveBeenCalledWith({
+      config: expect.anything(),
+    });
   });
 
   it.each([
@@ -191,7 +233,7 @@ describe("resolvePluginCapabilityProviders", () => {
       cfg: {} as OpenClawConfig,
     });
 
-    expect(providers).toEqual([]);
+    expectNoResolvedCapabilityProviders(providers);
     expect(mocks.resolveRuntimePluginRegistry).toHaveBeenCalledWith({
       config: expect.anything(),
     });
