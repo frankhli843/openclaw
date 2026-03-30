@@ -603,6 +603,52 @@
         "test": [],
         "runtime": []
       }
+    },
+    {
+      "name": "sessions.send delivery context forwarding",
+      "description": "When sessions.send forwards to chat.send, passes the target session stored delivery context as explicit originating route fields so replies route to the correct channel (e.g. Discord) instead of falling back to webchat.",
+      "static": [
+        {
+          "file": "src/gateway/server-methods/sessions.ts",
+          "pattern": "sessionDeliveryContext",
+          "minCount": 1
+        },
+        {
+          "file": "src/gateway/server-methods/sessions.ts",
+          "pattern": "hasStoredDeliveryRoute",
+          "minCount": 1
+        },
+        {
+          "file": "src/gateway/server-methods/sessions.ts",
+          "pattern": "originatingChannel.*sessionDeliveryContext",
+          "minCount": 1
+        }
+      ],
+      "tests": [],
+      "runtime": [
+        {
+          "logSignature": "[agent:nested].*channel=discord",
+          "description": "When sessions.send triggers a run for a Discord session, the agent:nested log should show channel=discord not channel=webchat"
+        }
+      ]
+    },
+    {
+      "name": "Discord durable queue pre-process diagnostics",
+      "description": "Logs session status before processing each Discord durable queue job to help diagnose silent message consumption.",
+      "static": [
+        {
+          "file": "extensions/discord/src/monitor/inbound-worker.durable.frankclaw.ts",
+          "pattern": "frankclaw-durable-worker.*pre-process",
+          "minCount": 1
+        }
+      ],
+      "tests": [],
+      "runtime": [
+        {
+          "logSignature": "[frankclaw-durable-worker] pre-process:",
+          "description": "Each durable queue job logs session status before processing"
+        }
+      ]
     }
   ]
 }

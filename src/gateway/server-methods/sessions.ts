@@ -435,6 +435,17 @@ async function handleSessionSend(params: {
     typeof rawIdempotencyKey === "string" && rawIdempotencyKey.trim()
       ? rawIdempotencyKey.trim()
       : randomUUID();
+  // [frankclaw] Bug fix: When sessions.send forwards to chat.send, pass the
+  // target session's stored delivery context as explicit originating route fields.
+  // Without this, the internal caller presents as a webchat client and
+  // resolveChatSendOriginatingRoute blocks delivery route inheritance, causing
+  // replies to go to INTERNAL_MESSAGE_CHANNEL (webchat void) instead of the
+  // session's actual channel (e.g. Discord). The explicitOrigin escape hatch in
+  // resolveChatSendOriginatingRoute bypasses the webchat guard.
+  const sessionDeliveryContext = entry.deliveryContext;
+  const hasStoredDeliveryRoute = Boolean(
+    sessionDeliveryContext?.channel && sessionDeliveryContext?.to,
+  );
   await chatHandlers["chat.send"]({
     req: params.req,
     params: {
@@ -444,6 +455,20 @@ async function handleSessionSend(params: {
       attachments: (p as { attachments?: unknown[] }).attachments,
       timeoutMs: (p as { timeoutMs?: number }).timeoutMs,
       idempotencyKey,
+      // [frankclaw] Forward stored delivery context so replies route correctly.
+      ...(hasStoredDeliveryRoute
+        ? {
+            deliver: true,
+            originatingChannel: sessionDeliveryContext!.channel,
+            originatingTo: sessionDeliveryContext!.to,
+            ...(sessionDeliveryContext!.accountId
+              ? { originatingAccountId: sessionDeliveryContext!.accountId }
+              : {}),
+            ...(sessionDeliveryContext!.threadId
+              ? { originatingThreadId: String(sessionDeliveryContext!.threadId) }
+              : {}),
+          }
+        : {}),
     },
     respond: (ok, payload, error, meta) => {
       sendAcked = ok;

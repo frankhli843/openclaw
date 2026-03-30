@@ -117,6 +117,19 @@ export function createDurableDiscordInboundWorker(
       );
 
       const suffix = formatContextSuffix(event);
+      // [frankclaw] Diagnostic: log session status before processing to help trace
+      // cases where messages are silently consumed without starting an LLM run.
+      try {
+        const { loadSessionEntry } = await import('../../../../src/gateway/session-utils.js');
+        const sessionEntry = loadSessionEntry(event.orderingKey);
+        if (sessionEntry.entry) {
+          console.info(
+            `[frankclaw-durable-worker] pre-process: orderingKey=${event.orderingKey} sessionStatus=${sessionEntry.entry.status ?? 'unknown'} updatedAt=${sessionEntry.entry.updatedAt ?? '?'}${suffix}`,
+          );
+        }
+      } catch {
+        // Best-effort diagnostic; do not block processing.
+      }
       const didTimeout = await runDiscordTaskWithTimeout({
         run: async (abortSignal) => {
           await processDiscordMessage({ ...ctx, abortSignal });
