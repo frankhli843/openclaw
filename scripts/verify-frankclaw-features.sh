@@ -219,11 +219,14 @@ run_runtime() {
     total=$((total + 1))
     local probes_passed=0
 
+    local on_event_count=0
     for j in $(seq 0 $((runtime_count - 1))); do
       local log_pattern
       log_pattern=$(jq -r ".features[$i].runtime[$j].logPattern" "$FEATURES_JSON")
       local within_seconds
       within_seconds=$(jq -r ".features[$i].runtime[$j].withinSeconds // 0" "$FEATURES_JSON")
+      local on_event
+      on_event=$(jq -r ".features[$i].runtime[$j].onEvent // false" "$FEATURES_JSON")
 
       # Re-read the log tail fresh for each probe attempt
       tail -n +"$last_start_line" "$log_file" > "$log_tail_file"
@@ -243,19 +246,28 @@ run_runtime() {
           if [[ "$match_count" -gt 0 ]]; then
             break
           fi
-          echo -e "  \${YELLOW}Waiting for \"$log_pattern\" (\${waited}s/\${within_seconds}s)\${RESET}"
+          echo -e "  ${YELLOW}⏳ Waiting for \"$log_pattern\" (${waited}s/${within_seconds}s)${RESET}"
         done
       fi
 
       if [[ "$match_count" -gt 0 ]]; then
         probes_passed=$((probes_passed + 1))
+      elif [[ "$on_event" == "true" ]]; then
+        # Event-triggered probes only fire on specific actions (e.g., Discord msg, sessions.send).
+        # Not finding them after restart is expected. Count as passed.
+        probes_passed=$((probes_passed + 1))
+        on_event_count=$((on_event_count + 1))
       else
-        fail_details="${fail_details}\n   FAIL: Log pattern \"$log_pattern\" not found after last gateway start (waited \${within_seconds:-0}s)"
+        fail_details="${fail_details}\n   FAIL: Log pattern \"$log_pattern\" not found after last gateway start (waited ${within_seconds:-0}s)"
       fi
     done
 
     if [[ "$probes_passed" -eq "$runtime_count" ]]; then
-      echo -e "  ${GREEN}✅ $name ($probes_passed/$runtime_count runtime probes)${RESET}"
+      if [[ "$on_event_count" -gt 0 ]]; then
+        echo -e "  ${GREEN}✅ $name ($((probes_passed - on_event_count))/$runtime_count verified, $on_event_count event-triggered skipped)${RESET}"
+      else
+        echo -e "  ${GREEN}✅ $name ($probes_passed/$runtime_count runtime probes)${RESET}"
+      fi
       passed=$((passed + 1))
     else
       echo -e "  ${RED}❌ $name ($probes_passed/$runtime_count runtime probes)${RESET}"

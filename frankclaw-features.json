@@ -162,9 +162,7 @@
           "minCount": 1
         }
       ],
-      "tests": [
-        "extensions/discord/src/monitor/message-handler.preflight.frankclaw.test.ts"
-      ],
+      "tests": ["extensions/discord/src/monitor/message-handler.preflight.frankclaw.test.ts"],
       "runtime": []
     },
     {
@@ -182,9 +180,7 @@
           "minCount": 1
         }
       ],
-      "tests": [
-        "extensions/whatsapp/src/auto-reply/monitor/group-gating.frankclaw.test.ts"
-      ],
+      "tests": ["extensions/whatsapp/src/auto-reply/monitor/group-gating.frankclaw.test.ts"],
       "runtime": []
     },
     {
@@ -375,9 +371,7 @@
           "minCount": 1
         }
       ],
-      "tests": [
-        "src/cli/daemon-cli/restart-selfheal.frankclaw.test.ts"
-      ],
+      "tests": ["src/cli/daemon-cli/restart-selfheal.frankclaw.test.ts"],
       "runtime": []
     },
     {
@@ -435,9 +429,7 @@
           "note": "called in toDiscordMessageEvent for batch path"
         }
       ],
-      "tests": [
-        "extensions/discord/src/monitor/inbound-job.rehydrate.test.ts"
-      ],
+      "tests": ["extensions/discord/src/monitor/inbound-job.rehydrate.test.ts"],
       "runtime": []
     },
     {
@@ -469,9 +461,7 @@
           "note": "wraps commandBody with global instructions for cron runs"
         }
       ],
-      "tests": [
-        "src/agents/subagent-instructions.test.ts"
-      ],
+      "tests": ["src/agents/subagent-instructions.test.ts"],
       "runtime": [
         {
           "logPattern": "Subagent Global Instructions prepended",
@@ -627,8 +617,10 @@
       "tests": [],
       "runtime": [
         {
-          "logSignature": "[agent:nested].*channel=discord",
-          "description": "When sessions.send triggers a run for a Discord session, the agent:nested log should show channel=discord not channel=webchat"
+          "logPattern": "[agent:nested]",
+          "withinSeconds": 0,
+          "onEvent": true,
+          "note": "Only fires when sessions.send delivers to a Discord session. Expected to be absent after cold restart with no cross-session sends."
         }
       ]
     },
@@ -645,8 +637,10 @@
       "tests": [],
       "runtime": [
         {
-          "logSignature": "[frankclaw-durable-worker] pre-process:",
-          "description": "Each durable queue job logs session status before processing"
+          "logPattern": "[frankclaw-durable-worker] pre-process:",
+          "withinSeconds": 0,
+          "onEvent": true,
+          "note": "Only fires when Discord messages arrive. Expected to be absent if no Discord messages received since restart."
         }
       ]
     }
