@@ -475,7 +475,8 @@
       "runtime": [
         {
           "logPattern": "Subagent Global Instructions prepended",
-          "note": "prepended header visible in sub-agent task messages"
+          "note": "only fires on first sub-agent spawn after restart, so 0 means no wait (expected to fail if no sub-agent spawned yet)",
+          "withinSeconds": 0
         }
       ]
     },

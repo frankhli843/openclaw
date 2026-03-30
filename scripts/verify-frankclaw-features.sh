@@ -222,14 +222,35 @@ run_runtime() {
     for j in $(seq 0 $((runtime_count - 1))); do
       local log_pattern
       log_pattern=$(jq -r ".features[$i].runtime[$j].logPattern" "$FEATURES_JSON")
+      local within_seconds
+      within_seconds=$(jq -r ".features[$i].runtime[$j].withinSeconds // 0" "$FEATURES_JSON")
+
+      # Re-read the log tail fresh for each probe attempt
+      tail -n +"$last_start_line" "$log_file" > "$log_tail_file"
 
       local match_count
       match_count=$(grep -cF "$log_pattern" "$log_tail_file" 2>/dev/null) || match_count=0
 
+      # If not found and withinSeconds > 0, retry with backoff up to that limit
+      if [[ "$match_count" -eq 0 ]] && [[ "$within_seconds" -gt 0 ]]; then
+        local waited=0
+        local interval=10
+        while [[ "$waited" -lt "$within_seconds" ]]; do
+          sleep "$interval"
+          waited=$((waited + interval))
+          tail -n +"$last_start_line" "$log_file" > "$log_tail_file"
+          match_count=$(grep -cF "$log_pattern" "$log_tail_file" 2>/dev/null) || match_count=0
+          if [[ "$match_count" -gt 0 ]]; then
+            break
+          fi
+          echo -e "  \${YELLOW}Waiting for \"$log_pattern\" (\${waited}s/\${within_seconds}s)\${RESET}"
+        done
+      fi
+
       if [[ "$match_count" -gt 0 ]]; then
         probes_passed=$((probes_passed + 1))
       else
-        fail_details="${fail_details}\n   FAIL: Log pattern \"$log_pattern\" not found after last gateway start"
+        fail_details="${fail_details}\n   FAIL: Log pattern \"$log_pattern\" not found after last gateway start (waited \${within_seconds:-0}s)"
       fi
     done
 
