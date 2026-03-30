@@ -265,6 +265,9 @@ git worktree remove /tmp/issue-99
 7. **Parallel is OK** - run many Codex processes at once for batch work
 8. **NEVER start Codex in ~/.openclaw/** - it'll read your soul docs and get weird ideas about the org chart!
 9. **NEVER checkout branches in ~/Projects/openclaw/** - that's the LIVE OpenClaw instance!
+10. **Default coding completion bar is end-to-end, not halfway** - unless Frank explicitly asks for an intermediate checkpoint, do not stop at “feature implemented.” Carry the task through local tests, manual verification, commit/push, PR check review, and an explicit merge-readiness assessment.
+11. **If the next step is obvious, keep going** - when a coding task has a clear low-risk next action needed to reach completion, do not stop to ask Frank whether you should continue.
+12. **After merge, keep going into production by default** - verify the deployment actually finishes in the target environment, then log in through the production URL and perform a real production smoke test before declaring the work complete, unless Frank explicitly tells you to stop earlier.
 
 ---
 
