@@ -32,5 +32,6 @@ export function prependSubagentInstructions(baseMessage: string, instructions?: 
   if (!trimmed) {
     return baseMessage;
   }
+  console.log(`[frankclaw] Subagent Global Instructions prepended (${trimmed.length} chars)`);
   return [`[Subagent Global Instructions]`, trimmed, baseMessage].join("\n\n");
 }
