@@ -734,9 +734,22 @@ export async function preflightDiscordMessage(
     shouldRequireMention: shouldRequireMentionByConfig,
     bypassMentionRequirement,
   });
+  const { hasAccessRestrictions, memberAllowed } = resolveDiscordMemberAccessState({
+    channelConfig,
+    guildInfo,
+    memberRoleIds,
+    sender,
+    allowNameMatching,
+  });
 
-  // Preflight audio transcription for mention detection in guilds.
-  // This allows voice notes to be checked for mentions before being dropped.
+  if (isGuildMessage && hasAccessRestrictions && !memberAllowed) {
+    logDebug(`[discord-preflight] drop: member not allowed`);
+    // Keep stable Discord user IDs out of routine deny-path logs.
+    logVerbose("Blocked discord guild sender (not in users/roles allowlist)");
+    return null;
+  }
+
+  // Only authorized guild senders should reach the expensive transcription path.
   const { hasTypedText, transcript: preflightTranscript } =
     await resolveDiscordPreflightAudioMentionContext({
       message,
@@ -780,13 +793,6 @@ export async function preflightDiscordMessage(
     surface: "discord",
   });
   const hasControlCommandInMessage = hasControlCommand(baseText, params.cfg);
-  const { hasAccessRestrictions, memberAllowed } = resolveDiscordMemberAccessState({
-    channelConfig,
-    guildInfo,
-    memberRoleIds,
-    sender,
-    allowNameMatching,
-  });
 
   if (!isDirectMessage) {
     const { ownerAllowList, ownerAllowed: ownerOk } = resolveDiscordOwnerAccess({
@@ -922,12 +928,6 @@ export async function preflightDiscordMessage(
       limit: params.historyLimit,
       entry: historyEntry ?? null,
     });
-    return null;
-  }
-
-  if (isGuildMessage && hasAccessRestrictions && !memberAllowed) {
-    logDebug(`[discord-preflight] drop: member not allowed`);
-    logVerbose(`Blocked discord guild sender ${sender.id} (not in users/roles allowlist)`);
     return null;
   }
 
