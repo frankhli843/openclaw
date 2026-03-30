@@ -10,6 +10,7 @@ import {
   resolveGatewaySessionStoreTarget,
 } from "../gateway/session-utils.js";
 import { getGlobalHookRunner } from "../plugins/hook-runner-global.js";
+import type { SubagentLifecycleHookRunner } from "../plugins/hooks.js";
 import {
   isValidAgentId,
   isCronSessionKey,
@@ -51,6 +52,22 @@ export const SUBAGENT_SPAWN_SANDBOX_MODES = ["inherit", "require"] as const;
 export type SpawnSubagentSandboxMode = (typeof SUBAGENT_SPAWN_SANDBOX_MODES)[number];
 
 export { decodeStrictBase64 };
+
+type SubagentSpawnDeps = {
+  callGateway: typeof callGateway;
+  getGlobalHookRunner: () => SubagentLifecycleHookRunner | null;
+  loadConfig: typeof loadConfig;
+  updateSessionStore: typeof updateSessionStore;
+};
+
+const defaultSubagentSpawnDeps: SubagentSpawnDeps = {
+  callGateway,
+  getGlobalHookRunner,
+  loadConfig,
+  updateSessionStore,
+};
+
+let subagentSpawnDeps: SubagentSpawnDeps = defaultSubagentSpawnDeps;
 
 export type SpawnSubagentParams = {
   task: string;
@@ -123,6 +140,31 @@ export function splitModelRef(ref?: string) {
   return { provider: undefined, model: trimmed };
 }
 
+async function updateSubagentSessionStore(
+  storePath: string,
+  mutator: Parameters<typeof updateSessionStore>[1],
+) {
+  return await subagentSpawnDeps.updateSessionStore(storePath, mutator);
+}
+
+async function callSubagentGateway(
+  params: Parameters<typeof callGateway>[0],
+): Promise<Awaited<ReturnType<typeof callGateway>>> {
+  return await subagentSpawnDeps.callGateway(params);
+}
+
+function readGatewayRunId(response: Awaited<ReturnType<typeof callGateway>>): string | undefined {
+  if (!response || typeof response !== "object") {
+    return undefined;
+  }
+  const { runId } = response as { runId?: unknown };
+  return typeof runId === "string" && runId ? runId : undefined;
+}
+
+function loadSubagentConfig() {
+  return subagentSpawnDeps.loadConfig();
+}
+
 async function persistInitialChildSessionRuntimeModel(params: {
   cfg: ReturnType<typeof loadConfig>;
   childSessionKey: string;
@@ -137,7 +179,7 @@ async function persistInitialChildSessionRuntimeModel(params: {
       cfg: params.cfg,
       key: params.childSessionKey,
     });
-    await updateSessionStore(target.storePath, (store) => {
+    await updateSubagentSessionStore(target.storePath, (store) => {
       pruneLegacyStoreKeys({
         store,
         canonicalKey: target.canonicalKey,
@@ -178,7 +220,7 @@ async function cleanupProvisionalSession(
   },
 ): Promise<void> {
   try {
-    await callGateway({
+    await callSubagentGateway({
       method: "sessions.delete",
       params: {
         key: childSessionKey,
@@ -233,7 +275,7 @@ function summarizeError(err: unknown): string {
 }
 
 async function ensureThreadBindingForSubagentSpawn(params: {
-  hookRunner: ReturnType<typeof getGlobalHookRunner>;
+  hookRunner: SubagentLifecycleHookRunner | null;
   childSessionKey: string;
   agentId: string;
   label?: string;
@@ -350,8 +392,8 @@ async function spawnSubagentDirectCore(
     to: ctx.agentTo,
     threadId: ctx.agentThreadId,
   });
-  const hookRunner = getGlobalHookRunner();
-  const cfg = loadConfig();
+  const hookRunner = subagentSpawnDeps.getGlobalHookRunner();
+  const cfg = loadSubagentConfig();
 
   // When agent omits runTimeoutSeconds, use the config default.
   // Falls back to 0 (no timeout) if config key is also unset,
@@ -478,7 +520,7 @@ async function spawnSubagentDirectCore(
   }
   const patchChildSession = async (patch: Record<string, unknown>): Promise<string | undefined> => {
     try {
-      await callGateway({
+      await callSubagentGateway({
         method: "sessions.patch",
         params: { key: childSessionKey, ...patch },
         timeoutMs: 10_000,
@@ -517,7 +559,7 @@ async function spawnSubagentDirectCore(
     });
     if (runtimeModelPersistError) {
       try {
-        await callGateway({
+        await callSubagentGateway({
           method: "sessions.delete",
           params: { key: childSessionKey, emitLifecycleHooks: false },
           timeoutMs: 10_000,
@@ -550,7 +592,7 @@ async function spawnSubagentDirectCore(
     });
     if (bindResult.status === "error") {
       try {
-        await callGateway({
+        await callSubagentGateway({
           method: "sessions.delete",
           params: { key: childSessionKey, emitLifecycleHooks: false },
           timeoutMs: 10_000,
@@ -678,7 +720,7 @@ async function spawnSubagentDirectCore(
       workspaceDir: _workspaceDir,
       ...publicSpawnedMetadata
     } = spawnedMetadata;
-    const response = await callGateway<{ runId: string }>({
+    const response = await callSubagentGateway({
       method: "agent",
       params: {
         message: childTaskMessage,
@@ -698,8 +740,9 @@ async function spawnSubagentDirectCore(
       },
       timeoutMs: 10_000,
     });
-    if (typeof response?.runId === "string" && response.runId) {
-      childRunId = response.runId;
+    const runId = readGatewayRunId(response);
+    if (runId) {
+      childRunId = runId;
     }
   } catch (err) {
     if (attachmentAbsDir) {
@@ -742,7 +785,7 @@ async function spawnSubagentDirectCore(
     // Always delete the provisional child session after a failed spawn attempt.
     // If we already emitted subagent_ended above, suppress a duplicate lifecycle hook.
     try {
-      await callGateway({
+      await callSubagentGateway({
         method: "sessions.delete",
         params: {
           key: childSessionKey,
@@ -792,7 +835,7 @@ async function spawnSubagentDirectCore(
       }
     }
     try {
-      await callGateway({
+      await callSubagentGateway({
         method: "sessions.delete",
         params: {
           key: childSessionKey,
@@ -869,3 +912,14 @@ async function spawnSubagentDirectCore(
     attachments: attachmentsReceipt,
   };
 }
+
+export const __testing = {
+  setDepsForTest(overrides?: Partial<SubagentSpawnDeps>) {
+    subagentSpawnDeps = overrides
+      ? {
+          ...defaultSubagentSpawnDeps,
+          ...overrides,
+        }
+      : defaultSubagentSpawnDeps;
+  },
+};
