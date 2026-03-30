@@ -468,7 +468,7 @@ export async function handleTelegramAction(
       cfg,
       token,
       accountId: accountId ?? undefined,
-      iconColor: iconColor ?? undefined,
+      iconColor: iconColor as any,
       iconCustomEmojiId: iconCustomEmojiId ?? undefined,
     });
     return jsonResult({

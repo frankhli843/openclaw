@@ -4,7 +4,7 @@ import { isWhatsAppGroupJid, normalizeWhatsAppTarget } from "../../../extensions
 import type { InspectedDiscordAccount } from "../read-only-account-inspect.discord.runtime.js";
 import { inspectReadOnlyChannelAccount } from "../read-only-account-inspect.js";
 import type { InspectedSlackAccount } from "../read-only-account-inspect.slack.runtime.js";
-import type { InspectedTelegramAccount } from "../read-only-account-inspect.telegram.runtime.js";
+import type { InspectedTelegramAccount } from "../read-only-account-inspect.telegram.js";
 import { applyDirectoryQueryAndLimit, toDirectoryEntries } from "./directory-config-helpers.js";
 import { normalizeSlackMessagingTarget } from "./normalize/slack.js";
 import { getChannelPlugin } from "./registry.js";
