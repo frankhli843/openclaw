@@ -654,6 +654,44 @@
           "note": "Only fires when Discord messages arrive. Expected to be absent if no Discord messages received since restart."
         }
       ]
+    },
+    {
+      "name": "WhatsApp group gating observability",
+      "description": "Always-on info-level logging for group message gating decisions (skip/silent/process), offline catch-up filter drops, and group history buffer size. Enables diagnosing empty InboundHistory without verbose mode.",
+      "static": [
+        {
+          "file": "extensions/whatsapp/src/auto-reply/monitor/group-gating.frankclaw.ts",
+          "pattern": "\\[whatsapp\\] \\[gate\\]",
+          "minCount": 3
+        },
+        {
+          "file": "extensions/whatsapp/src/inbound/monitor.ts",
+          "pattern": "Skipping offline catch-up message",
+          "minCount": 1
+        },
+        {
+          "file": "extensions/whatsapp/src/auto-reply/monitor/process-message.ts",
+          "pattern": "\\[whatsapp\\] \\[history\\]",
+          "minCount": 1
+        }
+      ],
+      "tests": [
+        "extensions/whatsapp/src/auto-reply/monitor/group-gating.frankclaw.test.ts",
+        "extensions/whatsapp/src/monitor-inbox.append-upsert.test.ts"
+      ],
+      "runtime": [
+        "[whatsapp] [gate] skip gateMode=",
+        "[whatsapp] [gate] process gateMode=",
+        "[whatsapp] [history] group="
+      ]
+    },
+    {
+      "name": "WhatsApp offline catch-up group history preservation",
+      "description": "Store offline catch-up (append upsert) messages in groupHistories buffer for group context, even when too old for auto-reply. Fixes empty InboundHistory when messages arrive before gateway start.",
+      "status": "planned",
+      "static": [],
+      "tests": [],
+      "runtime": []
     }
   ]
 }
