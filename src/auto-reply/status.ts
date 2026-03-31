@@ -694,14 +694,15 @@ export function buildStatusMessage(args: StatusArgs): string {
     provider: activeProvider,
     model: activeModel,
   });
-  const channelThinkNote = (() => {
+  const channelThinkOverrideResult = (() => {
     if (!args.config || !entry) {
-      return undefined;
+      return null;
     }
-    if (args.resolvedThink || entry.thinkingLevel) {
-      return undefined;
+    // Skip if session has an explicit per-session thinking override
+    if (entry.thinkingLevel) {
+      return null;
     }
-    const channelThinkOverride = resolveChannelThinkingOverride({
+    return resolveChannelThinkingOverride({
       cfg: args.config,
       channel: entry.channel ?? entry.origin?.provider,
       groupId: entry.groupId,
@@ -709,15 +710,12 @@ export function buildStatusMessage(args: StatusArgs): string {
       groupSubject: entry.subject,
       parentSessionKey: args.parentSessionKey,
     });
-    if (!channelThinkOverride) {
-      return undefined;
-    }
-    return "channel override";
   })();
-  const thinkNote = channelThinkNote ? ` (${channelThinkNote})` : "";
+  const effectiveThinkLevel = channelThinkOverrideResult ? channelThinkOverrideResult.thinking : thinkLevel;
+  const thinkNote = channelThinkOverrideResult ? " (channel override)" : "";
   const optionParts = [
     `Runtime: ${runtime.label}`,
-    `Think: ${thinkLevel}${thinkNote}`,
+    `Think: ${effectiveThinkLevel}${thinkNote}`,
     fastMode ? "Fast: on" : null,
     textVerbosity ? `Text: ${textVerbosity}` : null,
     verboseLabel,
