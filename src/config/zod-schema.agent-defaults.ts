@@ -204,6 +204,7 @@ export const AgentDefaultsSchema = z
         runTimeoutSeconds: z.number().int().min(0).optional(),
         announceTimeoutMs: z.number().int().positive().optional(),
         auth: z.record(z.string(), z.unknown()).optional(),
+        requireAgentId: z.boolean().optional()
       })
       .strict()
       .optional(),

@@ -9,6 +9,10 @@ import type { ChatCommandDefinition } from "./commands-registry.types.js";
 
 type ChannelPlugin = ReturnType<typeof listChannelPlugins>[number];
 
+function supportsNativeCommands(plugin: ChannelPlugin): boolean {
+  return plugin.capabilities?.nativeCommands === true;
+}
+
 function defineDockCommand(plugin: ChannelPlugin): ChatCommandDefinition {
   return defineChatCommand({
     key: `dock:${plugin.id}`,
@@ -33,7 +37,7 @@ function buildChatCommands(): ChatCommandDefinition[] {
         : cmd,
     ),
     ...listChannelPlugins()
-      .filter((plugin) => plugin.capabilities.nativeCommands)
+      .filter(supportsNativeCommands)
       .map((plugin) => defineDockCommand(plugin)),
   ];
 
@@ -60,7 +64,7 @@ export function getNativeCommandSurfaces(): Set<string> {
   }
   cachedNativeCommandSurfaces = new Set(
     listChannelPlugins()
-      .filter((plugin) => plugin.capabilities.nativeCommands)
+      .filter(supportsNativeCommands)
       .map((plugin) => plugin.id),
   );
   cachedNativeRegistry = registry;
