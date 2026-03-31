@@ -49,7 +49,7 @@ describe("delivery-queue policy", () => {
   });
 
   describe("isEntryEligibleForRecoveryRetry", () => {
-    it("allows first replay after crash for retryCount=0 without lastAttemptAt", () => {
+    it("allows first replay after crash for retryCount=0 without lastAttemptAt (old entry)", () => {
       const now = Date.now();
       const result = isEntryEligibleForRecoveryRetry(
         {
@@ -57,12 +57,32 @@ describe("delivery-queue policy", () => {
           channel: "demo-channel",
           to: "+1",
           payloads: [{ text: "a" }],
-          enqueuedAt: now,
+          enqueuedAt: now - 60_000, // Enqueued >30s ago (simulates crash recovery)
           retryCount: 0,
         },
         now,
       );
       expect(result).toEqual({ eligible: true });
+    });
+
+    it("[frankclaw] defers recently-enqueued entries to prevent race with in-flight delivery", () => {
+      const now = Date.now();
+      const result = isEntryEligibleForRecoveryRetry(
+        {
+          id: "entry-race",
+          channel: "whatsapp",
+          to: "group@g.us",
+          payloads: [{ text: "hello" }],
+          enqueuedAt: now - 5_000, // Enqueued only 5s ago — still likely in-flight
+          retryCount: 0,
+        },
+        now,
+      );
+      expect(result.eligible).toBe(false);
+      if (!result.eligible) {
+        expect(result.remainingBackoffMs).toBeGreaterThan(0);
+        expect(result.remainingBackoffMs).toBeLessThanOrEqual(30_000);
+      }
     });
 
     it("defers retry entries until backoff window elapses", () => {

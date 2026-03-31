@@ -48,8 +48,32 @@ describe("delivery-queue recovery", () => {
     return { result, log };
   };
 
+  /** Backdate all pending entries so they pass the MIN_ENTRY_AGE_MS check. */
+  const backdateAllEntries = async (ageMs = 60_000) => {
+    const entries = await loadPendingDeliveries(tmpDir());
+    const oldTimestamp = Date.now() - ageMs;
+    for (const entry of entries) {
+      setQueuedEntryState(tmpDir(), entry.id, {
+        retryCount: entry.retryCount,
+        enqueuedAt: oldTimestamp,
+        ...(entry.lastAttemptAt !== undefined ? { lastAttemptAt: entry.lastAttemptAt } : {}),
+      });
+    }
+  };
+
   it("recovers entries from a simulated crash", async () => {
-    await enqueueCrashRecoveryEntries();
+    const idA = await enqueueDelivery(
+      { channel: "demo-channel-a", to: "+1", payloads: [{ text: "a" }] },
+      tmpDir(),
+    );
+    const idB = await enqueueDelivery(
+      { channel: "demo-channel-b", to: "2", payloads: [{ text: "b" }] },
+      tmpDir(),
+    );
+    // Backdate entries to simulate they were enqueued before a crash (>30s ago)
+    const oldTimestamp = Date.now() - 60_000;
+    setQueuedEntryState(tmpDir(), idA, { retryCount: 0, enqueuedAt: oldTimestamp });
+    setQueuedEntryState(tmpDir(), idB, { retryCount: 0, enqueuedAt: oldTimestamp });
     const deliver = vi.fn().mockResolvedValue([]);
     const { result } = await runRecovery({ deliver });
 
@@ -62,6 +86,26 @@ describe("delivery-queue recovery", () => {
     });
 
     expect(await loadPendingDeliveries(tmpDir())).toHaveLength(0);
+  });
+
+  it("[frankclaw] defers recently-enqueued entries to prevent race with in-flight delivery", async () => {
+    // Simulate the race: entry is enqueued by normal delivery path (just now)
+    // and recovery sweep picks it up before the normal path finishes sending.
+    await enqueueDelivery(
+      { channel: "whatsapp", to: "120363405743307729@g.us", payloads: [{ text: "hello" }] },
+      tmpDir(),
+    );
+    // Entry has retryCount=0, no lastAttemptAt, enqueuedAt=~now (< 30s ago)
+    const deliver = vi.fn().mockResolvedValue([]);
+    const { result } = await runRecovery({ deliver });
+
+    // Should NOT deliver — entry is too fresh, likely still in-flight
+    expect(deliver).not.toHaveBeenCalled();
+    expect(result.deferredBackoff).toBe(1);
+    expect(result.recovered).toBe(0);
+
+    // Entry should still be in the queue (not acked or failed)
+    expect(await loadPendingDeliveries(tmpDir())).toHaveLength(1);
   });
 
   it("moves entries that exceeded max retries to failed/", async () => {
@@ -85,6 +129,7 @@ describe("delivery-queue recovery", () => {
       { channel: "demo-channel-c", to: "#ch", payloads: [{ text: "x" }] },
       tmpDir(),
     );
+    await backdateAllEntries();
 
     const deliver = vi.fn().mockRejectedValue(new Error("network down"));
     const { result } = await runRecovery({ deliver });
@@ -103,6 +148,7 @@ describe("delivery-queue recovery", () => {
       { channel: "demo-channel", to: "user:abc", payloads: [{ text: "hi" }] },
       tmpDir(),
     );
+    await backdateAllEntries();
     const deliver = vi
       .fn()
       .mockRejectedValue(new Error("No conversation reference found for user:abc"));
@@ -121,6 +167,7 @@ describe("delivery-queue recovery", () => {
       { channel: "matrix", to: "!lowercased:matrix.example.com", payloads: [{ text: "hi" }] },
       tmpDir(),
     );
+    await backdateAllEntries();
     const deliver = vi
       .fn()
       .mockRejectedValue(
@@ -143,6 +190,7 @@ describe("delivery-queue recovery", () => {
       { channel: "demo-channel-a", to: "+1", payloads: [{ text: "a" }] },
       tmpDir(),
     );
+    await backdateAllEntries();
 
     const deliver = vi.fn().mockResolvedValue([]);
     await runRecovery({ deliver });
@@ -168,6 +216,7 @@ describe("delivery-queue recovery", () => {
       },
       tmpDir(),
     );
+    await backdateAllEntries();
 
     const deliver = vi.fn().mockResolvedValue([]);
     await runRecovery({ deliver });
@@ -254,7 +303,7 @@ describe("delivery-queue recovery", () => {
       lastAttemptAt: now,
       enqueuedAt: now - 30_000,
     });
-    setQueuedEntryState(tmpDir(), readyId, { retryCount: 0, enqueuedAt: now - 10_000 });
+    setQueuedEntryState(tmpDir(), readyId, { retryCount: 0, enqueuedAt: now - 60_000 });
 
     const deliver = vi.fn().mockResolvedValue([]);
     const { result } = await runRecovery({ deliver, maxRecoveryMs: 60_000 });

@@ -36,6 +36,14 @@ export interface RecoveryLogger {
 
 const MAX_RETRIES = 5;
 
+
+/**
+ * [frankclaw] Minimum age in ms an entry must have before recovery considers it.
+ * This prevents race conditions where the normal delivery path is still in-flight
+ * and the periodic recovery sweep picks up the same entry concurrently, causing
+ * duplicate messages. 30s is generous enough to let any normal send finish.
+ */
+const MIN_ENTRY_AGE_MS = 30_000;
 /** Backoff delays in milliseconds indexed by retry count (1-based). */
 const BACKOFF_MS: readonly number[] = [
   5_000, // retry 1: 5s
@@ -165,6 +173,15 @@ export function isEntryEligibleForRecoveryRetry(
   }
   const firstReplayAfterCrash = entry.retryCount === 0 && entry.lastAttemptAt === undefined;
   if (firstReplayAfterCrash) {
+    // [frankclaw] Guard against racing with in-flight normal delivery.
+    // Only consider a fresh entry eligible if it was enqueued at least
+    // MIN_ENTRY_AGE_MS ago. Entries younger than that are likely still
+    // being delivered by the normal path and picking them up here would
+    // cause duplicate sends.
+    const entryAgeMs = now - entry.enqueuedAt;
+    if (entryAgeMs < MIN_ENTRY_AGE_MS) {
+      return { eligible: false, remainingBackoffMs: MIN_ENTRY_AGE_MS - entryAgeMs };
+    }
     return { eligible: true };
   }
   const hasAttemptTimestamp =
