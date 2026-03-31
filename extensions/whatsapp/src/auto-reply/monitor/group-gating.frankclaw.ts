@@ -155,6 +155,10 @@ export function resolveWebGroupGateModeCheck(
     params.logVerbose(
       `Group message blocked by gateMode=${gateModeResult.gateMode} in ${params.conversationId}`,
     );
+    // [frankclaw] Always log gated group messages at info level for diagnostics
+    console.log(
+      `[whatsapp] [gate] skip gateMode=${gateModeResult.gateMode} group=${params.conversationId} sender=${senderE164 || "unknown"} body=${(params.msg.body ?? "").slice(0, 60)}`,
+    );
     // Notify for ALL blocked groups, including unknown groups that default to "blocked"
     // This ensures new groups always trigger a gate-control notification
     if (gateModeResult.gateMode === "blocked" || !gateModeResult.gateMode) {
@@ -195,11 +199,19 @@ export function resolveWebGroupGateModeCheck(
     params.logVerbose(
       `Group message silent by gateMode=${gateModeResult.gateMode} in ${params.conversationId}`,
     );
+    // [frankclaw] Always log silent gate for diagnostics
+    console.log(
+      `[whatsapp] [gate] silent gateMode=${gateModeResult.gateMode} group=${params.conversationId} sender=${senderE164 || "unknown"} body=${(params.msg.body ?? "").slice(0, 60)}`,
+    );
     params.recordHistory();
     return { approved: false, effectiveMention: false, shouldDrop: true };
   }
 
   // action === "process"
+  // [frankclaw] Log when message passes gating
+  console.log(
+    `[whatsapp] [gate] process gateMode=${gateModeResult.gateMode} group=${params.conversationId} sender=${senderE164 || "unknown"} mentioned=${gateModeAction.effectiveWasMentioned}`,
+  );
   return {
     approved: true,
     effectiveMention: gateModeAction.effectiveWasMentioned,

@@ -483,6 +483,10 @@ export async function monitorWebInbox(options: {
         const msgTsNum = msgTsRaw != null ? Number(msgTsRaw) : NaN;
         const msgTsMs = Number.isFinite(msgTsNum) ? msgTsNum * 1000 : 0;
         if (msgTsMs < connectedAtMs - APPEND_RECENT_GRACE_MS) {
+          const ageSeconds = Math.round((connectedAtMs - msgTsMs) / 1000);
+          inboundConsoleLog.info(
+            `Skipping offline catch-up message from ${inbound.from}${inbound.group ? ` (group ${inbound.remoteJid})` : ""} age=${ageSeconds}s (threshold=${Math.round(APPEND_RECENT_GRACE_MS / 1000)}s)`,
+          );
           continue;
         }
       }

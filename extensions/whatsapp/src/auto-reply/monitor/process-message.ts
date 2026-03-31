@@ -179,6 +179,10 @@ export async function processMessage(params: {
 
   if (params.msg.chatType === "group") {
     const history = params.groupHistory ?? params.groupHistories.get(params.groupHistoryKey) ?? [];
+    // [frankclaw] Log group history buffer size for diagnostics
+    console.log(
+      `[whatsapp] [history] group=${params.msg.conversationId ?? params.msg.from} historyEntries=${history.length} key=${params.groupHistoryKey}`,
+    );
     if (history.length > 0) {
       const historyEntries: HistoryEntry[] = history.map((m) => ({
         sender: m.sender,
