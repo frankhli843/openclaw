@@ -92,11 +92,7 @@ const FIELD_PLACEHOLDERS: Record<string, string> = {
 };
 
 const CHANNEL_NAMESPACE_PREFIX = "channels.";
-const CHANNEL_KERNEL_HINT_PREFIXES = [
-  "channels.defaults",
-  "channels.modelByChannel",
-  "channels.thinkingByChannel",
-] as const;
+const CHANNEL_KERNEL_HINT_PREFIXES = ["channels.defaults", "channels.modelByChannel"] as const;
 
 function isKernelOwnedChannelHintPath(path: string): boolean {
   if (path === "channels") {

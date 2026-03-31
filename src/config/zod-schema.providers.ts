@@ -23,13 +23,6 @@ const ChannelModelByChannelSchema = z
   .record(z.string(), z.record(z.string(), z.string()))
   .optional();
 
-const ChannelThinkingByChannelSchema = z
-  .record(
-    z.string(),
-    z.record(z.string(), z.enum(["off", "minimal", "low", "medium", "high", "xhigh", "adaptive"])),
-  )
-  .optional();
-
 const directChannelRuntimeSchemas = new Map<
   string,
   { safeParse: (value: unknown) => ReturnType<z.ZodTypeAny["safeParse"]> }
@@ -119,7 +112,6 @@ export const ChannelsSchema: z.ZodType<ChannelsConfig | undefined> = z
       .strict()
       .optional(),
     modelByChannel: ChannelModelByChannelSchema,
-    thinkingByChannel: ChannelThinkingByChannelSchema,
   })
   .passthrough() // Allow extension channel configs (nostr, matrix, zalo, etc.)
   .superRefine((value, ctx) => {

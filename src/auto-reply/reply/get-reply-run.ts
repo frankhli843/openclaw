@@ -2,7 +2,6 @@ import crypto from "node:crypto";
 import { resolveSessionAuthProfileOverride } from "../../agents/auth-profiles/session-override.js";
 import type { ExecToolDefaults } from "../../agents/bash-tools.js";
 import { resolveFastModeState } from "../../agents/fast-mode.js";
-import { resolveChannelThinkingOverride } from "../../channels/thinking-overrides.js";
 import type { OpenClawConfig } from "../../config/config.js";
 import { resolveGroupSessionKey } from "../../config/sessions/group.js";
 import {
@@ -430,19 +429,6 @@ export async function runPreparedReply(
   let prefixedCommandBody = mediaNote
     ? [mediaNote, mediaReplyHint, prefixedBody ?? ""].filter(Boolean).join("\n").trim()
     : prefixedBody;
-  if (!resolvedThinkLevel) {
-    const channelThinkOverride = resolveChannelThinkingOverride({
-      cfg,
-      channel: sessionCtx.Provider,
-      groupId: resolveGroupSessionKey(sessionCtx)?.id ?? undefined,
-      groupChannel: sessionCtx.GroupChannel?.trim() ?? sessionCtx.GroupSubject?.trim(),
-      groupSubject: sessionCtx.GroupSubject?.trim(),
-      parentSessionKey: sessionCtx.ParentSessionKey,
-    });
-    if (channelThinkOverride) {
-      resolvedThinkLevel = channelThinkOverride.thinking;
-    }
-  }
   if (!resolvedThinkLevel) {
     resolvedThinkLevel = await modelState.resolveDefaultThinkingLevel();
   }

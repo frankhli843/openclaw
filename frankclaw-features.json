@@ -162,7 +162,9 @@
           "minCount": 1
         }
       ],
-      "tests": ["extensions/discord/src/monitor/message-handler.preflight.frankclaw.test.ts"],
+      "tests": [
+        "extensions/discord/src/monitor/message-handler.preflight.frankclaw.test.ts"
+      ],
       "runtime": []
     },
     {
@@ -180,7 +182,9 @@
           "minCount": 1
         }
       ],
-      "tests": ["extensions/whatsapp/src/auto-reply/monitor/group-gating.frankclaw.test.ts"],
+      "tests": [
+        "extensions/whatsapp/src/auto-reply/monitor/group-gating.frankclaw.test.ts"
+      ],
       "runtime": []
     },
     {
@@ -371,7 +375,9 @@
           "minCount": 1
         }
       ],
-      "tests": ["src/cli/daemon-cli/restart-selfheal.frankclaw.test.ts"],
+      "tests": [
+        "src/cli/daemon-cli/restart-selfheal.frankclaw.test.ts"
+      ],
       "runtime": []
     },
     {
@@ -429,7 +435,9 @@
           "note": "called in toDiscordMessageEvent for batch path"
         }
       ],
-      "tests": ["extensions/discord/src/monitor/inbound-job.rehydrate.test.ts"],
+      "tests": [
+        "extensions/discord/src/monitor/inbound-job.rehydrate.test.ts"
+      ],
       "runtime": []
     },
     {
@@ -461,7 +469,9 @@
           "note": "wraps commandBody with global instructions for cron runs"
         }
       ],
-      "tests": ["src/agents/subagent-instructions.test.ts"],
+      "tests": [
+        "src/agents/subagent-instructions.test.ts"
+      ],
       "runtime": [
         {
           "logPattern": "Subagent Global Instructions prepended",
@@ -642,46 +652,6 @@
           "withinSeconds": 0,
           "onEvent": true,
           "note": "Only fires when Discord messages arrive. Expected to be absent if no Discord messages received since restart."
-        }
-      ]
-    },
-    {
-      "name": "Per-channel thinking level overrides (thinkingByChannel)",
-      "description": "Allows overriding the thinking level per channel/group, analogous to modelByChannel. Configured via channels.thinkingByChannel in openclaw.json.",
-      "static": [
-        {
-          "file": "src/channels/thinking-overrides.ts",
-          "pattern": "resolveChannelThinkingOverride",
-          "minCount": 1
-        },
-        {
-          "file": "src/auto-reply/reply/get-reply-run.ts",
-          "pattern": "resolveChannelThinkingOverride",
-          "minCount": 1
-        },
-        {
-          "file": "src/auto-reply/status.ts",
-          "pattern": "resolveChannelThinkingOverride",
-          "minCount": 1
-        },
-        {
-          "file": "src/config/zod-schema.providers.ts",
-          "pattern": "thinkingByChannel",
-          "minCount": 1
-        }
-      ],
-      "tests": [
-        {
-          "file": "src/channels/thinking-overrides.test.ts",
-          "minTests": 10
-        }
-      ],
-      "runtime": [
-        {
-          "logPattern": "channel override",
-          "withinSeconds": 0,
-          "onEvent": true,
-          "note": "Appears in /status output when a channel thinking override is active. Only visible when checking status in an overridden channel."
         }
       ]
     }
