@@ -162,9 +162,7 @@
           "minCount": 1
         }
       ],
-      "tests": [
-        "extensions/discord/src/monitor/message-handler.preflight.frankclaw.test.ts"
-      ],
+      "tests": ["extensions/discord/src/monitor/message-handler.preflight.frankclaw.test.ts"],
       "runtime": []
     },
     {
@@ -182,9 +180,7 @@
           "minCount": 1
         }
       ],
-      "tests": [
-        "extensions/whatsapp/src/auto-reply/monitor/group-gating.frankclaw.test.ts"
-      ],
+      "tests": ["extensions/whatsapp/src/auto-reply/monitor/group-gating.frankclaw.test.ts"],
       "runtime": []
     },
     {
@@ -375,9 +371,7 @@
           "minCount": 1
         }
       ],
-      "tests": [
-        "src/cli/daemon-cli/restart-selfheal.frankclaw.test.ts"
-      ],
+      "tests": ["src/cli/daemon-cli/restart-selfheal.frankclaw.test.ts"],
       "runtime": []
     },
     {
@@ -435,9 +429,7 @@
           "note": "called in toDiscordMessageEvent for batch path"
         }
       ],
-      "tests": [
-        "extensions/discord/src/monitor/inbound-job.rehydrate.test.ts"
-      ],
+      "tests": ["extensions/discord/src/monitor/inbound-job.rehydrate.test.ts"],
       "runtime": []
     },
     {
@@ -469,9 +461,7 @@
           "note": "wraps commandBody with global instructions for cron runs"
         }
       ],
-      "tests": [
-        "src/agents/subagent-instructions.test.ts"
-      ],
+      "tests": ["src/agents/subagent-instructions.test.ts"],
       "runtime": [
         {
           "logPattern": "Subagent Global Instructions prepended",
@@ -680,9 +670,18 @@
         "extensions/whatsapp/src/monitor-inbox.append-upsert.test.ts"
       ],
       "runtime": [
-        "[whatsapp] [gate] skip gateMode=",
-        "[whatsapp] [gate] process gateMode=",
-        "[whatsapp] [history] group="
+        {
+          "logPattern": "[whatsapp] [gate] skip gateMode=",
+          "onEvent": true
+        },
+        {
+          "logPattern": "[whatsapp] [gate] process gateMode=",
+          "onEvent": true
+        },
+        {
+          "logPattern": "[whatsapp] [history] group=",
+          "onEvent": true
+        }
       ]
     },
     {
