@@ -85,6 +85,7 @@ export const whatsappOutbound: ChannelOutboundAdapter = {
       text,
       mediaUrl,
       mediaLocalRoots,
+      mediaReadFile,
       accountId,
       deps,
       gifPlayback,
@@ -98,6 +99,7 @@ export const whatsappOutbound: ChannelOutboundAdapter = {
         cfg,
         mediaUrl,
         mediaLocalRoots,
+        mediaReadFile,
         accountId: accountId ?? undefined,
         gifPlayback,
       });

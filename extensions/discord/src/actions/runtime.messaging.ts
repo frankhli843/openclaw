@@ -120,6 +120,7 @@ export async function handleDiscordMessagingAction(
   isActionEnabled: ActionGate<DiscordActionConfig>,
   options?: {
     mediaLocalRoots?: readonly string[];
+    mediaReadFile?: (filePath: string) => Promise<Buffer>;
   },
   cfg?: OpenClawConfig,
 ): Promise<AgentToolResult<unknown>> {
@@ -419,6 +420,7 @@ export async function handleDiscordMessagingAction(
         mediaUrl,
         filename: filename ?? undefined,
         mediaLocalRoots: options?.mediaLocalRoots,
+        mediaReadFile: options?.mediaReadFile,
         replyTo,
         components,
         embeds,
@@ -553,6 +555,7 @@ export async function handleDiscordMessagingAction(
           ...(accountId ? { accountId } : {}),
           mediaUrl,
           mediaLocalRoots: options?.mediaLocalRoots,
+          mediaReadFile: options?.mediaReadFile,
           replyTo,
         },
       );

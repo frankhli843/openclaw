@@ -1,7 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import { defineConfig, type UserConfig } from "tsdown";
-import { listBundledPluginBuildEntries } from "./scripts/lib/bundled-plugin-build-entries.mjs";
+import {
+  listBundledPluginBuildEntries,
+  listBundledPluginRuntimeDependencies,
+} from "./scripts/lib/bundled-plugin-build-entries.mjs";
 import { buildPluginSdkEntrySources } from "./scripts/lib/plugin-sdk-entries.mjs";
 
 type InputOptionsFactory = Extract<NonNullable<UserConfig["inputOptions"]>, Function>;
@@ -81,6 +84,7 @@ function nodeBuildConfig(config: UserConfig): UserConfig {
 }
 
 const bundledPluginBuildEntries = listBundledPluginBuildEntries();
+const bundledPluginRuntimeDependencies = listBundledPluginRuntimeDependencies();
 
 function buildBundledHookEntries(): Record<string, string> {
   const hooksRoot = path.join(process.cwd(), "src", "hooks", "bundled");
@@ -161,9 +165,10 @@ export default defineConfig([
     entry: buildUnifiedDistEntries(),
     deps: {
       neverBundle: [
-        /^@lancedb\/lancedb/,
-        /^@matrix-org\/matrix-sdk-crypto-nodejs/,
-        /^matrix-js-sdk/,
+        "@lancedb/lancedb",
+        "@matrix-org/matrix-sdk-crypto-nodejs",
+        "matrix-js-sdk",
+        ...bundledPluginRuntimeDependencies,
       ],
     },
   }),
