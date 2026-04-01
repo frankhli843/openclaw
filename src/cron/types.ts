@@ -108,7 +108,9 @@ type CronAgentTurnPayload = {
 
 type CronAgentTurnPayloadPatch = {
   kind: "agentTurn";
-} & Partial<CronAgentTurnPayloadFields>;
+} & Partial<Omit<CronAgentTurnPayloadFields, "toolsAllow">> & {
+    toolsAllow?: string[] | null;
+  };
 
 /** [frankclaw] Cron self-heal state for automatic retry tracking. */
 export type CronSelfHealState = {
@@ -121,7 +123,6 @@ export type CronSelfHealState = {
   /** Timestamp of the last "give up" alert (used for simple de-dupe). */
   lastAlertAtMs?: number;
 };
-
 export type CronJobState = {
   nextRunAtMs?: number;
   runningAtMs?: number;
