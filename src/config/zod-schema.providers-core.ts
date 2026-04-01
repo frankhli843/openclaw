@@ -46,9 +46,22 @@ const ToolPolicyBySenderSchema = z.record(z.string(), ToolPolicySchema).optional
 
 const DiscordIdSchema = z
   .union([z.string(), z.number()])
-  .refine((value) => typeof value === "string", {
-    message: "Discord IDs must be strings (wrap numeric IDs in quotes).",
-  });
+  .transform((value, ctx) => {
+    if (typeof value === "number") {
+      if (!Number.isSafeInteger(value) || value < 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            `Discord ID "${String(value)}" is not a valid non-negative safe integer. ` +
+            `Wrap it in quotes in your config file.`,
+        });
+        return z.NEVER;
+      }
+      return String(value);
+    }
+    return value;
+  })
+  .pipe(z.string());
 const DiscordIdListSchema = z.array(DiscordIdSchema);
 
 const TelegramInlineButtonsScopeSchema = z.enum(["off", "dm", "group", "all", "allowlist"]);
@@ -74,7 +87,7 @@ const SlackCapabilitiesSchema = z.union([
 const GateModeSchema = z
   .enum(["blocked", "silent", "frank-only", "allowlist", "mention", "open"])
   .optional();
-
+const TelegramErrorPolicySchema = z.enum(["always", "once", "silent"]).optional();
 export const TelegramTopicSchema = z
   .object({
     requireMention: z.boolean().optional(),
@@ -86,6 +99,8 @@ export const TelegramTopicSchema = z
     systemPrompt: z.string().optional(),
     agentId: z.string().optional(),
     gateMode: GateModeSchema,
+    errorPolicy: TelegramErrorPolicySchema,
+    errorCooldownMs: z.number().int().nonnegative().optional(),
   })
   .strict();
 
@@ -102,6 +117,8 @@ export const TelegramGroupSchema = z
     systemPrompt: z.string().optional(),
     topics: z.record(z.string(), TelegramTopicSchema.optional()).optional(),
     gateMode: GateModeSchema,
+    errorPolicy: TelegramErrorPolicySchema,
+    errorCooldownMs: z.number().int().nonnegative().optional(),
   })
   .strict();
 
@@ -127,6 +144,8 @@ export const TelegramDirectSchema = z
     allowFrom: z.array(z.union([z.string(), z.number()])).optional(),
     systemPrompt: z.string().optional(),
     topics: z.record(z.string(), TelegramTopicSchema.optional()).optional(),
+    errorPolicy: TelegramErrorPolicySchema,
+    errorCooldownMs: z.number().int().nonnegative().optional(),
     requireTopic: z.boolean().optional(),
     autoTopicLabel: AutoTopicLabelSchema,
   })
@@ -299,6 +318,8 @@ export const TelegramAccountSchemaBase = z
     silentErrorReplies: z.boolean().optional(),
     responsePrefix: z.string().optional(),
     ackReaction: z.string().optional(),
+    errorPolicy: TelegramErrorPolicySchema,
+    errorCooldownMs: z.number().int().nonnegative().optional(),
     apiRoot: z.string().url().optional(),
     autoTopicLabel: AutoTopicLabelSchema,
   })

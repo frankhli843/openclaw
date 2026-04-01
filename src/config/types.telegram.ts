@@ -203,6 +203,10 @@ export type TelegramAccountConfig = {
   linkPreview?: boolean;
   /** Send Telegram bot error replies silently (no notification sound). Default: false. */
   silentErrorReplies?: boolean;
+  /** Controls outbound error reporting: always, once per cooldown window, or silent. */
+  errorPolicy?: "always" | "once" | "silent";
+  /** Cooldown window for `errorPolicy: "once"` in milliseconds. */
+  errorCooldownMs?: number;
   /**
    * Per-channel outbound response prefix override.
    *
@@ -240,6 +244,10 @@ export type TelegramTopicConfig = {
   agentId?: string;
   /** Frankclaw: gate mode for mention/allowlist filtering. */
   gateMode?: import("./types.base.js").GateMode;
+  /** Controls outbound error reporting for this topic. */
+  errorPolicy?: "always" | "once" | "silent";
+  /** Cooldown window for `errorPolicy: "once"` in milliseconds. */
+  errorCooldownMs?: number;
 };
 
 export type TelegramGroupConfig = {
@@ -263,6 +271,10 @@ export type TelegramGroupConfig = {
   disableAudioPreflight?: boolean;
   /** Frankclaw: gate mode for mention/allowlist filtering. */
   gateMode?: import("./types.base.js").GateMode;
+  /** Controls outbound error reporting for this group. */
+  errorPolicy?: "always" | "once" | "silent";
+  /** Cooldown window for `errorPolicy: "once"` in milliseconds. */
+  errorCooldownMs?: number;
 };
 
 /** Config for LLM-based auto-topic labeling. */
@@ -292,6 +304,10 @@ export type TelegramDirectConfig = {
   allowFrom?: Array<string | number>;
   /** Optional system prompt snippet for this DM. */
   systemPrompt?: string;
+  /** Controls outbound error reporting for this DM. */
+  errorPolicy?: "always" | "once" | "silent";
+  /** Cooldown window for `errorPolicy: "once"` in milliseconds. */
+  errorCooldownMs?: number;
   /** Auto-rename DM forum topics on first message using LLM. Default: true. */
   autoTopicLabel?: AutoTopicLabelConfig;
 };

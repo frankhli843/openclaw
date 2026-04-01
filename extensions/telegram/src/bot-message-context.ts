@@ -64,6 +64,9 @@ export type TelegramMessageContext = {
   groupConfig?: ReturnType<
     BuildTelegramMessageContextParams["resolveTelegramGroupConfig"]
   >["groupConfig"];
+  topicConfig?: ReturnType<
+    BuildTelegramMessageContextParams["resolveTelegramGroupConfig"]
+  >["topicConfig"];
   resolvedThreadId?: number;
   threadSpec: ReturnType<typeof resolveTelegramThreadSpec>;
   replyThreadId?: number;
@@ -513,6 +516,7 @@ export const buildTelegramMessageContext = async ({
     chatId,
     isGroup,
     groupConfig,
+    topicConfig,
     resolvedThreadId,
     threadSpec,
     replyThreadId,

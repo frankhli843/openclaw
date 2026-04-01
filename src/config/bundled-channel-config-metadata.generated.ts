@@ -532,7 +532,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
               enum: ["off", "bullets", "code", "block"],
             },
           },
-          additionalProperties: true,
+          additionalProperties: false,
         },
         enabled: {
           type: "boolean",
@@ -563,7 +563,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
               ],
             },
           },
-          additionalProperties: true,
+          additionalProperties: false,
         },
         configWrites: {
           type: "boolean",
@@ -592,7 +592,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                     },
                   },
                   required: ["source", "provider", "id"],
-                  additionalProperties: true,
+                  additionalProperties: false,
                 },
                 {
                   type: "object",
@@ -610,7 +610,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                     },
                   },
                   required: ["source", "provider", "id"],
-                  additionalProperties: true,
+                  additionalProperties: false,
                 },
                 {
                   type: "object",
@@ -628,7 +628,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                     },
                   },
                   required: ["source", "provider", "id"],
-                  additionalProperties: true,
+                  additionalProperties: false,
                 },
               ],
             },
@@ -680,7 +680,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                 maximum: 9007199254740991,
               },
             },
-            additionalProperties: true,
+            additionalProperties: false,
           },
         },
         textChunkLimit: {
@@ -714,7 +714,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
               maximum: 9007199254740991,
             },
           },
-          additionalProperties: true,
+          additionalProperties: false,
         },
         streaming: {
           anyOf: [
@@ -761,7 +761,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
               ],
             },
           },
-          additionalProperties: true,
+          additionalProperties: false,
         },
         maxLinesPerMessage: {
           type: "integer",
@@ -796,7 +796,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
               maximum: 1,
             },
           },
-          additionalProperties: true,
+          additionalProperties: false,
         },
         actions: {
           type: "object",
@@ -859,7 +859,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
               type: "boolean",
             },
           },
-          additionalProperties: true,
+          additionalProperties: false,
         },
         replyToMode: {
           anyOf: [
@@ -884,14 +884,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
         allowFrom: {
           type: "array",
           items: {
-            anyOf: [
-              {
-                type: "string",
-              },
-              {
-                type: "number",
-              },
-            ],
+            type: "string",
           },
         },
         defaultTo: {
@@ -910,14 +903,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
             allowFrom: {
               type: "array",
               items: {
-                anyOf: [
-                  {
-                    type: "string",
-                  },
-                  {
-                    type: "number",
-                  },
-                ],
+                type: "string",
               },
             },
             groupEnabled: {
@@ -926,18 +912,11 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
             groupChannels: {
               type: "array",
               items: {
-                anyOf: [
-                  {
-                    type: "string",
-                  },
-                  {
-                    type: "number",
-                  },
-                ],
+                type: "string",
               },
             },
           },
-          additionalProperties: true,
+          additionalProperties: false,
         },
         guilds: {
           type: "object",
@@ -978,7 +957,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                     },
                   },
                 },
-                additionalProperties: true,
+                additionalProperties: false,
               },
               toolsBySender: {
                 type: "object",
@@ -1007,7 +986,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                       },
                     },
                   },
-                  additionalProperties: true,
+                  additionalProperties: false,
                 },
               },
               reactionNotifications: {
@@ -1017,27 +996,13 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
               users: {
                 type: "array",
                 items: {
-                  anyOf: [
-                    {
-                      type: "string",
-                    },
-                    {
-                      type: "number",
-                    },
-                  ],
+                  type: "string",
                 },
               },
               roles: {
                 type: "array",
                 items: {
-                  anyOf: [
-                    {
-                      type: "string",
-                    },
-                    {
-                      type: "number",
-                    },
-                  ],
+                  type: "string",
                 },
               },
               channels: {
@@ -1079,7 +1044,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                           },
                         },
                       },
-                      additionalProperties: true,
+                      additionalProperties: false,
                     },
                     toolsBySender: {
                       type: "object",
@@ -1108,7 +1073,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                             },
                           },
                         },
-                        additionalProperties: true,
+                        additionalProperties: false,
                       },
                     },
                     skills: {
@@ -1123,27 +1088,13 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                     users: {
                       type: "array",
                       items: {
-                        anyOf: [
-                          {
-                            type: "string",
-                          },
-                          {
-                            type: "number",
-                          },
-                        ],
+                        type: "string",
                       },
                     },
                     roles: {
                       type: "array",
                       items: {
-                        anyOf: [
-                          {
-                            type: "string",
-                          },
-                          {
-                            type: "number",
-                          },
-                        ],
+                        type: "string",
                       },
                     },
                     systemPrompt: {
@@ -1201,7 +1152,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                       },
                     },
                   },
-                  additionalProperties: true,
+                  additionalProperties: false,
                 },
               },
               gateMode: {
@@ -1222,7 +1173,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                 },
               },
             },
-            additionalProperties: true,
+            additionalProperties: false,
           },
         },
         heartbeat: {
@@ -1238,7 +1189,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
               type: "boolean",
             },
           },
-          additionalProperties: true,
+          additionalProperties: false,
         },
         healthMonitor: {
           type: "object",
@@ -1247,7 +1198,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
               type: "boolean",
             },
           },
-          additionalProperties: true,
+          additionalProperties: false,
         },
         execApprovals: {
           type: "object",
@@ -1258,14 +1209,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
             approvers: {
               type: "array",
               items: {
-                anyOf: [
-                  {
-                    type: "string",
-                  },
-                  {
-                    type: "number",
-                  },
-                ],
+                type: "string",
               },
             },
             agentFilter: {
@@ -1288,7 +1232,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
               enum: ["dm", "channel", "both"],
             },
           },
-          additionalProperties: true,
+          additionalProperties: false,
         },
         agentComponents: {
           type: "object",
@@ -1297,7 +1241,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
               type: "boolean",
             },
           },
-          additionalProperties: true,
+          additionalProperties: false,
         },
         ui: {
           type: "object",
@@ -1310,10 +1254,10 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                   pattern: "^#?[0-9a-fA-F]{6}$",
                 },
               },
-              additionalProperties: true,
+              additionalProperties: false,
             },
           },
-          additionalProperties: true,
+          additionalProperties: false,
         },
         slashCommand: {
           type: "object",
@@ -1322,7 +1266,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
               type: "boolean",
             },
           },
-          additionalProperties: true,
+          additionalProperties: false,
         },
         threadBindings: {
           type: "object",
@@ -1345,7 +1289,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
               type: "boolean",
             },
           },
-          additionalProperties: true,
+          additionalProperties: false,
         },
         intents: {
           type: "object",
@@ -1357,7 +1301,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
               type: "boolean",
             },
           },
-          additionalProperties: true,
+          additionalProperties: false,
         },
         voice: {
           type: "object",
@@ -1380,7 +1324,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                   },
                 },
                 required: ["guildId", "channelId"],
-                additionalProperties: true,
+                additionalProperties: false,
               },
             },
             daveEncryption: {
@@ -1440,7 +1384,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                       type: "boolean",
                     },
                   },
-                  additionalProperties: true,
+                  additionalProperties: false,
                 },
                 providers: {
                   type: "object",
@@ -1474,7 +1418,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                                   },
                                 },
                                 required: ["source", "provider", "id"],
-                                additionalProperties: true,
+                                additionalProperties: false,
                               },
                               {
                                 type: "object",
@@ -1492,7 +1436,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                                   },
                                 },
                                 required: ["source", "provider", "id"],
-                                additionalProperties: true,
+                                additionalProperties: false,
                               },
                               {
                                 type: "object",
@@ -1510,7 +1454,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                                   },
                                 },
                                 required: ["source", "provider", "id"],
-                                additionalProperties: true,
+                                additionalProperties: false,
                               },
                             ],
                           },
@@ -1560,10 +1504,10 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                   maximum: 120000,
                 },
               },
-              additionalProperties: true,
+              additionalProperties: false,
             },
           },
-          additionalProperties: true,
+          additionalProperties: false,
         },
         pluralkit: {
           type: "object",
@@ -1595,7 +1539,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                         },
                       },
                       required: ["source", "provider", "id"],
-                      additionalProperties: true,
+                      additionalProperties: false,
                     },
                     {
                       type: "object",
@@ -1613,7 +1557,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                         },
                       },
                       required: ["source", "provider", "id"],
-                      additionalProperties: true,
+                      additionalProperties: false,
                     },
                     {
                       type: "object",
@@ -1631,14 +1575,14 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                         },
                       },
                       required: ["source", "provider", "id"],
-                      additionalProperties: true,
+                      additionalProperties: false,
                     },
                   ],
                 },
               ],
             },
           },
-          additionalProperties: true,
+          additionalProperties: false,
         },
         responsePrefix: {
           type: "string",
@@ -1683,7 +1627,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
               type: "string",
             },
           },
-          additionalProperties: true,
+          additionalProperties: false,
         },
         activityType: {
           anyOf: [
@@ -1726,7 +1670,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
               maximum: 9007199254740991,
             },
           },
-          additionalProperties: true,
+          additionalProperties: false,
         },
         eventQueue: {
           type: "object",
@@ -1747,7 +1691,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
               maximum: 9007199254740991,
             },
           },
-          additionalProperties: true,
+          additionalProperties: false,
         },
         accounts: {
           type: "object",
@@ -1774,7 +1718,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                     enum: ["off", "bullets", "code", "block"],
                   },
                 },
-                additionalProperties: true,
+                additionalProperties: false,
               },
               enabled: {
                 type: "boolean",
@@ -1805,7 +1749,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                     ],
                   },
                 },
-                additionalProperties: true,
+                additionalProperties: false,
               },
               configWrites: {
                 type: "boolean",
@@ -1834,7 +1778,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                           },
                         },
                         required: ["source", "provider", "id"],
-                        additionalProperties: true,
+                        additionalProperties: false,
                       },
                       {
                         type: "object",
@@ -1852,7 +1796,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                           },
                         },
                         required: ["source", "provider", "id"],
-                        additionalProperties: true,
+                        additionalProperties: false,
                       },
                       {
                         type: "object",
@@ -1870,7 +1814,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                           },
                         },
                         required: ["source", "provider", "id"],
-                        additionalProperties: true,
+                        additionalProperties: false,
                       },
                     ],
                   },
@@ -1922,7 +1866,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                       maximum: 9007199254740991,
                     },
                   },
-                  additionalProperties: true,
+                  additionalProperties: false,
                 },
               },
               textChunkLimit: {
@@ -1956,7 +1900,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                     maximum: 9007199254740991,
                   },
                 },
-                additionalProperties: true,
+                additionalProperties: false,
               },
               streaming: {
                 anyOf: [
@@ -2003,7 +1947,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                     ],
                   },
                 },
-                additionalProperties: true,
+                additionalProperties: false,
               },
               maxLinesPerMessage: {
                 type: "integer",
@@ -2038,7 +1982,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                     maximum: 1,
                   },
                 },
-                additionalProperties: true,
+                additionalProperties: false,
               },
               actions: {
                 type: "object",
@@ -2101,7 +2045,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                     type: "boolean",
                   },
                 },
-                additionalProperties: true,
+                additionalProperties: false,
               },
               replyToMode: {
                 anyOf: [
@@ -2126,14 +2070,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
               allowFrom: {
                 type: "array",
                 items: {
-                  anyOf: [
-                    {
-                      type: "string",
-                    },
-                    {
-                      type: "number",
-                    },
-                  ],
+                  type: "string",
                 },
               },
               defaultTo: {
@@ -2152,14 +2089,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                   allowFrom: {
                     type: "array",
                     items: {
-                      anyOf: [
-                        {
-                          type: "string",
-                        },
-                        {
-                          type: "number",
-                        },
-                      ],
+                      type: "string",
                     },
                   },
                   groupEnabled: {
@@ -2168,18 +2098,11 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                   groupChannels: {
                     type: "array",
                     items: {
-                      anyOf: [
-                        {
-                          type: "string",
-                        },
-                        {
-                          type: "number",
-                        },
-                      ],
+                      type: "string",
                     },
                   },
                 },
-                additionalProperties: true,
+                additionalProperties: false,
               },
               guilds: {
                 type: "object",
@@ -2220,7 +2143,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                           },
                         },
                       },
-                      additionalProperties: true,
+                      additionalProperties: false,
                     },
                     toolsBySender: {
                       type: "object",
@@ -2249,7 +2172,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                             },
                           },
                         },
-                        additionalProperties: true,
+                        additionalProperties: false,
                       },
                     },
                     reactionNotifications: {
@@ -2259,27 +2182,13 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                     users: {
                       type: "array",
                       items: {
-                        anyOf: [
-                          {
-                            type: "string",
-                          },
-                          {
-                            type: "number",
-                          },
-                        ],
+                        type: "string",
                       },
                     },
                     roles: {
                       type: "array",
                       items: {
-                        anyOf: [
-                          {
-                            type: "string",
-                          },
-                          {
-                            type: "number",
-                          },
-                        ],
+                        type: "string",
                       },
                     },
                     channels: {
@@ -2321,7 +2230,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                                 },
                               },
                             },
-                            additionalProperties: true,
+                            additionalProperties: false,
                           },
                           toolsBySender: {
                             type: "object",
@@ -2350,7 +2259,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                                   },
                                 },
                               },
-                              additionalProperties: true,
+                              additionalProperties: false,
                             },
                           },
                           skills: {
@@ -2365,27 +2274,13 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                           users: {
                             type: "array",
                             items: {
-                              anyOf: [
-                                {
-                                  type: "string",
-                                },
-                                {
-                                  type: "number",
-                                },
-                              ],
+                              type: "string",
                             },
                           },
                           roles: {
                             type: "array",
                             items: {
-                              anyOf: [
-                                {
-                                  type: "string",
-                                },
-                                {
-                                  type: "number",
-                                },
-                              ],
+                              type: "string",
                             },
                           },
                           systemPrompt: {
@@ -2450,7 +2345,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                             },
                           },
                         },
-                        additionalProperties: true,
+                        additionalProperties: false,
                       },
                     },
                     gateMode: {
@@ -2471,7 +2366,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                       },
                     },
                   },
-                  additionalProperties: true,
+                  additionalProperties: false,
                 },
               },
               heartbeat: {
@@ -2487,7 +2382,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                     type: "boolean",
                   },
                 },
-                additionalProperties: true,
+                additionalProperties: false,
               },
               healthMonitor: {
                 type: "object",
@@ -2496,7 +2391,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                     type: "boolean",
                   },
                 },
-                additionalProperties: true,
+                additionalProperties: false,
               },
               execApprovals: {
                 type: "object",
@@ -2507,14 +2402,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                   approvers: {
                     type: "array",
                     items: {
-                      anyOf: [
-                        {
-                          type: "string",
-                        },
-                        {
-                          type: "number",
-                        },
-                      ],
+                      type: "string",
                     },
                   },
                   agentFilter: {
@@ -2537,7 +2425,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                     enum: ["dm", "channel", "both"],
                   },
                 },
-                additionalProperties: true,
+                additionalProperties: false,
               },
               agentComponents: {
                 type: "object",
@@ -2546,7 +2434,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                     type: "boolean",
                   },
                 },
-                additionalProperties: true,
+                additionalProperties: false,
               },
               ui: {
                 type: "object",
@@ -2559,10 +2447,10 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                         pattern: "^#?[0-9a-fA-F]{6}$",
                       },
                     },
-                    additionalProperties: true,
+                    additionalProperties: false,
                   },
                 },
-                additionalProperties: true,
+                additionalProperties: false,
               },
               slashCommand: {
                 type: "object",
@@ -2571,7 +2459,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                     type: "boolean",
                   },
                 },
-                additionalProperties: true,
+                additionalProperties: false,
               },
               threadBindings: {
                 type: "object",
@@ -2594,7 +2482,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                     type: "boolean",
                   },
                 },
-                additionalProperties: true,
+                additionalProperties: false,
               },
               intents: {
                 type: "object",
@@ -2606,7 +2494,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                     type: "boolean",
                   },
                 },
-                additionalProperties: true,
+                additionalProperties: false,
               },
               voice: {
                 type: "object",
@@ -2629,7 +2517,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                         },
                       },
                       required: ["guildId", "channelId"],
-                      additionalProperties: true,
+                      additionalProperties: false,
                     },
                   },
                   daveEncryption: {
@@ -2689,7 +2577,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                             type: "boolean",
                           },
                         },
-                        additionalProperties: true,
+                        additionalProperties: false,
                       },
                       providers: {
                         type: "object",
@@ -2723,7 +2611,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                                         },
                                       },
                                       required: ["source", "provider", "id"],
-                                      additionalProperties: true,
+                                      additionalProperties: false,
                                     },
                                     {
                                       type: "object",
@@ -2741,7 +2629,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                                         },
                                       },
                                       required: ["source", "provider", "id"],
-                                      additionalProperties: true,
+                                      additionalProperties: false,
                                     },
                                     {
                                       type: "object",
@@ -2759,7 +2647,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                                         },
                                       },
                                       required: ["source", "provider", "id"],
-                                      additionalProperties: true,
+                                      additionalProperties: false,
                                     },
                                   ],
                                 },
@@ -2809,10 +2697,10 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                         maximum: 120000,
                       },
                     },
-                    additionalProperties: true,
+                    additionalProperties: false,
                   },
                 },
-                additionalProperties: true,
+                additionalProperties: false,
               },
               pluralkit: {
                 type: "object",
@@ -2844,7 +2732,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                               },
                             },
                             required: ["source", "provider", "id"],
-                            additionalProperties: true,
+                            additionalProperties: false,
                           },
                           {
                             type: "object",
@@ -2862,7 +2750,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                               },
                             },
                             required: ["source", "provider", "id"],
-                            additionalProperties: true,
+                            additionalProperties: false,
                           },
                           {
                             type: "object",
@@ -2880,14 +2768,14 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                               },
                             },
                             required: ["source", "provider", "id"],
-                            additionalProperties: true,
+                            additionalProperties: false,
                           },
                         ],
                       },
                     ],
                   },
                 },
-                additionalProperties: true,
+                additionalProperties: false,
               },
               responsePrefix: {
                 type: "string",
@@ -2932,7 +2820,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                     type: "string",
                   },
                 },
-                additionalProperties: true,
+                additionalProperties: false,
               },
               activityType: {
                 anyOf: [
@@ -2975,7 +2863,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                     maximum: 9007199254740991,
                   },
                 },
-                additionalProperties: true,
+                additionalProperties: false,
               },
               eventQueue: {
                 type: "object",
@@ -2996,11 +2884,11 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                     maximum: 9007199254740991,
                   },
                 },
-                additionalProperties: true,
+                additionalProperties: false,
               },
             },
             required: ["groupPolicy"],
-            additionalProperties: true,
+            additionalProperties: false,
           },
         },
         defaultAccount: {
@@ -3008,7 +2896,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
         },
       },
       required: ["groupPolicy"],
-      additionalProperties: true,
+      additionalProperties: false,
     },
     uiHints: {
       "": {
@@ -6939,6 +6827,9 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
           additionalProperties: {
             type: "object",
             properties: {
+              account: {
+                type: "string",
+              },
               enabled: {
                 type: "boolean",
               },
@@ -7018,6 +6909,9 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
           additionalProperties: {
             type: "object",
             properties: {
+              account: {
+                type: "string",
+              },
               enabled: {
                 type: "boolean",
               },
@@ -11839,7 +11733,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                   enum: ["off", "dm", "group", "all", "allowlist"],
                 },
               },
-              additionalProperties: true,
+              additionalProperties: false,
             },
           ],
         },
@@ -11879,7 +11773,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
               enum: ["dm", "channel", "both"],
             },
           },
-          additionalProperties: true,
+          additionalProperties: false,
         },
         markdown: {
           type: "object",
@@ -11889,7 +11783,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
               enum: ["off", "bullets", "code", "block"],
             },
           },
-          additionalProperties: true,
+          additionalProperties: false,
         },
         enabled: {
           type: "boolean",
@@ -11920,7 +11814,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
               ],
             },
           },
-          additionalProperties: true,
+          additionalProperties: false,
         },
         customCommands: {
           type: "array",
@@ -11935,7 +11829,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
               },
             },
             required: ["command", "description"],
-            additionalProperties: true,
+            additionalProperties: false,
           },
         },
         configWrites: {
@@ -11970,7 +11864,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                     },
                   },
                   required: ["source", "provider", "id"],
-                  additionalProperties: true,
+                  additionalProperties: false,
                 },
                 {
                   type: "object",
@@ -11988,7 +11882,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                     },
                   },
                   required: ["source", "provider", "id"],
-                  additionalProperties: true,
+                  additionalProperties: false,
                 },
                 {
                   type: "object",
@@ -12006,7 +11900,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                     },
                   },
                   required: ["source", "provider", "id"],
-                  additionalProperties: true,
+                  additionalProperties: false,
                 },
               ],
             },
@@ -12071,7 +11965,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                     },
                   },
                 },
-                additionalProperties: true,
+                additionalProperties: false,
               },
               toolsBySender: {
                 type: "object",
@@ -12100,7 +11994,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                       },
                     },
                   },
-                  additionalProperties: true,
+                  additionalProperties: false,
                 },
               },
               skills: {
@@ -12178,16 +12072,34 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                       type: "string",
                       enum: ["blocked", "silent", "frank-only", "allowlist", "mention", "open"],
                     },
+                    errorPolicy: {
+                      type: "string",
+                      enum: ["always", "once", "silent"],
+                    },
+                    errorCooldownMs: {
+                      type: "integer",
+                      minimum: 0,
+                      maximum: 9007199254740991,
+                    },
                   },
-                  additionalProperties: true,
+                  additionalProperties: false,
                 },
               },
               gateMode: {
                 type: "string",
                 enum: ["blocked", "silent", "frank-only", "allowlist", "mention", "open"],
               },
+              errorPolicy: {
+                type: "string",
+                enum: ["always", "once", "silent"],
+              },
+              errorCooldownMs: {
+                type: "integer",
+                minimum: 0,
+                maximum: 9007199254740991,
+              },
             },
-            additionalProperties: true,
+            additionalProperties: false,
           },
         },
         allowFrom: {
@@ -12255,7 +12167,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                 maximum: 9007199254740991,
               },
             },
-            additionalProperties: true,
+            additionalProperties: false,
           },
         },
         direct: {
@@ -12292,7 +12204,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                     },
                   },
                 },
-                additionalProperties: true,
+                additionalProperties: false,
               },
               toolsBySender: {
                 type: "object",
@@ -12321,7 +12233,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                       },
                     },
                   },
-                  additionalProperties: true,
+                  additionalProperties: false,
                 },
               },
               skills: {
@@ -12399,9 +12311,27 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                       type: "string",
                       enum: ["blocked", "silent", "frank-only", "allowlist", "mention", "open"],
                     },
+                    errorPolicy: {
+                      type: "string",
+                      enum: ["always", "once", "silent"],
+                    },
+                    errorCooldownMs: {
+                      type: "integer",
+                      minimum: 0,
+                      maximum: 9007199254740991,
+                    },
                   },
-                  additionalProperties: true,
+                  additionalProperties: false,
                 },
+              },
+              errorPolicy: {
+                type: "string",
+                enum: ["always", "once", "silent"],
+              },
+              errorCooldownMs: {
+                type: "integer",
+                minimum: 0,
+                maximum: 9007199254740991,
               },
               requireTopic: {
                 type: "boolean",
@@ -12421,12 +12351,12 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                         type: "string",
                       },
                     },
-                    additionalProperties: true,
+                    additionalProperties: false,
                   },
                 ],
               },
             },
-            additionalProperties: true,
+            additionalProperties: false,
           },
         },
         textChunkLimit: {
@@ -12482,7 +12412,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
               ],
             },
           },
-          additionalProperties: true,
+          additionalProperties: false,
         },
         blockStreamingCoalesce: {
           type: "object",
@@ -12503,7 +12433,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
               maximum: 9007199254740991,
             },
           },
-          additionalProperties: true,
+          additionalProperties: false,
         },
         streamMode: {
           type: "string",
@@ -12542,7 +12472,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
               maximum: 1,
             },
           },
-          additionalProperties: true,
+          additionalProperties: false,
         },
         network: {
           type: "object",
@@ -12555,7 +12485,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
               enum: ["ipv4first", "verbatim"],
             },
           },
-          additionalProperties: true,
+          additionalProperties: false,
         },
         proxy: {
           type: "string",
@@ -12591,7 +12521,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                     },
                   },
                   required: ["source", "provider", "id"],
-                  additionalProperties: true,
+                  additionalProperties: false,
                 },
                 {
                   type: "object",
@@ -12609,7 +12539,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                     },
                   },
                   required: ["source", "provider", "id"],
-                  additionalProperties: true,
+                  additionalProperties: false,
                 },
                 {
                   type: "object",
@@ -12627,7 +12557,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                     },
                   },
                   required: ["source", "provider", "id"],
-                  additionalProperties: true,
+                  additionalProperties: false,
                 },
               ],
             },
@@ -12683,7 +12613,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
               type: "boolean",
             },
           },
-          additionalProperties: true,
+          additionalProperties: false,
         },
         threadBindings: {
           type: "object",
@@ -12706,7 +12636,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
               type: "boolean",
             },
           },
-          additionalProperties: true,
+          additionalProperties: false,
         },
         reactionNotifications: {
           type: "string",
@@ -12729,7 +12659,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
               type: "boolean",
             },
           },
-          additionalProperties: true,
+          additionalProperties: false,
         },
         healthMonitor: {
           type: "object",
@@ -12738,7 +12668,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
               type: "boolean",
             },
           },
-          additionalProperties: true,
+          additionalProperties: false,
         },
         linkPreview: {
           type: "boolean",
@@ -12751,6 +12681,15 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
         },
         ackReaction: {
           type: "string",
+        },
+        errorPolicy: {
+          type: "string",
+          enum: ["always", "once", "silent"],
+        },
+        errorCooldownMs: {
+          type: "integer",
+          minimum: 0,
+          maximum: 9007199254740991,
         },
         apiRoot: {
           type: "string",
@@ -12771,7 +12710,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                   type: "string",
                 },
               },
-              additionalProperties: true,
+              additionalProperties: false,
             },
           ],
         },
@@ -12802,7 +12741,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                         enum: ["off", "dm", "group", "all", "allowlist"],
                       },
                     },
-                    additionalProperties: true,
+                    additionalProperties: false,
                   },
                 ],
               },
@@ -12842,7 +12781,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                     enum: ["dm", "channel", "both"],
                   },
                 },
-                additionalProperties: true,
+                additionalProperties: false,
               },
               markdown: {
                 type: "object",
@@ -12852,7 +12791,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                     enum: ["off", "bullets", "code", "block"],
                   },
                 },
-                additionalProperties: true,
+                additionalProperties: false,
               },
               enabled: {
                 type: "boolean",
@@ -12883,7 +12822,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                     ],
                   },
                 },
-                additionalProperties: true,
+                additionalProperties: false,
               },
               customCommands: {
                 type: "array",
@@ -12898,7 +12837,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                     },
                   },
                   required: ["command", "description"],
-                  additionalProperties: true,
+                  additionalProperties: false,
                 },
               },
               configWrites: {
@@ -12933,7 +12872,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                           },
                         },
                         required: ["source", "provider", "id"],
-                        additionalProperties: true,
+                        additionalProperties: false,
                       },
                       {
                         type: "object",
@@ -12951,7 +12890,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                           },
                         },
                         required: ["source", "provider", "id"],
-                        additionalProperties: true,
+                        additionalProperties: false,
                       },
                       {
                         type: "object",
@@ -12969,7 +12908,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                           },
                         },
                         required: ["source", "provider", "id"],
-                        additionalProperties: true,
+                        additionalProperties: false,
                       },
                     ],
                   },
@@ -13034,7 +12973,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                           },
                         },
                       },
-                      additionalProperties: true,
+                      additionalProperties: false,
                     },
                     toolsBySender: {
                       type: "object",
@@ -13063,7 +13002,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                             },
                           },
                         },
-                        additionalProperties: true,
+                        additionalProperties: false,
                       },
                     },
                     skills: {
@@ -13148,16 +13087,34 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                               "open",
                             ],
                           },
+                          errorPolicy: {
+                            type: "string",
+                            enum: ["always", "once", "silent"],
+                          },
+                          errorCooldownMs: {
+                            type: "integer",
+                            minimum: 0,
+                            maximum: 9007199254740991,
+                          },
                         },
-                        additionalProperties: true,
+                        additionalProperties: false,
                       },
                     },
                     gateMode: {
                       type: "string",
                       enum: ["blocked", "silent", "frank-only", "allowlist", "mention", "open"],
                     },
+                    errorPolicy: {
+                      type: "string",
+                      enum: ["always", "once", "silent"],
+                    },
+                    errorCooldownMs: {
+                      type: "integer",
+                      minimum: 0,
+                      maximum: 9007199254740991,
+                    },
                   },
-                  additionalProperties: true,
+                  additionalProperties: false,
                 },
               },
               allowFrom: {
@@ -13225,7 +13182,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                       maximum: 9007199254740991,
                     },
                   },
-                  additionalProperties: true,
+                  additionalProperties: false,
                 },
               },
               direct: {
@@ -13262,7 +13219,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                           },
                         },
                       },
-                      additionalProperties: true,
+                      additionalProperties: false,
                     },
                     toolsBySender: {
                       type: "object",
@@ -13291,7 +13248,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                             },
                           },
                         },
-                        additionalProperties: true,
+                        additionalProperties: false,
                       },
                     },
                     skills: {
@@ -13376,9 +13333,27 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                               "open",
                             ],
                           },
+                          errorPolicy: {
+                            type: "string",
+                            enum: ["always", "once", "silent"],
+                          },
+                          errorCooldownMs: {
+                            type: "integer",
+                            minimum: 0,
+                            maximum: 9007199254740991,
+                          },
                         },
-                        additionalProperties: true,
+                        additionalProperties: false,
                       },
+                    },
+                    errorPolicy: {
+                      type: "string",
+                      enum: ["always", "once", "silent"],
+                    },
+                    errorCooldownMs: {
+                      type: "integer",
+                      minimum: 0,
+                      maximum: 9007199254740991,
                     },
                     requireTopic: {
                       type: "boolean",
@@ -13398,12 +13373,12 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                               type: "string",
                             },
                           },
-                          additionalProperties: true,
+                          additionalProperties: false,
                         },
                       ],
                     },
                   },
-                  additionalProperties: true,
+                  additionalProperties: false,
                 },
               },
               textChunkLimit: {
@@ -13459,7 +13434,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                     ],
                   },
                 },
-                additionalProperties: true,
+                additionalProperties: false,
               },
               blockStreamingCoalesce: {
                 type: "object",
@@ -13480,7 +13455,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                     maximum: 9007199254740991,
                   },
                 },
-                additionalProperties: true,
+                additionalProperties: false,
               },
               streamMode: {
                 type: "string",
@@ -13519,7 +13494,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                     maximum: 1,
                   },
                 },
-                additionalProperties: true,
+                additionalProperties: false,
               },
               network: {
                 type: "object",
@@ -13532,7 +13507,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                     enum: ["ipv4first", "verbatim"],
                   },
                 },
-                additionalProperties: true,
+                additionalProperties: false,
               },
               proxy: {
                 type: "string",
@@ -13568,7 +13543,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                           },
                         },
                         required: ["source", "provider", "id"],
-                        additionalProperties: true,
+                        additionalProperties: false,
                       },
                       {
                         type: "object",
@@ -13586,7 +13561,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                           },
                         },
                         required: ["source", "provider", "id"],
-                        additionalProperties: true,
+                        additionalProperties: false,
                       },
                       {
                         type: "object",
@@ -13604,7 +13579,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                           },
                         },
                         required: ["source", "provider", "id"],
-                        additionalProperties: true,
+                        additionalProperties: false,
                       },
                     ],
                   },
@@ -13660,7 +13635,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                     type: "boolean",
                   },
                 },
-                additionalProperties: true,
+                additionalProperties: false,
               },
               threadBindings: {
                 type: "object",
@@ -13683,7 +13658,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                     type: "boolean",
                   },
                 },
-                additionalProperties: true,
+                additionalProperties: false,
               },
               reactionNotifications: {
                 type: "string",
@@ -13706,7 +13681,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                     type: "boolean",
                   },
                 },
-                additionalProperties: true,
+                additionalProperties: false,
               },
               healthMonitor: {
                 type: "object",
@@ -13715,7 +13690,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                     type: "boolean",
                   },
                 },
-                additionalProperties: true,
+                additionalProperties: false,
               },
               linkPreview: {
                 type: "boolean",
@@ -13728,6 +13703,15 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
               },
               ackReaction: {
                 type: "string",
+              },
+              errorPolicy: {
+                type: "string",
+                enum: ["always", "once", "silent"],
+              },
+              errorCooldownMs: {
+                type: "integer",
+                minimum: 0,
+                maximum: 9007199254740991,
               },
               apiRoot: {
                 type: "string",
@@ -13748,13 +13732,13 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                         type: "string",
                       },
                     },
-                    additionalProperties: true,
+                    additionalProperties: false,
                   },
                 ],
               },
             },
             required: ["dmPolicy", "groupPolicy"],
-            additionalProperties: true,
+            additionalProperties: false,
           },
         },
         defaultAccount: {
@@ -13762,7 +13746,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
         },
       },
       required: ["dmPolicy", "groupPolicy"],
-      additionalProperties: true,
+      additionalProperties: false,
     },
     uiHints: {
       "": {
@@ -14280,7 +14264,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
               enum: ["off", "bullets", "code", "block"],
             },
           },
-          additionalProperties: true,
+          additionalProperties: false,
         },
         configWrites: {
           type: "boolean",
@@ -14346,7 +14330,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                 maximum: 9007199254740991,
               },
             },
-            additionalProperties: true,
+            additionalProperties: false,
           },
         },
         textChunkLimit: {
@@ -14380,7 +14364,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
               maximum: 9007199254740991,
             },
           },
-          additionalProperties: true,
+          additionalProperties: false,
         },
         groups: {
           type: "object",
@@ -14415,7 +14399,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                     },
                   },
                 },
-                additionalProperties: true,
+                additionalProperties: false,
               },
               toolsBySender: {
                 type: "object",
@@ -14444,7 +14428,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                       },
                     },
                   },
-                  additionalProperties: true,
+                  additionalProperties: false,
                 },
               },
               gateMode: {
@@ -14452,7 +14436,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                 enum: ["blocked", "silent", "frank-only", "allowlist", "mention", "open"],
               },
             },
-            additionalProperties: true,
+            additionalProperties: false,
           },
         },
         ackReaction: {
@@ -14472,7 +14456,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
             },
           },
           required: ["direct", "group"],
-          additionalProperties: true,
+          additionalProperties: false,
         },
         reactionLevel: {
           type: "string",
@@ -14497,7 +14481,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
               type: "boolean",
             },
           },
-          additionalProperties: true,
+          additionalProperties: false,
         },
         healthMonitor: {
           type: "object",
@@ -14506,7 +14490,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
               type: "boolean",
             },
           },
-          additionalProperties: true,
+          additionalProperties: false,
         },
         accounts: {
           type: "object",
@@ -14533,7 +14517,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                     enum: ["off", "bullets", "code", "block"],
                   },
                 },
-                additionalProperties: true,
+                additionalProperties: false,
               },
               configWrites: {
                 type: "boolean",
@@ -14599,7 +14583,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                       maximum: 9007199254740991,
                     },
                   },
-                  additionalProperties: true,
+                  additionalProperties: false,
                 },
               },
               textChunkLimit: {
@@ -14633,7 +14617,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                     maximum: 9007199254740991,
                   },
                 },
-                additionalProperties: true,
+                additionalProperties: false,
               },
               groups: {
                 type: "object",
@@ -14668,7 +14652,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                           },
                         },
                       },
-                      additionalProperties: true,
+                      additionalProperties: false,
                     },
                     toolsBySender: {
                       type: "object",
@@ -14697,7 +14681,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                             },
                           },
                         },
-                        additionalProperties: true,
+                        additionalProperties: false,
                       },
                     },
                     gateMode: {
@@ -14705,7 +14689,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                       enum: ["blocked", "silent", "frank-only", "allowlist", "mention", "open"],
                     },
                   },
-                  additionalProperties: true,
+                  additionalProperties: false,
                 },
               },
               ackReaction: {
@@ -14725,7 +14709,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                   },
                 },
                 required: ["direct", "group"],
-                additionalProperties: true,
+                additionalProperties: false,
               },
               reactionLevel: {
                 type: "string",
@@ -14750,7 +14734,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                     type: "boolean",
                   },
                 },
-                additionalProperties: true,
+                additionalProperties: false,
               },
               healthMonitor: {
                 type: "object",
@@ -14759,7 +14743,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                     type: "boolean",
                   },
                 },
-                additionalProperties: true,
+                additionalProperties: false,
               },
               name: {
                 type: "string",
@@ -14774,7 +14758,7 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
               },
             },
             required: ["dmPolicy", "groupPolicy", "debounceMs"],
-            additionalProperties: true,
+            additionalProperties: false,
           },
         },
         defaultAccount: {
@@ -14799,11 +14783,11 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
               type: "boolean",
             },
           },
-          additionalProperties: true,
+          additionalProperties: false,
         },
       },
       required: ["dmPolicy", "groupPolicy", "debounceMs", "mediaMaxMb"],
-      additionalProperties: true,
+      additionalProperties: false,
     },
     uiHints: {
       "": {
