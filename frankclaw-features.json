@@ -691,6 +691,26 @@
       "static": [],
       "tests": [],
       "runtime": []
+    },
+    {
+      "name": "Memory search path prepend",
+      "description": "Prepends file path (e.g. [knowledge/family/charlotte.md]) to each chunk text before embedding and FTS indexing, improving search recall for path-scoped queries",
+      "static": [
+        {
+          "file": "extensions/memory-core/src/memory/manager-embedding-ops.ts",
+          "pattern": "chunk.text = .*entry.path",
+          "minCount": 2,
+          "note": "Assignment prepending path to chunk text must exist in both embedding and FTS-only code paths"
+        },
+        {
+          "file": "extensions/memory-core/src/memory/manager-embedding-ops.ts",
+          "pattern": "Prepend file path",
+          "minCount": 2,
+          "note": "Comment markers for both code paths (embedding + FTS-only)"
+        }
+      ],
+      "tests": [],
+      "runtime": []
     }
   ]
 }

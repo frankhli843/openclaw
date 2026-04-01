@@ -672,6 +672,10 @@ export abstract class MemoryManagerEmbeddingOps extends MemoryManagerSyncOps {
       const chunks = chunkMarkdown(content, this.settings.chunking).filter(
         (chunk) => chunk.text.trim().length > 0,
       );
+      // Prepend file path to each chunk's text for better search recall (FTS-only path)
+      for (const chunk of chunks) {
+        chunk.text = `[${entry.path}]\n${chunk.text}`;
+      }
       if (options.source === "sessions" && "lineMap" in entry) {
         remapChunkLines(chunks, entry.lineMap);
       }
@@ -704,6 +708,10 @@ export abstract class MemoryManagerEmbeddingOps extends MemoryManagerSyncOps {
       const baseChunks = chunkMarkdown(content, this.settings.chunking).filter(
         (chunk) => chunk.text.trim().length > 0,
       );
+      // Prepend file path to each chunk's text for better search recall
+      for (const chunk of baseChunks) {
+        chunk.text = `[${entry.path}]\n${chunk.text}`;
+      }
       chunks = this.provider
         ? enforceEmbeddingMaxInputTokens(this.provider, baseChunks, EMBEDDING_BATCH_MAX_TOKENS)
         : baseChunks;
