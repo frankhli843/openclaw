@@ -16,6 +16,7 @@ export type ChannelGroupConfig = {
   requireMention?: boolean;
   gateMode?: GateMode;
   allowFrom?: Array<string | number>;
+  ingest?: boolean;
   tools?: GroupToolPolicyConfig;
   toolsBySender?: GroupToolPolicyBySenderConfig;
 };

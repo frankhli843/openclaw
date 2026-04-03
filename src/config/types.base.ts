@@ -8,6 +8,7 @@ export type ReplyToMode = "off" | "first" | "all";
 export type GroupPolicy = "open" | "disabled" | "allowlist";
 export type DmPolicy = "pairing" | "allowlist" | "open" | "disabled";
 export type GateMode = "blocked" | "silent" | "frank-only" | "allowlist" | "mention" | "open";
+export type ContextVisibilityMode = "all" | "allowlist" | "allowlist_quote";
 
 export type OutboundRetryConfig = {
   /** Max retry attempts for outbound requests (default: 3). */

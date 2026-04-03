@@ -162,7 +162,9 @@
           "minCount": 1
         }
       ],
-      "tests": ["extensions/discord/src/monitor/message-handler.preflight.frankclaw.test.ts"],
+      "tests": [
+        "extensions/discord/src/monitor/message-handler.preflight.frankclaw.test.ts"
+      ],
       "runtime": []
     },
     {
@@ -180,7 +182,9 @@
           "minCount": 1
         }
       ],
-      "tests": ["extensions/whatsapp/src/auto-reply/monitor/group-gating.frankclaw.test.ts"],
+      "tests": [
+        "extensions/whatsapp/src/auto-reply/monitor/group-gating.frankclaw.test.ts"
+      ],
       "runtime": []
     },
     {
@@ -371,7 +375,9 @@
           "minCount": 1
         }
       ],
-      "tests": ["src/cli/daemon-cli/restart-selfheal.frankclaw.test.ts"],
+      "tests": [
+        "src/cli/daemon-cli/restart-selfheal.frankclaw.test.ts"
+      ],
       "runtime": []
     },
     {
@@ -429,7 +435,9 @@
           "note": "called in toDiscordMessageEvent for batch path"
         }
       ],
-      "tests": ["extensions/discord/src/monitor/inbound-job.rehydrate.test.ts"],
+      "tests": [
+        "extensions/discord/src/monitor/inbound-job.rehydrate.test.ts"
+      ],
       "runtime": []
     },
     {
@@ -461,7 +469,9 @@
           "note": "wraps commandBody with global instructions for cron runs"
         }
       ],
-      "tests": ["src/agents/subagent-instructions.test.ts"],
+      "tests": [
+        "src/agents/subagent-instructions.test.ts"
+      ],
       "runtime": [
         {
           "logPattern": "Subagent Global Instructions prepended",
@@ -495,25 +505,25 @@
     },
     {
       "name": "PI embedded auth-aware stream wrapper",
-      "description": "Preserves auth-profile API key injection for pi embedded runs after pi-ai 0.63.0 began requiring options.apiKey in streamSimple* helpers",
+      "description": "Preserves auth-profile API key injection for pi embedded runs via authStorage.getApiKey() credential resolution in resolveEmbeddedAgentStreamFn",
       "static": [
         {
           "file": "src/agents/pi-embedded-runner/run/attempt.ts",
-          "pattern": "getApiKeyAndHeaders(model)",
-          "minCount": 2,
-          "note": "both the default streamSimple path and the no-wsApiKey fallback must resolve apiKey/headers via modelRegistry"
+          "pattern": "authStorage",
+          "minCount": 3,
+          "note": "authStorage parameter and usage in resolveEmbeddedAgentStreamFn for credential injection"
         },
         {
           "file": "src/agents/pi-embedded-runner/run/attempt.ts",
-          "pattern": "apiKey: auth.apiKey ?? options?.apiKey",
-          "minCount": 2,
-          "note": "auth-aware wrappers must pass the resolved apiKey into streamSimple options"
-        },
-        {
-          "file": "src/agents/pi-embedded-runner/run/attempt.ts",
-          "pattern": "apiKey: wsApiKey",
+          "pattern": "getApiKey(model.provider)",
           "minCount": 1,
-          "note": "the OpenAI websocket wrapper must inject apiKey so fallbackToHttp -> streamSimple still authenticates"
+          "note": "auth-aware stream wrapper resolves apiKey from authStorage for provider"
+        },
+        {
+          "file": "src/agents/pi-embedded-runner/run/attempt.ts",
+          "pattern": "apiKey: apiKey ?? options?.apiKey",
+          "minCount": 1,
+          "note": "resolved apiKey injected into stream options"
         }
       ],
       "tests": [],
