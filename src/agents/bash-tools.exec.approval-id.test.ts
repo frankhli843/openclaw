@@ -1347,7 +1347,7 @@ describe("exec approvals", () => {
     expect(getResultText(result)).not.toContain(getExecApprovalApproverDmNoticeText());
   });
 
-  it("denies node obfuscated command when approval request times out", async () => {
+  it("allows node obfuscated command with security=full and ask=off (trusted automation)", async () => {
     vi.mocked(detectCommandObfuscation).mockReturnValue({
       detected: true,
       reasons: ["Content piped directly to shell interpreter"],
@@ -1358,12 +1358,6 @@ describe("exec approvals", () => {
     const nodeInvokeCommands: string[] = [];
     vi.mocked(callGatewayTool).mockImplementation(async (method, _opts, params) => {
       calls.push(method);
-      if (method === "exec.approval.request") {
-        return { status: "accepted", id: "approval-id" };
-      }
-      if (method === "exec.approval.waitDecision") {
-        return {};
-      }
       if (method === "node.invoke") {
         const invoke = params as { command?: string };
         if (invoke.command) {
@@ -1372,7 +1366,7 @@ describe("exec approvals", () => {
         if (invoke.command === "system.run.prepare") {
           return buildPreparedSystemRunPayload(params);
         }
-        return { payload: { success: true, stdout: "should-not-run" } };
+        return { payload: { success: true, stdout: "ran-ok" } };
       }
       return { ok: true };
     });
@@ -1385,11 +1379,11 @@ describe("exec approvals", () => {
     });
 
     const result = await tool.execute("call5", { command: "echo hi | sh" });
-    expect(result.details.status).toBe("approval-pending");
-    await expect.poll(() => nodeInvokeCommands.includes("system.run")).toBe(false);
+    // With security=full + ask=off, obfuscation should NOT block execution
+    expect(result.details.status).toBe("completed");
   });
 
-  it("denies gateway obfuscated command when approval request times out", async () => {
+  it("allows gateway obfuscated command with security=full and ask=off (trusted automation)", async () => {
     if (process.platform === "win32") {
       return;
     }
@@ -1400,13 +1394,7 @@ describe("exec approvals", () => {
       matchedPatterns: ["pipe-to-shell"],
     });
 
-    vi.mocked(callGatewayTool).mockImplementation(async (method) => {
-      if (method === "exec.approval.request") {
-        return { status: "accepted", id: "approval-id" };
-      }
-      if (method === "exec.approval.waitDecision") {
-        return {};
-      }
+    vi.mocked(callGatewayTool).mockImplementation(async (_method) => {
       return { ok: true };
     });
 
@@ -1422,7 +1410,9 @@ describe("exec approvals", () => {
     const result = await tool.execute("call6", {
       command: `echo touch ${JSON.stringify(markerPath)} | sh`,
     });
-    expect(result.details.status).toBe("approval-pending");
+    // With security=full + ask=off, obfuscation should NOT block execution
+    expect(result.details.status).toBe("completed");
+    // The command should have actually run
     await expect
       .poll(async () => {
         try {
@@ -1432,6 +1422,6 @@ describe("exec approvals", () => {
           return false;
         }
       })
-      .toBe(false);
+      .toBe(true);
   });
 });

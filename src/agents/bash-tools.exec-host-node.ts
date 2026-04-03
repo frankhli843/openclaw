@@ -200,6 +200,9 @@ export async function executeNodeHostCommand(
     );
     params.warnings.push(`⚠️ Obfuscated command detected: ${obfuscation.reasons.join("; ")}`);
   }
+  // When security=full and ask=off, obfuscation should not force an approval prompt.
+  const obfuscationRequiresAsk =
+    obfuscation.detected && !(hostSecurity === "full" && hostAsk === "off");
   const requiresAsk =
     requiresExecApproval({
       ask: hostAsk,
@@ -209,7 +212,7 @@ export async function executeNodeHostCommand(
       durableApprovalSatisfied,
     }) ||
     inlineEvalHit !== null ||
-    obfuscation.detected;
+    obfuscationRequiresAsk;
   const invokeTimeoutMs = Math.max(
     10_000,
     (typeof params.timeoutSec === "number" ? params.timeoutSec : params.defaultTimeoutSec) * 1000 +
