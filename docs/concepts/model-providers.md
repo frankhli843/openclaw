@@ -293,6 +293,8 @@ OpenClaw ships with the pi‑ai catalog. These providers require **no**
 - Static fallback catalog ships `kilocode/kilo/auto`; live
   `https://api.kilo.ai/api/gateway/models` discovery can expand the runtime
   catalog further.
+- Exact upstream routing behind `kilocode/kilo/auto` is owned by Kilo Gateway,
+  not hard-coded in OpenClaw.
 
 See [/providers/kilocode](/providers/kilocode) for setup details.
 
@@ -309,6 +311,9 @@ See [/providers/kilocode](/providers/kilocode) for setup details.
 - Example model: `kilocode/kilo/auto`
 - MiniMax: `minimax` (`MINIMAX_API_KEY`)
 - Example model: `minimax/MiniMax-M2.7`
+- MiniMax onboarding/API-key setup writes explicit M2.7 model definitions with
+  `input: ["text", "image"]`; the bundled provider catalog keeps the chat refs
+  text-only until that provider config is materialized
 - Moonshot: `moonshot` (`MOONSHOT_API_KEY`)
 - Example model: `moonshot/kimi-k2.5`
 - Kimi Coding: `kimi` (`KIMI_API_KEY` or `KIMICODE_API_KEY`)
@@ -362,17 +367,16 @@ need to override the base URL or model metadata:
 - Provider: `moonshot`
 - Auth: `MOONSHOT_API_KEY`
 - Example model: `moonshot/kimi-k2.5`
-- CLI: `openclaw onboard --auth-choice moonshot-api-key`
+- CLI: `openclaw onboard --auth-choice moonshot-api-key` or `openclaw onboard --auth-choice moonshot-api-key-cn`
 
 Kimi K2 model IDs:
 
 [//]: # "moonshot-kimi-k2-model-refs:start"
 
 - `moonshot/kimi-k2.5`
-- `moonshot/kimi-k2-0905-preview`
-- `moonshot/kimi-k2-turbo-preview`
 - `moonshot/kimi-k2-thinking`
 - `moonshot/kimi-k2-thinking-turbo`
+- `moonshot/kimi-k2-turbo`
 
 [//]: # "moonshot-kimi-k2-model-refs:end"
 
@@ -516,7 +520,10 @@ Synthetic provides Anthropic-compatible models behind the `synthetic` provider:
 
 MiniMax is configured via `models.providers` because it uses custom endpoints:
 
-- MiniMax (Anthropic‑compatible): `--auth-choice minimax-api`
+- MiniMax OAuth (Global): `--auth-choice minimax-global-oauth`
+- MiniMax OAuth (CN): `--auth-choice minimax-cn-oauth`
+- MiniMax API key (Global): `--auth-choice minimax-global-api`
+- MiniMax API key (CN): `--auth-choice minimax-cn-api`
 - Auth: `MINIMAX_API_KEY`
 
 See [/providers/minimax](/providers/minimax) for setup details, model options, and config snippets.
