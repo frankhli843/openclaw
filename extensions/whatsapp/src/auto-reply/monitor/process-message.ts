@@ -42,12 +42,12 @@ import {
   type getChildLogger,
   type getReplyFromConfig,
   type HistoryEntry,
-  type loadConfig,
+  type LoadConfigFn,
   type resolveAgentRoute,
 } from "./runtime-api.js";
 
 async function resolveWhatsAppCommandAuthorized(params: {
-  cfg: ReturnType<typeof loadConfig>;
+  cfg: ReturnType<LoadConfigFn>;
   msg: WebInboundMsg;
 }): Promise<boolean> {
   const useAccessGroups = params.cfg.commands?.useAccessGroups !== false;
@@ -107,7 +107,7 @@ async function resolveWhatsAppCommandAuthorized(params: {
 }
 
 function resolvePinnedMainDmRecipient(params: {
-  cfg: ReturnType<typeof loadConfig>;
+  cfg: ReturnType<LoadConfigFn>;
   msg: WebInboundMsg;
 }): string | null {
   const account = resolveWhatsAppAccount({ cfg: params.cfg, accountId: params.msg.accountId });
@@ -119,7 +119,7 @@ function resolvePinnedMainDmRecipient(params: {
 }
 
 export async function processMessage(params: {
-  cfg: ReturnType<typeof loadConfig>;
+  cfg: ReturnType<LoadConfigFn>;
   msg: WebInboundMsg;
   route: ReturnType<typeof resolveAgentRoute>;
   groupHistoryKey: string;

@@ -23,12 +23,8 @@ import { createSubsystemLogger } from "openclaw/plugin-sdk/runtime-env";
 import type { DiscordComponentMessageSpec } from "./components.js";
 import { getThreadBindingManager, type ThreadBindingRecord } from "./monitor/thread-bindings.js";
 import { normalizeDiscordOutboundTarget } from "./normalize.js";
-import {
-  sendDiscordComponentMessage,
-  sendMessageDiscord,
-  sendPollDiscord,
-  sendWebhookMessageDiscord,
-} from "./send.js";
+import { sendDiscordComponentMessage } from "./send.components.js";
+import { sendMessageDiscord, sendPollDiscord, sendWebhookMessageDiscord } from "./send.js";
 import { buildDiscordInteractiveComponents } from "./shared-interactive.js";
 
 const dnrLog = createSubsystemLogger("discord-outbound-dnr");

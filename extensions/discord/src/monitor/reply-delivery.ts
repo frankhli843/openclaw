@@ -2,6 +2,8 @@ import type { RequestClient } from "@buape/carbon";
 import { resolveAgentAvatar } from "openclaw/plugin-sdk/agent-runtime";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-runtime";
 import type { MarkdownTableMode, ReplyToMode } from "openclaw/plugin-sdk/config-runtime";
+import type { ChunkMode } from "openclaw/plugin-sdk/reply-chunking";
+import type { ReplyPayload } from "openclaw/plugin-sdk/reply-dispatch-runtime";
 import {
   enforceDiscordDnrWindow,
   DiscordDnrSuppressedError,
@@ -13,8 +15,6 @@ import {
   resolveTextChunksWithFallback,
   sendMediaWithLeadingCaption,
 } from "openclaw/plugin-sdk/reply-payload";
-import type { ChunkMode } from "openclaw/plugin-sdk/reply-runtime";
-import type { ReplyPayload } from "openclaw/plugin-sdk/reply-runtime";
 import {
   resolveRetryConfig,
   retryAsync,
