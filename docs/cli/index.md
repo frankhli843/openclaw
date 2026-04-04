@@ -360,10 +360,49 @@ Note: plugins can add additional top-level commands (for example `openclaw voice
 
 ## Secrets
 
-- `openclaw secrets reload` — re-resolve refs and atomically swap the runtime snapshot.
-- `openclaw secrets audit` — scan for plaintext residues, unresolved refs, and precedence drift (`--allow-exec` to execute exec providers during audit).
-- `openclaw secrets configure` — interactive helper for provider setup + SecretRef mapping + preflight/apply (`--allow-exec` to execute exec providers during preflight and exec-containing apply flows).
-- `openclaw secrets apply --from <plan.json>` — apply a previously generated plan (`--dry-run` supported; use `--allow-exec` to permit exec providers in dry-run and exec-containing write plans).
+### `secrets`
+
+Manage SecretRefs and related runtime/config hygiene.
+
+Subcommands:
+
+- `secrets reload`
+- `secrets audit`
+- `secrets configure`
+- `secrets apply --from <path>`
+
+`secrets reload` options:
+
+- `--url`, `--token`, `--timeout`, `--expect-final`, `--json`
+
+`secrets audit` options:
+
+- `--check`
+- `--allow-exec`
+- `--json`
+
+`secrets configure` options:
+
+- `--apply`
+- `--yes`
+- `--providers-only`
+- `--skip-provider-setup`
+- `--agent <id>`
+- `--allow-exec`
+- `--plan-out <path>`
+- `--json`
+
+`secrets apply --from <path>` options:
+
+- `--dry-run`
+- `--allow-exec`
+- `--json`
+
+Notes:
+
+- `reload` is a Gateway RPC and keeps the last-known-good runtime snapshot when resolution fails.
+- `audit --check` returns non-zero on findings; unresolved refs use a higher-priority non-zero exit code.
+- Dry-run exec checks are skipped by default; use `--allow-exec` to opt in.
 
 ## Plugins
 
@@ -482,6 +521,10 @@ Options:
 
 Interactive configuration wizard (models, channels, skills, gateway).
 
+Options:
+
+- `--section <section>` (repeatable; limit the wizard to specific sections)
+
 ### `config`
 
 Non-interactive config helpers (get/set/unset/file/schema/validate). Running `openclaw config` with no
@@ -518,6 +561,40 @@ Options:
 - `--repair` (alias: `--fix`): attempt automatic repairs for detected issues.
 - `--force`: force repairs even when not strictly needed.
 - `--generate-gateway-token`: generate a new gateway auth token.
+
+### `dashboard`
+
+Open the Control UI with your current token.
+
+Options:
+
+- `--no-open`: print the URL but do not launch a browser
+
+Notes:
+
+- For SecretRef-managed gateway tokens, `dashboard` prints or opens a non-tokenized URL instead of exposing the secret in terminal output or browser launch arguments.
+
+### `backup`
+
+Create and verify local backup archives for OpenClaw state.
+
+Subcommands:
+
+- `backup create`
+- `backup verify <archive>`
+
+`backup create` options:
+
+- `--output <path>`
+- `--json`
+- `--dry-run`
+- `--verify`
+- `--only-config`
+- `--no-include-workspace`
+
+`backup verify <archive>` options:
+
+- `--json`
 
 ## Channel helpers
 
@@ -623,6 +700,31 @@ Subcommands:
 - `devices rotate --device <id> --role <role> [--scope <scope...>]`
 - `devices revoke --device <id> --role <role>`
 
+### `hooks`
+
+Manage internal agent hooks.
+
+Subcommands:
+
+- `hooks list`
+- `hooks info <name>`
+- `hooks check`
+- `hooks enable <name>`
+- `hooks disable <name>`
+- `hooks install <path-or-spec>` (deprecated alias for `openclaw plugins install`)
+- `hooks update [id]` (deprecated alias for `openclaw plugins update`)
+
+Common options:
+
+- `--json`
+- `--eligible`
+- `-v`, `--verbose`
+
+Notes:
+
+- Plugin-managed hooks cannot be enabled or disabled through `openclaw hooks`; enable or disable the owning plugin instead.
+- `hooks install` and `hooks update` still work as compatibility aliases, but they print deprecation warnings and forward to the plugin commands.
+
 ### `webhooks gmail`
 
 Gmail Pub/Sub hook setup + runner. See [Gmail Pub/Sub](/automation/cron-jobs#gmail-pubsub-integration).
@@ -631,6 +733,11 @@ Subcommands:
 
 - `webhooks gmail setup` (requires `--account <email>`; supports `--project`, `--topic`, `--subscription`, `--label`, `--hook-url`, `--hook-token`, `--push-token`, `--bind`, `--port`, `--path`, `--include-body`, `--max-bytes`, `--renew-minutes`, `--tailscale`, `--tailscale-path`, `--tailscale-target`, `--push-endpoint`, `--json`)
 - `webhooks gmail run` (runtime overrides for the same flags)
+
+Notes:
+
+- `setup` configures the Gmail watch plus the OpenClaw-facing push path.
+- `run` starts the local Gmail watcher/renew loop with optional runtime overrides.
 
 ### `dns setup`
 
@@ -756,11 +863,94 @@ Options:
 - `--force`
 - `--json`
 
+#### `agents set-identity`
+
+Update an agent identity (name/theme/emoji/avatar).
+
+Options:
+
+- `--agent <id>`
+- `--workspace <dir>`
+- `--identity-file <path>`
+- `--from-identity`
+- `--name <name>`
+- `--theme <theme>`
+- `--emoji <emoji>`
+- `--avatar <value>`
+- `--json`
+
 ### `acp`
 
 Run the ACP bridge that connects IDEs to the Gateway.
 
-See [`acp`](/cli/acp) for full options and examples.
+Root options:
+
+- `--url <url>`
+- `--token <token>`
+- `--token-file <path>`
+- `--password <password>`
+- `--password-file <path>`
+- `--session <key>`
+- `--session-label <label>`
+- `--require-existing`
+- `--reset-session`
+- `--no-prefix-cwd`
+- `--provenance <off|meta|meta+receipt>`
+- `--verbose`
+
+#### `acp client`
+
+Interactive ACP client for bridge debugging.
+
+Options:
+
+- `--cwd <dir>`
+- `--server <command>`
+- `--server-args <args...>`
+- `--server-verbose`
+- `--verbose`
+
+See [`acp`](/cli/acp) for full behavior, security notes, and examples.
+
+### `approvals`
+
+Manage exec approvals. Alias: `exec-approvals`.
+
+#### `approvals get`
+
+Fetch the exec approvals snapshot and effective policy.
+
+Options:
+
+- `--node <node>`
+- `--gateway`
+- `--json`
+- node RPC options from `openclaw nodes`
+
+#### `approvals set`
+
+Replace exec approvals with JSON from a file or stdin.
+
+Options:
+
+- `--node <node>`
+- `--gateway`
+- `--file <path>`
+- `--stdin`
+- `--json`
+- node RPC options from `openclaw nodes`
+
+#### `approvals allowlist add|remove`
+
+Edit the per-agent exec allowlist.
+
+Options:
+
+- `--node <node>`
+- `--gateway`
+- `--agent <id>` (defaults to `*`)
+- `--json`
+- node RPC options from `openclaw nodes`
 
 ### `status`
 
@@ -806,6 +996,7 @@ Options:
 - `--json`
 - `--timeout <ms>`
 - `--verbose`
+- `--debug` (alias for `--verbose`)
 
 ### `sessions`
 
@@ -823,6 +1014,10 @@ Options:
 Subcommands:
 
 - `sessions cleanup` — remove expired or orphaned sessions
+
+Notes:
+
+- `sessions cleanup` also supports `--fix-missing` to prune entries whose transcript files are gone.
 
 ## Reset / Uninstall
 
@@ -859,6 +1054,7 @@ Options:
 Notes:
 
 - `--non-interactive` requires `--yes` and explicit scopes (or `--all`).
+- `--all` removes service, state, workspace, and app together.
 
 ### `tasks`
 
@@ -869,6 +1065,7 @@ List and manage [background task](/automation/tasks) runs across agents.
 - `tasks notify <id>` — change notification policy for a task run
 - `tasks cancel <id>` — cancel a running task
 - `tasks audit` — surface operational issues (stale, lost, delivery failures)
+- `tasks maintenance` — preview or apply tasks and TaskFlow cleanup/reconciliation
 - `tasks flow list` — list active and recent Task Flow flows
 - `tasks flow show <lookup>` — inspect a flow by id or lookup key
 - `tasks flow cancel <lookup>` — cancel a running flow and its active tasks
@@ -940,6 +1137,10 @@ Options:
 - `--json`: emit line-delimited JSON
 - `--plain`: disable structured formatting
 - `--no-color`: disable ANSI colors
+- `--url <url>`: explicit Gateway WebSocket URL
+- `--token <token>`: Gateway token
+- `--timeout <ms>`: Gateway RPC timeout
+- `--expect-final`: wait for a final response when needed
 
 Examples:
 
@@ -950,6 +1151,11 @@ openclaw logs --plain
 openclaw logs --json
 openclaw logs --no-color
 ```
+
+Notes:
+
+- If you pass `--url`, the CLI does not auto-apply config or environment credentials.
+- Local loopback pairing failures fall back to the configured local log file; explicit `--url` targets do not.
 
 ### `gateway <subcommand>`
 
@@ -1162,7 +1368,7 @@ Subcommands:
 - `cron enable <id>`
 - `cron disable <id>`
 - `cron runs --id <id> [--limit <n>]`
-- `cron run <id> [--force]`
+- `cron run <id> [--due]`
 
 All `cron` commands accept `--url`, `--token`, `--timeout`, `--expect-final`.
 
@@ -1232,7 +1438,7 @@ Browser control CLI (dedicated Chrome/Brave/Edge/Chromium). See [`openclaw brows
 
 Common options:
 
-- `--url`, `--token`, `--timeout`, `--json`
+- `--url`, `--token`, `--timeout`, `--expect-final`, `--json`
 - `--browser-profile <name>`
 
 Manage:
@@ -1246,7 +1452,7 @@ Manage:
 - `browser focus <targetId>`
 - `browser close [targetId]`
 - `browser profiles`
-- `browser create-profile --name <name> [--color <hex>] [--cdp-url <url>]`
+- `browser create-profile --name <name> [--color <hex>] [--cdp-url <url>] [--driver existing-session] [--user-data-dir <path>]`
 - `browser delete-profile --name <name>`
 
 Inspect:
