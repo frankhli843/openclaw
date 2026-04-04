@@ -515,15 +515,15 @@
         },
         {
           "file": "src/agents/pi-embedded-runner/run/attempt.ts",
-          "pattern": "getApiKey(model.provider)",
+          "pattern": "getApiKey(params.provider)",
           "minCount": 1,
           "note": "auth-aware stream wrapper resolves apiKey from authStorage for provider"
         },
         {
           "file": "src/agents/pi-embedded-runner/run/attempt.ts",
-          "pattern": "apiKey: apiKey ?? options?.apiKey",
-          "minCount": 1,
-          "note": "resolved apiKey injected into stream options"
+          "pattern": "wsApiKey",
+          "minCount": 2,
+          "note": "resolved wsApiKey injected into stream options for WebSocket transport"
         }
       ],
       "tests": [],
