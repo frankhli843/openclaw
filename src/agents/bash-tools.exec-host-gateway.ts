@@ -80,6 +80,19 @@ export type ProcessGatewayAllowlistResult = {
   pendingResult?: AgentToolResult<ExecToolDetails>;
 };
 
+function hasGatewayAllowlistMiss(params: {
+  hostSecurity: ExecSecurity;
+  analysisOk: boolean;
+  allowlistSatisfied: boolean;
+  durableApprovalSatisfied: boolean;
+}): boolean {
+  return (
+    params.hostSecurity === "allowlist" &&
+    (!params.analysisOk || !params.allowlistSatisfied) &&
+    !params.durableApprovalSatisfied
+  );
+}
+
 export async function processGatewayAllowlist(
   params: ProcessGatewayAllowlistParams,
 ): Promise<ProcessGatewayAllowlistResult> {
@@ -334,10 +347,13 @@ export async function processGatewayAllowlist(
       }
 
       if (
-        hostSecurity === "allowlist" &&
-        (!analysisOk || !allowlistSatisfied) &&
         !approvedByAsk &&
-        !durableApprovalSatisfied
+        hasGatewayAllowlistMiss({
+          hostSecurity,
+          analysisOk,
+          allowlistSatisfied,
+          durableApprovalSatisfied,
+        })
       ) {
         deniedReason = deniedReason ?? "allowlist-miss";
       }
@@ -410,9 +426,12 @@ export async function processGatewayAllowlist(
   }
 
   if (
-    hostSecurity === "allowlist" &&
-    (!analysisOk || !allowlistSatisfied) &&
-    !durableApprovalSatisfied
+    hasGatewayAllowlistMiss({
+      hostSecurity,
+      analysisOk,
+      allowlistSatisfied,
+      durableApprovalSatisfied,
+    })
   ) {
     throw new Error("exec denied: allowlist miss");
   }

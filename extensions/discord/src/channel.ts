@@ -9,10 +9,9 @@ import type {
   ChannelMessageActionAdapter,
   ChannelMessageToolDiscovery,
 } from "openclaw/plugin-sdk/channel-contract";
+import { createChatChannelPlugin } from "openclaw/plugin-sdk/channel-core";
 import { createPairingPrefixStripper } from "openclaw/plugin-sdk/channel-pairing";
 import { createOpenProviderConfiguredRouteWarningCollector } from "openclaw/plugin-sdk/channel-policy";
-import { resolveTargetsWithOptionalToken } from "openclaw/plugin-sdk/channel-targets";
-import { createChatChannelPlugin } from "openclaw/plugin-sdk/core";
 import {
   createChannelDirectoryAdapter,
   createRuntimeDirectoryLiveAdapter,
@@ -32,6 +31,7 @@ import {
   createComputedAccountStatusAdapter,
   createDefaultChannelRuntimeState,
 } from "openclaw/plugin-sdk/status-helpers";
+import { resolveTargetsWithOptionalToken } from "openclaw/plugin-sdk/target-resolver-runtime";
 import {
   listDiscordAccountIds,
   resolveDiscordAccount,
@@ -55,10 +55,9 @@ import {
   resolveDiscordGroupToolPolicy,
 } from "./group-policy.js";
 import {
-  createThreadBindingManager,
   setThreadBindingIdleTimeoutBySessionKey,
   setThreadBindingMaxAgeBySessionKey,
-} from "./monitor/thread-bindings.js";
+} from "./monitor/thread-bindings.session-updates.js";
 import {
   looksLikeDiscordTargetId,
   normalizeDiscordMessagingTarget,
@@ -71,7 +70,7 @@ import { normalizeExplicitDiscordSessionKey } from "./session-key-normalization.
 import { discordSetupAdapter } from "./setup-core.js";
 import { createDiscordPluginBase, discordConfigAdapter } from "./shared.js";
 import { collectDiscordStatusIssues } from "./status-issues.js";
-import { parseDiscordTarget } from "./targets.js";
+import { parseDiscordTarget } from "./target-parsing.js";
 import { DiscordUiContainer } from "./ui.js";
 
 type DiscordSendFn = typeof import("./send.js").sendMessageDiscord;
@@ -98,6 +97,9 @@ const loadDiscordResolveChannelsModule = createLazyRuntimeModule(
   () => import("./resolve-channels.js"),
 );
 const loadDiscordResolveUsersModule = createLazyRuntimeModule(() => import("./resolve-users.js"));
+const loadDiscordThreadBindingsManagerModule = createLazyRuntimeModule(
+  () => import("./monitor/thread-bindings.manager.js"),
+);
 
 const require = createRequire(import.meta.url);
 
@@ -550,8 +552,8 @@ export const discordPlugin: ChannelPlugin<ResolvedDiscordAccount, DiscordProbe> 
       conversationBindings: {
         supportsCurrentConversationBinding: true,
         defaultTopLevelPlacement: "child",
-        createManager: ({ cfg, accountId }) =>
-          createThreadBindingManager({
+        createManager: async ({ cfg, accountId }) =>
+          (await loadDiscordThreadBindingsManagerModule()).createThreadBindingManager({
             cfg,
             accountId: accountId ?? undefined,
             persist: false,
