@@ -12,7 +12,7 @@ import type {
   GroupToolPolicyBySenderConfig,
   GroupToolPolicyConfig,
 } from "../../config/types.tools.js";
-import { inspectSlackAccount } from "../../plugin-sdk/slack.js";
+import { inspectSlackAccount } from "../../../extensions/slack/src/account-inspect.js";
 import { normalizeAtHashSlug, normalizeHyphenSlug } from "../../shared/string-normalization.js";
 import type { ChannelGroupContext } from "./types.js";
 
