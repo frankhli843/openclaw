@@ -163,38 +163,6 @@ export function clearPluginLoaderCache(): void {
 
 const defaultLogger = () => createSubsystemLogger("plugins");
 
-type ChannelConfiguredModule = {
-  isChannelConfigured?: (
-    cfg: OpenClawConfig,
-    channelId: string,
-    env?: NodeJS.ProcessEnv,
-  ) => boolean;
-};
-
-let channelConfiguredLoader: ReturnType<typeof createJiti> | undefined;
-let cachedChannelConfiguredModule: ChannelConfiguredModule | undefined;
-
-function resolveChannelConfiguredModule(): ChannelConfiguredModule {
-  if (cachedChannelConfiguredModule) {
-    return cachedChannelConfiguredModule;
-  }
-  channelConfiguredLoader ??= createJiti(import.meta.url, { interopDefault: true });
-  const loaded = channelConfiguredLoader("../config/channel-configured.js");
-  if (!loaded || typeof loaded !== "object") {
-    throw new Error("failed to load config/channel-configured runtime");
-  }
-  cachedChannelConfiguredModule = loaded as ChannelConfiguredModule;
-  return cachedChannelConfiguredModule;
-}
-
-function resolveIsChannelConfigured() {
-  const fn = resolveChannelConfiguredModule().isChannelConfigured;
-  if (typeof fn !== "function") {
-    throw new Error("config/channel-configured runtime missing isChannelConfigured()");
-  }
-  return fn;
-}
-
 function createPluginJitiLoader(options: Pick<PluginLoadOptions, "pluginSdkResolution">) {
   const jitiLoaders = new Map<string, ReturnType<typeof createJiti>>();
   return (modulePath: string) => {
@@ -577,7 +545,6 @@ function shouldLoadChannelPluginInSetupRuntime(params: {
   ) {
     return true;
   }
-  const isChannelConfigured = resolveIsChannelConfigured();
   return !params.manifestChannels.some((channelId) =>
     isChannelConfigured(params.cfg, channelId, params.env),
   );
