@@ -42,6 +42,7 @@ import { createDiscordDraftStream } from "../draft-stream.js";
 import { resolveDiscordPreviewStreamMode } from "../preview-streaming.js";
 import { removeReactionDiscord } from "../send.js";
 import { editMessageDiscord } from "../send.messages.js";
+import { reactMessageDiscord } from "../send.reactions.js";
 import {
   createDiscordAckReactionAdapter,
   createDiscordAckReactionContext,
