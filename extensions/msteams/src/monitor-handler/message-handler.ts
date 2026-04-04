@@ -44,13 +44,15 @@ function extractTextFromHtmlAttachments(attachments: MSTeamsAttachmentLike[]): s
     if (attachment.contentType !== "text/html") {
       continue;
     }
+    const c = attachment.content;
+    const rec = typeof c === "object" && c !== null ? (c as Record<string, unknown>) : undefined;
     const raw =
-      typeof attachment.content === "string"
-        ? attachment.content
-        : typeof attachment.content?.text === "string"
-          ? attachment.content.text
-          : typeof attachment.content?.body === "string"
-            ? attachment.content.body
+      typeof c === "string"
+        ? c
+        : typeof rec?.text === "string"
+          ? rec.text
+          : typeof rec?.body === "string"
+            ? rec.body
             : "";
     if (!raw) {
       continue;
