@@ -212,7 +212,12 @@ function readPolicyStore(nowMs: number): {
     return { recurring: cache.recurring, oneOff: cache.oneOff };
   }
 
-  const recurring = [...DEFAULT_RECURRING];
+  // Start with defaults; file entries with matching IDs override them.
+  const defaultsById = new Map<string, DiscordDnrRecurringPolicy>();
+  for (const d of DEFAULT_RECURRING) {
+    defaultsById.set(d.id, { ...d });
+  }
+  const recurring: DiscordDnrRecurringPolicy[] = [];
   let oneOff: DiscordDnrOneOffPolicy[] = [];
 
   const policyPath = resolvePolicyPath();
