@@ -534,9 +534,9 @@
         },
         {
           "file": "src/agents/pi-embedded-runner/run/attempt.ts",
-          "pattern": "getApiKey(params.provider)",
+          "pattern": "resolveEmbeddedAgentApiKey",
           "minCount": 1,
-          "note": "auth-aware stream wrapper resolves apiKey from authStorage for provider"
+          "note": "auth-aware stream wrapper resolves apiKey via resolveEmbeddedAgentApiKey for provider"
         },
         {
           "file": "src/agents/pi-embedded-runner/run/attempt.ts",
@@ -560,9 +560,9 @@
         },
         {
           "file": "src/plugins/loader.ts",
-          "pattern": "__js_sdk_entrypoint",
+          "pattern": "jitiLoaders",
           "minCount": 1,
-          "note": "plugin loader must reset the Matrix SDK singleton flag before each Jiti plugin import"
+          "note": "plugin loader uses shared Jiti loader cache to prevent Matrix SDK singleton guard crashes across plugin loads"
         }
       ],
       "tests": [],
