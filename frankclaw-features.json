@@ -736,6 +736,82 @@
       "runtime": []
     },
     {
+      "name": "Discord inbound lifecycle sinkhole recovery",
+      "description": "Protects Discord inbound jobs from false-success sinkholes by requiring an explicit terminal lifecycle state, atomically materializing transcript files before session metadata persistence, and recovering stale pre-start lifecycle records on startup.",
+      "static": [
+        {
+          "file": "extensions/discord/src/monitor/inbound-worker.durable.frankclaw.ts",
+          "pattern": "createDiscordInboundLifecycleTracker",
+          "minCount": 1,
+          "note": "Durable worker must track explicit inbound lifecycle stages instead of treating handler return as success"
+        },
+        {
+          "file": "extensions/discord/src/monitor/inbound-worker.durable.frankclaw.ts",
+          "pattern": "recoverStaleDiscordInboundLifecycleStates",
+          "minCount": 1,
+          "note": "Startup recovery must scan stale pre-start lifecycle records"
+        },
+        {
+          "file": "extensions/discord/src/monitor/inbound-worker.durable.frankclaw.ts",
+          "pattern": "missing terminal inbound lifecycle state",
+          "minCount": 1,
+          "note": "Explicit hard error when a durable inbound claim/session-init never reaches run_started, reply_delivered, or dropped_intentionally"
+        },
+        {
+          "file": "extensions/discord/src/monitor/inbound-worker.durable.frankclaw.ts",
+          "pattern": "session metadata exists but transcript missing",
+          "minCount": 1,
+          "note": "Explicit hard error when session metadata materializes without a transcript file"
+        },
+        {
+          "file": "extensions/discord/src/monitor/inbound-lifecycle.frankclaw.ts",
+          "pattern": "stale pre-start lifecycle state recovered",
+          "minCount": 1,
+          "note": "Recovery helper must emit a dedicated warning for stale pre-start lifecycle records"
+        },
+        {
+          "file": "src/config/sessions/session-file.ts",
+          "pattern": "materializeSessionTranscriptFile",
+          "minCount": 1,
+          "note": "Session file resolution must materialize the transcript before persisting session metadata"
+        },
+        {
+          "file": "src/config/sessions/session-file.frankclaw.ts",
+          "pattern": "materializeSessionTranscriptFile",
+          "minCount": 1,
+          "note": "Frankclaw helper that creates the transcript file on disk before metadata persistence"
+        }
+      ],
+      "tests": [
+        "extensions/discord/src/monitor/inbound-lifecycle.frankclaw.test.ts",
+        "extensions/discord/src/monitor/inbound-worker.durable.frankclaw.lifecycle.test.ts",
+        "extensions/discord/src/monitor/inbound-worker.durable.frankclaw.test.ts",
+        "src/config/sessions/session-file.frankclaw.test.ts"
+      ],
+      "runtime": [
+        {
+          "logPattern": "discord durable worker missing terminal inbound lifecycle state",
+          "onEvent": true,
+          "note": "Fires when the durable queue claimed and session-init path returned without run_started, reply_delivered, or dropped_intentionally"
+        },
+        {
+          "logPattern": "discord durable worker session metadata exists but transcript missing",
+          "onEvent": true,
+          "note": "Fires when sessions.json materializes a session entry but the transcript file is still absent"
+        },
+        {
+          "logPattern": "[frankclaw-durable-worker] stale pre-start lifecycle state recovered:",
+          "onEvent": true,
+          "note": "Startup recovery found a leftover claimed/session_init/session_metadata_persisted/handler_returned record from an interrupted inbound run"
+        },
+        {
+          "logPattern": "[frankclaw-durable-worker] session metadata exists but transcript missing:",
+          "onEvent": true,
+          "note": "Recovery scan found persisted session metadata whose transcript file is absent, even if no transcript evidence exists"
+        }
+      ]
+    },
+    {
       "name": "Memory search path prepend",
       "description": "Prepends file path (e.g. [knowledge/family/charlotte.md]) to each chunk text before embedding and FTS indexing, improving search recall for path-scoped queries",
       "static": [
@@ -754,6 +830,96 @@
       ],
       "tests": [],
       "runtime": []
+    },
+    {
+      "name": "Subagent announce: direct delivery must be user-visible",
+      "description": "Direct subagent completion handoff only counts as delivered when the parent produces a user-facing reply (not NO_REPLY or internal-only output), enabling fallback queue retries.",
+      "static": [
+        {
+          "file": "src/agents/subagent-announce-delivery.ts",
+          "pattern": "hasDeliverableCompletionFinalResult",
+          "minCount": 1
+        },
+        {
+          "file": "src/agents/subagent-announce-delivery.ts",
+          "pattern": "completion update produced no user-facing reply",
+          "minCount": 1
+        }
+      ],
+      "tests": [
+        "src/agents/subagent-announce-delivery.silent-result.test.ts"
+      ],
+      "runtime": []
+    },
+    {
+      "name": "System event suppression for heartbeat and exec completions",
+      "description": "Suppresses internal heartbeat and exec completion system-event noise from user-facing prompts, preventing leakage into live Discord threads and other sessions.",
+      "static": [
+        {
+          "file": "src/infra/heartbeat-events-filter.ts",
+          "pattern": "isSuppressedSystemEvent",
+          "minCount": 1
+        },
+        {
+          "file": "src/auto-reply/reply/session-system-events.ts",
+          "pattern": "isSuppressedSystemEvent",
+          "minCount": 1
+        }
+      ],
+      "tests": [
+        "src/infra/heartbeat-events-filter.test.ts",
+        "src/auto-reply/reply/session-system-events.heartbeat-routing.test.ts"
+      ],
+      "runtime": []
+    },
+    {
+      "name": "Subagent announce dead-letter alert",
+      "description": "When subagent completion announce retries are exhausted or expire, emit a dead-letter warning to Discord logs so missing completions are visible.",
+      "static": [
+        {
+          "file": "src/agents/subagent-registry-helpers.ts",
+          "pattern": "Subagent announce dead-letter",
+          "minCount": 1
+        }
+      ],
+      "tests": [],
+      "runtime": [
+        {
+          "logPattern": "Subagent announce give up",
+          "onEvent": true
+        }
+      ]
+    },
+    {
+      "name": "ACPX resume prefers agentSessionId over stale acpxSessionId",
+      "description": "Dead-session ACP repair and persisted ACP resume prefer agentSessionId so Claude transcript continuity follows the live underlying agent session instead of the stale ACPX queue-owner id.",
+      "static": [
+        {
+          "file": "extensions/acpx/src/runtime.ts",
+          "pattern": "agentSessionId",
+          "minCount": 1
+        },
+        {
+          "file": "extensions/acpx/src/runtime.ts",
+          "pattern": "acpxSessionId",
+          "minCount": 1
+        },
+        {
+          "file": "src/acp/control-plane/manager.identity-reconcile.ts",
+          "pattern": "runtimeSessionName: params.meta.runtimeSessionName ?? base.runtimeSessionName"
+        }
+      ],
+      "tests": [
+        "extensions/acpx/src/runtime.resume-session-selection.test.ts",
+        "src/acp/control-plane/identity.resume-session-selection.test.ts"
+      ],
+      "runtime": [
+        {
+          "file": "extensions/acpx/src/runtime.ts",
+          "pattern": "agentSessionId",
+          "minCount": 1
+        }
+      ]
     }
   ]
 }

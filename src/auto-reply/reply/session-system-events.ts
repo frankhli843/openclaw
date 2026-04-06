@@ -6,6 +6,7 @@ import {
   formatZonedTimestamp,
   resolveTimezone,
 } from "../../infra/format-time/format-datetime.ts";
+import { isSuppressedSystemEvent } from "../../infra/heartbeat-events-filter.js";
 import { drainSystemEventEntries } from "../../infra/system-events.js";
 
 /** Drain queued system events, format as `System:` lines, return the block (or undefined). */
@@ -24,13 +25,7 @@ export async function drainFormattedSystemEvents(params: {
     if (lower.includes("reason periodic")) {
       return null;
     }
-    // Filter out the actual heartbeat prompt even when it is wrapped inside
-    // exec/system completion text. Cron payloads should not contain the exact
-    // workspace HEARTBEAT prompt.
-    if (lower.includes("read heartbeat.md")) {
-      return null;
-    }
-    if (lower.includes("heartbeat poll") || lower.includes("heartbeat wake")) {
+    if (isSuppressedSystemEvent(trimmed)) {
       return null;
     }
     if (trimmed.startsWith("Node:")) {

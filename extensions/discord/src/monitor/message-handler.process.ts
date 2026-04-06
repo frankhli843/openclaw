@@ -92,6 +92,7 @@ type DiscordMessageProcessObserver = {
   onFinalReplyStart?: () => void;
   onFinalReplyDelivered?: () => void;
   onReplyPlanResolved?: (params: { createdThreadId?: string; sessionKey?: string }) => void;
+  onNoop?: (reason: string) => void;
 };
 
 export async function processDiscordMessage(
@@ -176,6 +177,7 @@ export async function processDiscordMessage(
   const text = messageText;
   if (!text) {
     logVerbose("discord: drop message " + message.id + " (empty content)");
+    observer?.onNoop?.("empty-content");
     return;
   }
 

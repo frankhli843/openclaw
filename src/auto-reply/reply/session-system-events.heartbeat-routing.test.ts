@@ -12,12 +12,14 @@ describe("drainFormattedSystemEvents heartbeat routing hygiene", () => {
     resetSystemEventsForTest();
   });
 
-  it("drops exec completion events that embed the heartbeat prompt", async () => {
+  it.each([
+    "Exec completed: bash scripts/do-something.sh\nRead HEARTBEAT.md if it exists (workspace context). Follow it strictly.",
+    "Exec completed: bash scripts/do-something.sh\nok",
+    "System: [2026-04-06 11:04:00] Exec completed: bash scripts/do-something.sh",
+    "System: [2026-04-06 11:04:00] HEARTBEAT_OK",
+  ])("drops wrapped internal system noise: %s", async (eventText) => {
     const sessionKey = "agent:main:discord:channel:123";
-    enqueueSystemEvent(
-      "Exec completed: bash scripts/do-something.sh\nRead HEARTBEAT.md if it exists (workspace context). Follow it strictly.",
-      { sessionKey },
-    );
+    enqueueSystemEvent(eventText, { sessionKey });
 
     const result = await drainFormattedSystemEvents({
       cfg: {} as never,
@@ -27,5 +29,20 @@ describe("drainFormattedSystemEvents heartbeat routing hygiene", () => {
     });
 
     expect(result).toBeUndefined();
+  });
+
+  it("keeps legitimate system events", async () => {
+    const sessionKey = "agent:main:discord:channel:123";
+    enqueueSystemEvent("Model switched.", { sessionKey });
+
+    const result = await drainFormattedSystemEvents({
+      cfg: {} as never,
+      sessionKey,
+      isMainSession: false,
+      isNewSession: false,
+    });
+
+    expect(result).toContain("System: [");
+    expect(result).toContain("Model switched.");
   });
 });

@@ -11,6 +11,7 @@
  * the message is automatically re-queued on the next startup or drain cycle.
  */
 
+import fs from "node:fs";
 import { danger } from "../../../../src/globals.js";
 import { formatDurationSeconds } from "../../../../src/infra/format-time/format-duration.ts";
 import {
@@ -20,6 +21,12 @@ import {
 } from "./inbound-durable-queue.js";
 import type { DiscordInboundJob, DiscordInboundJobPayload } from "./inbound-job.js";
 import { materializeDiscordInboundJob } from "./inbound-job.js";
+import {
+  createDiscordInboundLifecycleTracker,
+  isDiscordInboundLifecycleTerminal,
+  recoverStaleDiscordInboundLifecycleStates,
+  type DiscordInboundLifecycleProgress,
+} from "./inbound-lifecycle.frankclaw.js";
 import type { RuntimeEnv } from "./message-handler.preflight.types.js";
 import { processDiscordMessage } from "./message-handler.process.js";
 import type { DiscordMonitorStatusSink } from "./status.js";
@@ -92,6 +99,10 @@ export type DurableDiscordInboundWorkerParams = {
   onProcessStart?: () => void;
   /** Called after each job finishes processing (success or failure, e.g. for RunStateMachine.onRunEnd). */
   onProcessEnd?: () => void;
+  __testing?: {
+    captureSessionProgress?: (sessionKey: string) => Promise<DurableDiscordSessionProgressSnapshot>;
+    processDiscordMessage?: typeof processDiscordMessage;
+  };
 };
 
 export type DurableDiscordInboundWorker = {
@@ -99,6 +110,101 @@ export type DurableDiscordInboundWorker = {
   start: () => Promise<void>;
   stop: () => Promise<void>;
 };
+
+type DurableDiscordSessionProgressSnapshot = DiscordInboundLifecycleProgress;
+
+async function captureDurableSessionProgressSnapshot(
+  sessionKey: string,
+): Promise<DurableDiscordSessionProgressSnapshot> {
+  try {
+    const { loadSessionEntry } = await import("../../../../src/gateway/session-utils.js");
+    const loaded = loadSessionEntry(sessionKey);
+    const entry = loaded.entry;
+    const sessionFile =
+      typeof entry?.sessionFile === "string" && entry.sessionFile.trim().length > 0
+        ? entry.sessionFile.trim()
+        : undefined;
+
+    let transcriptExists = false;
+    let transcriptSize = 0;
+    let transcriptMtimeMs = 0;
+
+    if (sessionFile) {
+      try {
+        const stat = await fs.promises.stat(sessionFile);
+        if (stat.isFile()) {
+          transcriptExists = true;
+          transcriptSize = stat.size;
+          transcriptMtimeMs = stat.mtimeMs;
+        }
+      } catch {
+        // Missing transcript evidence is exactly what we want to detect.
+      }
+    }
+
+    return {
+      sessionId: typeof entry?.sessionId === "string" ? entry.sessionId : undefined,
+      sessionFile,
+      updatedAt: typeof entry?.updatedAt === "number" ? entry.updatedAt : undefined,
+      status: typeof entry?.status === "string" ? entry.status : undefined,
+      transcriptExists,
+      transcriptSize,
+      transcriptMtimeMs,
+    };
+  } catch {
+    return {
+      transcriptExists: false,
+      transcriptSize: 0,
+      transcriptMtimeMs: 0,
+    };
+  }
+}
+
+function didDurableSessionProgressAdvance(
+  before: DurableDiscordSessionProgressSnapshot,
+  after: DurableDiscordSessionProgressSnapshot,
+): boolean {
+  if (!before.sessionFile && after.sessionFile && after.transcriptExists) {
+    return true;
+  }
+  if (!before.transcriptExists && after.transcriptExists) {
+    return true;
+  }
+  if (after.transcriptSize > before.transcriptSize) {
+    return true;
+  }
+  if (after.transcriptExists && after.transcriptMtimeMs > before.transcriptMtimeMs) {
+    return true;
+  }
+  return false;
+}
+
+function didDurableSessionMetadataMaterialize(
+  before: DurableDiscordSessionProgressSnapshot,
+  after: DurableDiscordSessionProgressSnapshot,
+): boolean {
+  if (!before.sessionId && Boolean(after.sessionId)) {
+    return true;
+  }
+  if (!before.sessionFile && Boolean(after.sessionFile)) {
+    return true;
+  }
+  return false;
+}
+
+function formatDurableSessionProgressSnapshot(
+  snapshot: DurableDiscordSessionProgressSnapshot,
+): string {
+  return [
+    `sessionId=${snapshot.sessionId ?? "-"}`,
+    `sessionFile=${snapshot.sessionFile ?? "-"}`,
+    `updatedAt=${snapshot.updatedAt ?? "-"}`,
+    `status=${snapshot.status ?? "-"}`,
+    `transcriptExists=${snapshot.transcriptExists ? "true" : "false"}`,
+    `transcriptSize=${snapshot.transcriptSize}`,
+    `transcriptMtimeMs=${snapshot.transcriptMtimeMs}`,
+  ].join(" ");
+}
 
 function formatContextSuffix(event: DurableDiscordInboundEvent): string {
   const channelId = event.channelId?.trim();
@@ -150,6 +256,16 @@ export function createDurableDiscordInboundWorker(
 
   async function processEvent(event: DurableDiscordInboundEvent): Promise<void> {
     params.onProcessStart?.();
+    const lifecycle = createDiscordInboundLifecycleTracker({
+      accountId: params.accountId,
+      stateDir: params.stateDir,
+      event: {
+        accountId: params.accountId,
+        orderingKey: event.orderingKey,
+        channelId: event.channelId,
+        messageId: event.messageId,
+      },
+    });
     try {
       const runtime = params.resolveRuntime();
       const payload = event.payload as DiscordInboundJobPayload;
@@ -166,19 +282,46 @@ export function createDurableDiscordInboundWorker(
       // [frankclaw] Diagnostic: log session status before processing to help trace
       // cases where messages are silently consumed without starting an LLM run.
       try {
-        const { loadSessionEntry } = await import('../../../../src/gateway/session-utils.js');
+        const { loadSessionEntry } = await import("../../../../src/gateway/session-utils.js");
         const sessionEntry = loadSessionEntry(event.orderingKey);
         if (sessionEntry.entry) {
           console.info(
-            `[frankclaw-durable-worker] pre-process: orderingKey=${event.orderingKey} sessionStatus=${sessionEntry.entry.status ?? 'unknown'} updatedAt=${sessionEntry.entry.updatedAt ?? '?'}${suffix}`,
+            `[frankclaw-durable-worker] pre-process: orderingKey=${event.orderingKey} sessionStatus=${sessionEntry.entry.status ?? "unknown"} updatedAt=${sessionEntry.entry.updatedAt ?? "?"}${suffix}`,
           );
         }
       } catch {
         // Best-effort diagnostic; do not block processing.
       }
+      const captureSessionProgress =
+        params.__testing?.captureSessionProgress ?? captureDurableSessionProgressSnapshot;
+      const beforeProgress = await captureSessionProgress(event.orderingKey);
+      await lifecycle.mark({
+        stage: "claimed",
+        note: "durable queue claimed inbound job",
+        progress: beforeProgress,
+      });
+      await lifecycle.mark({
+        stage: "session_init",
+        note: "discord inbound job materialized for processing",
+        progress: beforeProgress,
+      });
+      const processDiscordMessageImpl =
+        params.__testing?.processDiscordMessage ?? processDiscordMessage;
+      let noopReason: string | undefined;
+      let finalReplyDelivered = false;
       const didTimeout = await runDiscordTaskWithTimeout({
         run: async (abortSignal) => {
-          await processDiscordMessage({ ...ctx, abortSignal });
+          await processDiscordMessageImpl(
+            { ...ctx, abortSignal },
+            {
+              onNoop: (reason) => {
+                noopReason = reason;
+              },
+              onFinalReplyDelivered: () => {
+                finalReplyDelivered = true;
+              },
+            },
+          );
         },
         timeoutMs,
         // Include the per-job runtime abort signal alongside the lifecycle signal.
@@ -210,6 +353,74 @@ export function createDurableDiscordInboundWorker(
           })}${suffix}`,
         );
       }
+
+      const afterProgress = await captureSessionProgress(event.orderingKey);
+      let terminalStage: "run_started" | "reply_delivered" | "dropped_intentionally" | undefined;
+
+      if (noopReason) {
+        terminalStage = "dropped_intentionally";
+        await lifecycle.mark({
+          stage: terminalStage,
+          note: `intentional noop: ${noopReason}`,
+          progress: afterProgress,
+        });
+      } else if (finalReplyDelivered) {
+        terminalStage = "reply_delivered";
+        await lifecycle.mark({
+          stage: terminalStage,
+          note: "final reply delivered to Discord",
+          progress: afterProgress,
+        });
+      } else if (didDurableSessionProgressAdvance(beforeProgress, afterProgress)) {
+        terminalStage = "run_started";
+        await lifecycle.mark({
+          stage: terminalStage,
+          note: "session transcript advanced",
+          progress: afterProgress,
+        });
+      } else if (didDurableSessionMetadataMaterialize(beforeProgress, afterProgress)) {
+        await lifecycle.mark({
+          stage: "session_metadata_persisted",
+          note: "session metadata materialized without transcript progress",
+          progress: afterProgress,
+        });
+        params.runtime.error?.(
+          danger(
+            `discord durable worker session metadata exists but transcript missing${suffix}: ` +
+              `before=[${formatDurableSessionProgressSnapshot(beforeProgress)}] ` +
+              `after=[${formatDurableSessionProgressSnapshot(afterProgress)}]`,
+          ),
+        );
+      } else {
+        await lifecycle.mark({
+          stage: "handler_returned",
+          note: "handler returned before a real terminal lifecycle state",
+          progress: afterProgress,
+        });
+      }
+
+      if (!terminalStage) {
+        params.runtime.error?.(
+          danger(
+            `discord durable worker missing terminal inbound lifecycle state${suffix}: ` +
+              `before=[${formatDurableSessionProgressSnapshot(beforeProgress)}] ` +
+              `after=[${formatDurableSessionProgressSnapshot(afterProgress)}] ` +
+              `noopReason=${noopReason ?? "-"} finalReplyDelivered=${finalReplyDelivered ? "true" : "false"}`,
+          ),
+        );
+        throw new Error(`discord durable worker missing terminal inbound lifecycle state${suffix}`);
+      }
+
+      const persistedLifecycle = await lifecycle.load();
+      if (persistedLifecycle && !isDiscordInboundLifecycleTerminal(persistedLifecycle.stage)) {
+        throw new Error(
+          `discord durable worker retained non-terminal lifecycle state${suffix}: ${persistedLifecycle.stage}`,
+        );
+      }
+      await lifecycle.clear();
+    } catch (error) {
+      await lifecycle.annotateError(String(error));
+      throw error;
     } finally {
       params.onProcessEnd?.();
     }
@@ -240,6 +451,13 @@ export function createDurableDiscordInboundWorker(
     },
 
     async start() {
+      await recoverStaleDiscordInboundLifecycleStates({
+        accountId: params.accountId,
+        stateDir: params.stateDir,
+        log: (message) => {
+          console.warn(message);
+        },
+      });
       await durableQueue.start({
         process: processEvent,
         processBatch: createCoalescedDiscordMessageHandler(processEvent),
@@ -257,4 +475,8 @@ export function createDurableDiscordInboundWorker(
 }
 
 /** @internal Exposed for unit tests only. */
-export const __testing = { resolveDiscordDurableLeaseMs };
+export const __testing = {
+  resolveDiscordDurableLeaseMs,
+  didDurableSessionProgressAdvance,
+  didDurableSessionMetadataMaterialize,
+};

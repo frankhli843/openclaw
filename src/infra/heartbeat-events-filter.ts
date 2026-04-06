@@ -54,14 +54,20 @@ export function buildExecEventPrompt(opts?: { deliverToUser?: boolean }): string
 
 const HEARTBEAT_OK_PREFIX = HEARTBEAT_TOKEN.toLowerCase();
 
-// Detect heartbeat-specific noise so cron reminders don't trigger on non-reminder events.
-function isHeartbeatAckEvent(evt: string): boolean {
+function normalizeSystemEventText(evt: string): string {
   const trimmed = evt.trim();
   if (!trimmed) {
-    return false;
+    return "";
   }
-  const lower = trimmed.toLowerCase();
-  if (!lower.startsWith(HEARTBEAT_OK_PREFIX)) {
+  const withoutSystemPrefix = trimmed.replace(/^system(?:\s*\(untrusted\))?:\s*/i, "");
+  const withoutTimestamp = withoutSystemPrefix.replace(/^\[[^\]]+\]\s*/, "");
+  return withoutTimestamp.trim().toLowerCase();
+}
+
+// Detect heartbeat-specific noise so cron reminders don't trigger on non-reminder events.
+function isHeartbeatAckEvent(evt: string): boolean {
+  const lower = normalizeSystemEventText(evt);
+  if (!lower || !lower.startsWith(HEARTBEAT_OK_PREFIX)) {
     return false;
   }
   const suffix = lower.slice(HEARTBEAT_OK_PREFIX.length);
@@ -72,7 +78,7 @@ function isHeartbeatAckEvent(evt: string): boolean {
 }
 
 function isHeartbeatNoiseEvent(evt: string): boolean {
-  const lower = evt.trim().toLowerCase();
+  const lower = normalizeSystemEventText(evt);
   if (!lower) {
     return false;
   }
@@ -83,15 +89,25 @@ function isHeartbeatNoiseEvent(evt: string): boolean {
   );
 }
 
+function isHeartbeatInstructionLeak(evt: string): boolean {
+  return normalizeSystemEventText(evt).includes("read heartbeat.md");
+}
+
 export function isExecCompletionEvent(evt: string): boolean {
-  const lower = evt.toLowerCase();
+  const lower = normalizeSystemEventText(evt);
   return lower.includes("exec finished") || lower.includes("exec completed");
+}
+
+export function isSuppressedSystemEvent(evt: string): boolean {
+  if (!evt.trim()) {
+    return true;
+  }
+  return (
+    isHeartbeatNoiseEvent(evt) || isExecCompletionEvent(evt) || isHeartbeatInstructionLeak(evt)
+  );
 }
 
 // Returns true when a system event should be treated as real cron reminder content.
 export function isCronSystemEvent(evt: string) {
-  if (!evt.trim()) {
-    return false;
-  }
-  return !isHeartbeatNoiseEvent(evt) && !isExecCompletionEvent(evt);
+  return !isSuppressedSystemEvent(evt);
 }

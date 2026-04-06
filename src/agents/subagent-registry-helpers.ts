@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { loadConfig } from "../config/config.js";
@@ -8,6 +9,7 @@ import {
   updateSessionStore,
   type SessionEntry,
 } from "../config/sessions.js";
+import { callGateway } from "../gateway/call.js";
 import { defaultRuntime } from "../runtime.js";
 import { type SubagentRunOutcome } from "./subagent-announce.js";
 import {
@@ -61,6 +63,36 @@ export function logAnnounceGiveUp(entry: SubagentRunRecord, reason: "retry-limit
   defaultRuntime.log(
     `[warn] Subagent announce give up (${reason}) run=${entry.runId} child=${entry.childSessionKey} requester=${entry.requesterSessionKey} retries=${retryCount} endedAgo=${endedAgoLabel}`,
   );
+  // Fire-and-forget dead-letter alert so Frank always knows when a worker result was lost
+  sendAnnounceDeadLetterAlert({ entry, reason, retryCount, endedAgoLabel }).catch(() => {});
+}
+
+async function sendAnnounceDeadLetterAlert(params: {
+  entry: SubagentRunRecord;
+  reason: string;
+  retryCount: number;
+  endedAgoLabel: string;
+}) {
+  const label = params.entry.label?.trim() ? ` label=${params.entry.label.trim()}` : "";
+  const message =
+    `⚠️ Subagent announce dead-letter: reason=${params.reason}${label} ` +
+    `run=${params.entry.runId} child=${params.entry.childSessionKey ?? "?"} ` +
+    `requester=${params.entry.requesterSessionKey ?? "?"} ` +
+    `retries=${params.retryCount} endedAgo=${params.endedAgoLabel}`;
+  try {
+    await callGateway({
+      method: "send",
+      params: {
+        channel: "discord",
+        to: "1481643321922420787",
+        message,
+        idempotencyKey: `subagent-announce-dlq:${crypto.randomUUID()}`,
+      },
+      timeoutMs: 10_000,
+    });
+  } catch {
+    // best effort only
+  }
 }
 
 function findSessionEntryByKey(store: Record<string, SessionEntry>, sessionKey: string) {

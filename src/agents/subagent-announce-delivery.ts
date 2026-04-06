@@ -1,6 +1,5 @@
-import { isSilentReplyText, SILENT_REPLY_TOKEN } from "../auto-reply/tokens.js";
-import { isAnnounceSkip } from "./tools/sessions-send-tokens.js";
 import { resolveQueueSettings } from "../auto-reply/reply/queue.js";
+import { isSilentReplyText, SILENT_REPLY_TOKEN } from "../auto-reply/tokens.js";
 import { getChannelPlugin } from "../channels/plugins/index.js";
 import { loadConfig } from "../config/config.js";
 import {
@@ -42,8 +41,9 @@ import {
 import { type AnnounceQueueItem, enqueueAnnounce } from "./subagent-announce-queue.js";
 import { getSubagentDepthFromSessionStore } from "./subagent-depth.js";
 import type { SpawnSubagentMode } from "./subagent-spawn.js";
+import { isAnnounceSkip } from "./tools/sessions-send-tokens.js";
 
-const DEFAULT_SUBAGENT_ANNOUNCE_TIMEOUT_MS = 90_000;
+const DEFAULT_SUBAGENT_ANNOUNCE_TIMEOUT_MS = 300_000;
 const MAX_TIMER_SAFE_TIMEOUT_MS = 2_147_000_000;
 
 type SubagentAnnounceDeliveryDeps = {

@@ -77,7 +77,7 @@ export function resolveRuntimeResumeSessionId(
   if (!identity) {
     return undefined;
   }
-  return normalizeText(identity.acpxSessionId) ?? normalizeText(identity.agentSessionId);
+  return normalizeText(identity.agentSessionId) ?? normalizeText(identity.acpxSessionId);
 }
 
 export function isSessionIdentityPending(identity: SessionAcpIdentity | undefined): boolean {

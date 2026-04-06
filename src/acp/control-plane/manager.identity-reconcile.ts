@@ -140,7 +140,8 @@ export async function reconcileManagerRuntimeSessionIdentifiers(params: {
       return {
         backend: base.backend,
         agent: base.agent,
-        runtimeSessionName: base.runtimeSessionName,
+        // Keep the encoded runtime handle fresh when ACP repairs a named owner.
+    runtimeSessionName: params.meta.runtimeSessionName ?? base.runtimeSessionName,
         ...(nextIdentity ? { identity: nextIdentity } : {}),
         mode: base.mode,
         ...(base.runtimeOptions ? { runtimeOptions: base.runtimeOptions } : {}),

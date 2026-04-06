@@ -4,6 +4,7 @@ import {
   buildExecEventPrompt,
   isCronSystemEvent,
   isExecCompletionEvent,
+  isSuppressedSystemEvent,
 } from "./heartbeat-events-filter.js";
 
 describe("heartbeat event prompts", () => {
@@ -80,6 +81,25 @@ describe("heartbeat event classification", () => {
   });
 
   it.each([
+    { value: "", expected: true },
+    { value: "   ", expected: true },
+    { value: "HEARTBEAT_OK", expected: true },
+    { value: "System: [2026-04-06 11:04:00] HEARTBEAT_OK", expected: true },
+    { value: "heartbeat poll: noop", expected: true },
+    { value: "heartbeat wake: noop", expected: true },
+    { value: "exec finished: ok", expected: true },
+    { value: "System: [2026-04-06 11:04:00] Exec completed: bash test.sh", expected: true },
+    {
+      value:
+        "Exec completed: bash test.sh\nRead HEARTBEAT.md if it exists (workspace context). Follow it strictly.",
+      expected: true,
+    },
+    { value: "Cron: rotate logs", expected: false },
+  ])("classifies suppressed system events for %j", ({ value, expected }) => {
+    expect(isSuppressedSystemEvent(value)).toBe(expected);
+  });
+
+  it.each([
     { value: "Cron: rotate logs", expected: true },
     { value: "  Cron: rotate logs  ", expected: true },
     { value: "", expected: false },
@@ -90,6 +110,11 @@ describe("heartbeat event classification", () => {
     { value: "heartbeat wake: noop", expected: false },
     { value: "exec finished: ok", expected: false },
     { value: "exec completed: ok", expected: false },
+    {
+      value:
+        "Exec completed: bash test.sh\nRead HEARTBEAT.md if it exists (workspace context). Follow it strictly.",
+      expected: false,
+    },
   ])("classifies cron system events for %j", ({ value, expected }) => {
     expect(isCronSystemEvent(value)).toBe(expected);
   });

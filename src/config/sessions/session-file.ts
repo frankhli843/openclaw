@@ -1,4 +1,5 @@
 import { resolveSessionFilePath } from "./paths.js";
+import { materializeSessionTranscriptFile } from "./session-file.frankclaw.js";
 import { updateSessionStore } from "./store.js";
 import type { SessionEntry } from "./types.js";
 
@@ -31,6 +32,12 @@ export async function resolveAndPersistSessionFile(params: {
     updatedAt: Date.now(),
     sessionFile,
   };
+
+  // [frankclaw] Materialize the transcript file before persisting session
+  // metadata so sessions.json never points at a transcript path that does not
+  // actually exist on disk.
+  await materializeSessionTranscriptFile(sessionFile);
+
   if (baseEntry.sessionId !== sessionId || baseEntry.sessionFile !== sessionFile) {
     sessionStore[sessionKey] = persistedEntry;
     await updateSessionStore(

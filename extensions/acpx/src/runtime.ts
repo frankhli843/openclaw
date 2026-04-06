@@ -134,9 +134,7 @@ function shouldRetainNamedSessionForDeadStatus(detail: AcpxJsonObject | undefine
   return summary?.includes("queue owner unavailable") ?? false;
 }
 
-function resolveResumeSessionIdFromDetail(detail: AcpxJsonObject | undefined): string | undefined {
-  return asOptionalString(detail?.acpxSessionId) ?? asOptionalString(detail?.agentSessionId);
-}
+
 
 function formatAcpxControlErrorMessage(params: {
   code?: string;
