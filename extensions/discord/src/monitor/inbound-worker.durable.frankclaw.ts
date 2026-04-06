@@ -110,6 +110,16 @@ function formatContextSuffix(event: DurableDiscordInboundEvent): string {
   return details.length > 0 ? ` (${details.join(", ")})` : "";
 }
 
+function createCoalescedDiscordMessageHandler(
+  processEvent: (event: DurableDiscordInboundEvent) => Promise<void>,
+): (events: DurableDiscordInboundEvent[]) => Promise<void> {
+  return async (events) => {
+    for (const event of events) {
+      await processEvent(event);
+    }
+  };
+}
+
 export function createDurableDiscordInboundWorker(
   params: DurableDiscordInboundWorkerParams,
 ): DurableDiscordInboundWorker {
@@ -232,6 +242,7 @@ export function createDurableDiscordInboundWorker(
     async start() {
       await durableQueue.start({
         process: processEvent,
+        processBatch: createCoalescedDiscordMessageHandler(processEvent),
       });
       console.info(
         `[frankclaw-durable-worker] started (leaseMs=${leaseMs}, maxAttempts=${maxAttempts})`,
