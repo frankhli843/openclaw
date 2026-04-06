@@ -479,13 +479,12 @@ export async function monitorWebChannel(
     await closeListener();
 
     // Fix: When the watchdog forces a reconnect due to message timeout,
-    // reset lastInboundAt so the next connection gets a fresh grace period.
+    // note a synthetic inbound so the next connection gets a fresh grace period.
     // Without this, the stale timestamp carries over and the watchdog
     // immediately triggers again 60s after reconnect, creating an
     // infinite disconnect/reconnect loop (status 499 flapping).
     if (errorStr.includes("watchdog-timeout")) {
-      status.lastInboundAt = Date.now();
-      status.lastMessageAt = Date.now();
+      statusController.noteInbound(Date.now());
     }
 
     try {

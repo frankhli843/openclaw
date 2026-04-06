@@ -107,9 +107,11 @@ function createLifecycleId(event: DiscordInboundLifecycleEventRef): string {
 
 function resolveLifecycleFilePath(params: {
   stateDir?: string;
+  accountId?: string;
   event: DiscordInboundLifecycleEventRef;
 }): string {
-  return path.join(resolveLifecycleRoot(params), `${createLifecycleId(params.event)}.json`);
+  const accountId = params.accountId ?? params.event.accountId ?? "";
+  return path.join(resolveLifecycleRoot({ stateDir: params.stateDir, accountId }), `${createLifecycleId(params.event)}.json`);
 }
 
 async function ensureLifecycleRoot(root: string): Promise<void> {
