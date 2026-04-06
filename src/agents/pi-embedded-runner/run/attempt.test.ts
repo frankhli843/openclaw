@@ -6,7 +6,7 @@ import {
   resolveOllamaCompatNumCtxEnabled,
   shouldInjectOllamaCompatNumCtx,
   wrapOllamaCompatNumCtx,
-} from "../../../plugin-sdk/ollama.js";
+} from "../../../plugin-sdk/ollama-runtime.js";
 import { appendBootstrapPromptWarning } from "../../bootstrap-budget.js";
 import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "../../system-prompt-cache-boundary.js";
 import { buildAgentSystemPrompt } from "../../system-prompt.js";
@@ -1409,6 +1409,47 @@ describe("wrapStreamFnSanitizeMalformedToolCalls", () => {
     ]);
   });
 
+  it.each(["toolCall", "functionCall"] as const)(
+    "preserves matching Anthropic user tool_result blocks after %s replay turns",
+    async (toolCallType) => {
+      const messages = [
+        {
+          role: "assistant",
+          content: [{ type: toolCallType, id: "call_1", name: "read", arguments: {} }],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "toolResult",
+              toolUseId: "call_1",
+              content: [{ type: "text", text: "kept result" }],
+            },
+            { type: "text", text: "retry" },
+          ],
+        },
+      ];
+      const baseFn = vi.fn((_model, _context) =>
+        createFakeStream({ events: [], resultMessage: { role: "assistant", content: [] } }),
+      );
+
+      const wrapped = wrapStreamFnSanitizeMalformedToolCalls(baseFn as never, new Set(["read"]), {
+        validateGeminiTurns: false,
+        validateAnthropicTurns: true,
+      });
+      const stream = wrapped({} as never, { messages } as never, {} as never) as
+        | FakeWrappedStream
+        | Promise<FakeWrappedStream>;
+      await Promise.resolve(stream);
+
+      expect(baseFn).toHaveBeenCalledTimes(1);
+      const seenContext = baseFn.mock.calls[0]?.[1] as {
+        messages: Array<{ role?: string; content?: unknown[] }>;
+      };
+      expect(seenContext.messages).toEqual(messages);
+    },
+  );
+
   it("drops orphaned Anthropic user tool_result blocks after dropping an assistant replay turn", async () => {
     const messages = [
       {
@@ -1774,6 +1815,43 @@ describe("wrapStreamFnRepairMalformedToolCallArguments", () => {
     }
 
     expect(partialToolCall.arguments).toEqual({});
+    expect(streamedToolCall.arguments).toEqual({});
+  });
+
+  it("preserves preexisting tool arguments when later reevaluation fails", async () => {
+    const partialToolCall = {
+      type: "toolCall",
+      name: "read",
+      arguments: { path: "/etc/hosts" },
+    };
+    const streamedToolCall = { type: "toolCall", name: "read", arguments: {} };
+    const partialMessage = { role: "assistant", content: [partialToolCall] };
+    const baseFn = vi.fn(() =>
+      createFakeStream({
+        events: [
+          {
+            type: "toolcall_delta",
+            contentIndex: 0,
+            delta: "}",
+            partial: partialMessage,
+          },
+          {
+            type: "toolcall_end",
+            contentIndex: 0,
+            toolCall: streamedToolCall,
+            partial: partialMessage,
+          },
+        ],
+        resultMessage: { role: "assistant", content: [partialToolCall] },
+      }),
+    );
+
+    const stream = await invokeWrappedStream(baseFn);
+    for await (const _item of stream) {
+      // drain
+    }
+
+    expect(partialToolCall.arguments).toEqual({ path: "/etc/hosts" });
     expect(streamedToolCall.arguments).toEqual({});
   });
 });

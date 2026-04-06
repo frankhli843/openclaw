@@ -34,6 +34,21 @@ vi.mock("../agents/model-auth.js", () => ({
   hasUsableCustomProviderApiKey,
 }));
 
+const resolveOwningPluginIdsForProvider = vi.hoisted(() =>
+  vi.fn(({ provider }: { provider: string }) => {
+    if (provider === "byteplus" || provider === "byteplus-plan") {
+      return ["byteplus"];
+    }
+    if (provider === "volcengine" || provider === "volcengine-plan") {
+      return ["volcengine"];
+    }
+    return undefined;
+  }),
+);
+vi.mock("../plugins/providers.js", () => ({
+  resolveOwningPluginIdsForProvider,
+}));
+
 const providerModelPickerContributionRuntime = vi.hoisted(() => ({
   enabled: false,
   resolve: vi.fn(() => []),
@@ -85,9 +100,105 @@ function createSelectAllMultiselect() {
 beforeEach(() => {
   vi.clearAllMocks();
   providerModelPickerContributionRuntime.enabled = false;
+  resolveOwningPluginIdsForProvider.mockImplementation(({ provider }: { provider: string }) => {
+    if (provider === "byteplus" || provider === "byteplus-plan") {
+      return ["byteplus"];
+    }
+    if (provider === "volcengine" || provider === "volcengine-plan") {
+      return ["volcengine"];
+    }
+    return undefined;
+  });
 });
 
 describe("promptDefaultModel", () => {
+  it("adds auth-route hints for OpenAI API and Codex OAuth models", async () => {
+    loadModelCatalog.mockResolvedValue([
+      {
+        provider: "openai",
+        id: "gpt-5.4",
+        name: "GPT-5.4",
+      },
+      {
+        provider: "openai-codex",
+        id: "gpt-5.4",
+        name: "GPT-5.4",
+      },
+    ]);
+
+    const select = vi.fn(async (params) => params.initialValue as never);
+    const prompter = makePrompter({ select });
+
+    await promptDefaultModel({
+      config: { agents: { defaults: {} } } as OpenClawConfig,
+      prompter,
+      allowKeep: false,
+      includeManual: false,
+      ignoreAllowlist: true,
+    });
+
+    const options = select.mock.calls[0]?.[0]?.options ?? [];
+    expect(options).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          value: "openai/gpt-5.4",
+          hint: expect.stringContaining("API key route"),
+        }),
+        expect.objectContaining({
+          value: "openai-codex/gpt-5.4",
+          hint: expect.stringContaining("ChatGPT OAuth route"),
+        }),
+      ]),
+    );
+  });
+
+  it("treats byteplus plan models as preferred-provider matches", async () => {
+    loadModelCatalog.mockResolvedValue([
+      {
+        provider: "openai",
+        id: "gpt-5.4",
+        name: "GPT-5.4",
+      },
+      {
+        provider: "byteplus-plan",
+        id: "ark-code-latest",
+        name: "Ark Coding Plan",
+      },
+    ]);
+
+    const select = vi.fn(async (params) => params.initialValue as never);
+    const prompter = makePrompter({ select });
+    const config = {
+      agents: {
+        defaults: {
+          model: "openai/gpt-5.4",
+        },
+      },
+    } as OpenClawConfig;
+
+    const result = await promptDefaultModel({
+      config,
+      prompter,
+      allowKeep: true,
+      includeManual: false,
+      ignoreAllowlist: true,
+      preferredProvider: "byteplus",
+    });
+
+    const options = select.mock.calls[0]?.[0]?.options ?? [];
+    const optionValues = options.map((opt: { value: string }) => opt.value);
+    expect(optionValues).toContain("byteplus-plan/ark-code-latest");
+    expect(optionValues[1]).toBe("byteplus-plan/ark-code-latest");
+    expect(select.mock.calls[0]?.[0]?.initialValue).toBe("byteplus-plan/ark-code-latest");
+    expect(result.model).toBe("byteplus-plan/ark-code-latest");
+    expect(resolveOwningPluginIdsForProvider).toHaveBeenCalledWith(
+      expect.objectContaining({ provider: "byteplus" }),
+    );
+    expect(resolveOwningPluginIdsForProvider).toHaveBeenCalledWith(
+      expect.objectContaining({ provider: "byteplus-plan" }),
+    );
+  });
+
   it("supports configuring vLLM during setup", async () => {
     loadModelCatalog.mockResolvedValue([
       {
@@ -148,8 +259,7 @@ describe("promptDefaultModel", () => {
       config,
       workspaceDir: undefined,
       env: undefined,
-      bundledProviderAllowlistCompat: true,
-      bundledProviderVitestCompat: true,
+      mode: "setup",
     });
     expect(result.model).toBe("vllm/meta-llama/Meta-Llama-3-8B-Instruct");
     expect(result.config?.models?.providers?.vllm).toMatchObject({

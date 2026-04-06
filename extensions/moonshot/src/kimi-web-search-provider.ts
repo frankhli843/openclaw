@@ -109,10 +109,7 @@ function resolveKimiBaseUrl(kimi?: KimiConfig, openClawConfig?: OpenClawConfig):
   const moonshotBaseUrl = openClawConfig?.models?.providers?.moonshot?.baseUrl;
   if (typeof moonshotBaseUrl === "string") {
     const normalizedMoonshotBaseUrl = trimTrailingSlashes(moonshotBaseUrl.trim());
-    if (
-      normalizedMoonshotBaseUrl &&
-      isNativeMoonshotBaseUrl(normalizedMoonshotBaseUrl)
-    ) {
+    if (normalizedMoonshotBaseUrl && isNativeMoonshotBaseUrl(normalizedMoonshotBaseUrl)) {
       return normalizedMoonshotBaseUrl;
     }
   }
@@ -287,7 +284,7 @@ function createKimiToolDefinition(
       "Search the web using Kimi by Moonshot. Returns AI-synthesized answers with citations from native $web_search.",
     parameters: createKimiSchema(),
     execute: async (args) => {
-      const params = args as Record<string, unknown>;
+      const params = args;
       const unsupportedResponse = buildUnsupportedSearchFilterResponse(params, "kimi");
       if (unsupportedResponse) {
         return unsupportedResponse;

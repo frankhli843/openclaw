@@ -21,6 +21,7 @@ import {
   type MSTeamsAttachmentLike,
   summarizeMSTeamsHtmlAttachments,
 } from "../attachments.js";
+import { isRecord } from "../attachments/shared.js";
 import type { StoredConversationReference } from "../conversation-store.js";
 import { formatUnknownError } from "../errors.js";
 import {
@@ -44,15 +45,14 @@ function extractTextFromHtmlAttachments(attachments: MSTeamsAttachmentLike[]): s
     if (attachment.contentType !== "text/html") {
       continue;
     }
-    const c = attachment.content;
-    const rec = typeof c === "object" && c !== null ? (c as Record<string, unknown>) : undefined;
+    const content = attachment.content;
     const raw =
-      typeof c === "string"
-        ? c
-        : typeof rec?.text === "string"
-          ? rec.text
-          : typeof rec?.body === "string"
-            ? rec.body
+      typeof content === "string"
+        ? content
+        : isRecord(content) && typeof content.text === "string"
+          ? content.text
+          : isRecord(content) && typeof content.body === "string"
+            ? content.body
             : "";
     if (!raw) {
       continue;

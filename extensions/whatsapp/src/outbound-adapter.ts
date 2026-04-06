@@ -17,7 +17,7 @@ import {
 } from "../../../src/infra/outbound/discord-dnr.js";
 import { WHATSAPP_LEGACY_OUTBOUND_SEND_DEP_KEYS } from "./outbound-send-deps.js";
 import { resolveWhatsAppOutboundTarget } from "./runtime-api.js";
-import { sendMessageWhatsApp, sendPollWhatsApp } from "./send.js";
+import { sendPollWhatsApp } from "./send.js";
 
 const dnrLog = createSubsystemLogger("whatsapp-dnr");
 

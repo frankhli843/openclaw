@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { createAgentsVitestConfig } from "../vitest.agents.config.ts";
 import bundledConfig from "../vitest.bundled.config.ts";
+import { createCommandsLightVitestConfig } from "../vitest.commands-light.config.ts";
 import { createCommandsVitestConfig } from "../vitest.commands.config.ts";
 import baseConfig, { rootVitestProjects } from "../vitest.config.ts";
 import { createContractsVitestConfig } from "../vitest.contracts.config.ts";
 import { createGatewayVitestConfig } from "../vitest.gateway.config.ts";
+import { createPluginSdkLightVitestConfig } from "../vitest.plugin-sdk-light.config.ts";
 import { createUiVitestConfig } from "../vitest.ui.config.ts";
 import { createUnitVitestConfig } from "../vitest.unit.config.ts";
 
@@ -13,14 +15,16 @@ describe("projects vitest config", () => {
     expect(baseConfig.test?.projects).toEqual([...rootVitestProjects]);
   });
 
-  it("keeps every root project on thread workers", () => {
+  it("keeps root projects on the shared thread-first pool by default", () => {
     expect(createGatewayVitestConfig().test.pool).toBe("threads");
     expect(createAgentsVitestConfig().test.pool).toBe("threads");
+    expect(createCommandsLightVitestConfig().test.pool).toBe("threads");
     expect(createCommandsVitestConfig().test.pool).toBe("threads");
+    expect(createPluginSdkLightVitestConfig().test.pool).toBe("threads");
     expect(createContractsVitestConfig().test.pool).toBe("threads");
   });
 
-  it("keeps the contracts lane on the shared non-isolated runner", () => {
+  it("keeps the contracts lane on the non-isolated runner by default", () => {
     const config = createContractsVitestConfig();
     expect(config.test.isolate).toBe(false);
     expect(config.test.runner).toBe("./test/non-isolated-runner.ts");
@@ -36,13 +40,13 @@ describe("projects vitest config", () => {
     expect(config.test.deps?.optimizer?.web?.enabled).toBe(true);
   });
 
-  it("keeps the unit lane on the shared non-isolated runner", () => {
+  it("keeps the unit lane on the non-isolated runner by default", () => {
     const config = createUnitVitestConfig();
     expect(config.test.isolate).toBe(false);
     expect(config.test.runner).toBe("./test/non-isolated-runner.ts");
   });
 
-  it("keeps the bundled lane on the shared non-isolated runner", () => {
+  it("keeps the bundled lane on thread workers with the non-isolated runner", () => {
     expect(bundledConfig.test?.pool).toBe("threads");
     expect(bundledConfig.test?.isolate).toBe(false);
     expect(bundledConfig.test?.runner).toBe("./test/non-isolated-runner.ts");
