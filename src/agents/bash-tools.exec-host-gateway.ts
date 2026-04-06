@@ -170,10 +170,6 @@ export async function processGatewayAllowlist(
     allowlistSatisfied &&
     !enforcedCommand &&
     allowlistPlanUnavailableReason !== null;
-  // When security=full and ask=off, obfuscation should not force an approval prompt.
-  // This is the trusted-local-automation path: the user explicitly opted out of all prompts.
-  const obfuscationRequiresAsk =
-    obfuscation.detected && !(hostSecurity === "full" && hostAsk === "off");
   const requiresAsk =
     requiresExecApproval({
       ask: hostAsk,
