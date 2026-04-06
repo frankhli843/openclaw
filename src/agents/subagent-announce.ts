@@ -196,6 +196,25 @@ function buildAnnounceSteerMessage(events: AgentInternalEvent[]): string {
   );
 }
 
+function buildSilentCompletionFallbackReply(params: {
+  taskLabel: string;
+  outcome?: SubagentRunOutcome;
+}): string {
+  const taskLabel = params.taskLabel.trim() || "task";
+  switch (params.outcome?.status) {
+    case "ok":
+      return `${taskLabel} completed, but the worker did not return a usable summary.`;
+    case "timeout":
+      return `${taskLabel} timed out before the worker returned a usable summary.`;
+    case "error":
+      return params.outcome.error?.trim()
+        ? `${taskLabel} failed: ${params.outcome.error.trim()}. The worker did not return a usable summary.`
+        : `${taskLabel} failed, and the worker did not return a usable summary.`;
+    default:
+      return `${taskLabel} finished, but the worker did not return a usable summary.`;
+  }
+}
+
 function hasUsableSessionEntry(entry: unknown): boolean {
   if (!entry || typeof entry !== "object") {
     return false;
@@ -468,6 +487,13 @@ export async function runSubagentAnnounceFlow(params: {
         reply = fallbackReply;
       }
 
+      if (!reply?.trim() && expectsCompletionMessage) {
+        reply = buildSilentCompletionFallbackReply({
+          taskLabel: params.label || params.task || "task",
+          outcome,
+        });
+      }
+
       // A worker can finish just after the first wait request timed out.
       // If we already have real completion content, do one cached recheck so
       // the final completion event prefers the authoritative terminal state.
@@ -493,6 +519,11 @@ export async function runSubagentAnnounceFlow(params: {
       if (isAnnounceSkip(reply) || isSilentReplyText(reply, SILENT_REPLY_TOKEN)) {
         if (fallbackReply && !fallbackIsSilent) {
           reply = fallbackReply;
+        } else if (expectsCompletionMessage) {
+          reply = buildSilentCompletionFallbackReply({
+            taskLabel: params.label || params.task || "task",
+            outcome,
+          });
         } else {
           return true;
         }

@@ -144,8 +144,12 @@ export async function processDiscordMessage(
     discordRestFetch,
     abortSignal,
   } = ctx;
+  // [frankclaw] Pre-run abort checks must throw (not return) so the durable
+  // queue treats the job as failed and retries it on next boot.  A silent
+  // return here causes the queue to delete the job permanently, losing the
+  // message.
   if (isProcessAborted(abortSignal)) {
-    return;
+    throw new Error("process aborted before run started");
   }
 
   const ssrfPolicy = cfg.browser?.ssrfPolicy;
@@ -158,7 +162,7 @@ export async function processDiscordMessage(
   };
   const mediaList = await resolveMediaList(message, mediaMaxBytes, mediaResolveOptions);
   if (isProcessAborted(abortSignal)) {
-    return;
+    throw new Error("process aborted before run started");
   }
   const forwardedMediaList = await resolveForwardedMediaList(
     message,
@@ -166,7 +170,7 @@ export async function processDiscordMessage(
     mediaResolveOptions,
   );
   if (isProcessAborted(abortSignal)) {
-    return;
+    throw new Error("process aborted before run started");
   }
   mediaList.push(...forwardedMediaList);
   const text = messageText;

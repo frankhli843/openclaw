@@ -24,9 +24,10 @@ export async function drainFormattedSystemEvents(params: {
     if (lower.includes("reason periodic")) {
       return null;
     }
-    // Filter out the actual heartbeat prompt, but not cron jobs that mention "heartbeat".
-    // The heartbeat prompt starts with "Read HEARTBEAT.md" - cron payloads won't match this.
-    if (lower.startsWith("read heartbeat.md")) {
+    // Filter out the actual heartbeat prompt even when it is wrapped inside
+    // exec/system completion text. Cron payloads should not contain the exact
+    // workspace HEARTBEAT prompt.
+    if (lower.includes("read heartbeat.md")) {
       return null;
     }
     if (lower.includes("heartbeat poll") || lower.includes("heartbeat wake")) {

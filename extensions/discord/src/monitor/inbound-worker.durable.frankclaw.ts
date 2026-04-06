@@ -26,13 +26,46 @@ import type { DiscordMonitorStatusSink } from "./status.js";
 import { normalizeDiscordInboundWorkerTimeoutMs, runDiscordTaskWithTimeout } from "./timeouts.js";
 
 /**
- * Default lease duration for Discord durable queue jobs.
- * Must be longer than the typical LLM run to prevent premature re-queuing.
- * 10 minutes gives generous headroom over the default 30-minute worker timeout
- * (the worker timeout fires first and aborts the run; the lease is a safety net
- * for hard crashes where the timeout can't fire).
+ * Buffer added on top of the worker timeout to derive the lease duration.
+ * The lease must be longer than the worker timeout so the timeout fires first
+ * and cleanly aborts the run before the lease expires.  5 minutes gives
+ * headroom for cleanup after timeout.
  */
-const DISCORD_DURABLE_LEASE_MS = 10 * 60_000;
+const LEASE_BUFFER_MS = 5 * 60_000;
+
+/**
+ * Conservative fallback lease when the worker timeout is disabled (unlimited).
+ * 60 minutes prevents infinite invisibility while still allowing long runs.
+ */
+const LEASE_FALLBACK_UNLIMITED_MS = 60 * 60_000;
+
+/**
+ * Resolve the effective lease duration for durable queue jobs.
+ *
+ * The lease (visibility timeout) must always exceed the worker run timeout so
+ * the timeout fires first and aborts the run cleanly.  If the lease expires
+ * before the timeout, the queue reclaims the job while it's still running,
+ * causing duplicate executions.
+ */
+function resolveDiscordDurableLeaseMs(params: {
+  requestedLeaseMs: number | undefined;
+  timeoutMs: number | undefined;
+}): number {
+  // When the worker timeout is disabled, use a conservative fallback — we
+  // can't derive from the timeout so pick something generous.
+  if (params.timeoutMs == null) {
+    return LEASE_FALLBACK_UNLIMITED_MS;
+  }
+
+  const minLease = params.timeoutMs + LEASE_BUFFER_MS;
+
+  // If an explicit lease was provided and it's already large enough, keep it.
+  if (params.requestedLeaseMs != null && params.requestedLeaseMs >= minLease) {
+    return params.requestedLeaseMs;
+  }
+
+  return minLease;
+}
 
 /**
  * Maximum retry attempts before dead-lettering a message.
@@ -80,9 +113,12 @@ function formatContextSuffix(event: DurableDiscordInboundEvent): string {
 export function createDurableDiscordInboundWorker(
   params: DurableDiscordInboundWorkerParams,
 ): DurableDiscordInboundWorker {
-  const leaseMs = params.leaseMs ?? DISCORD_DURABLE_LEASE_MS;
   const maxAttempts = params.maxAttempts ?? DISCORD_DURABLE_MAX_ATTEMPTS;
   const timeoutMs = normalizeDiscordInboundWorkerTimeoutMs(params.runTimeoutMs);
+  const leaseMs = resolveDiscordDurableLeaseMs({
+    requestedLeaseMs: params.leaseMs,
+    timeoutMs,
+  });
 
   const durableQueue = createDiscordInboundDurableQueue({
     accountId: params.accountId,
@@ -208,3 +244,6 @@ export function createDurableDiscordInboundWorker(
     },
   };
 }
+
+/** @internal Exposed for unit tests only. */
+export const __testing = { resolveDiscordDurableLeaseMs };

@@ -1,3 +1,4 @@
+import { isSilentReplyText, SILENT_REPLY_TOKEN } from "../auto-reply/tokens.js";
 import { resolveQueueSettings } from "../auto-reply/reply/queue.js";
 import { getChannelPlugin } from "../channels/plugins/index.js";
 import { loadConfig } from "../config/config.js";
@@ -31,6 +32,7 @@ import {
 } from "../utils/message-channel.js";
 import { buildAnnounceIdempotencyKey, resolveQueueAnnounceId } from "./announce-idempotency.js";
 import type { AgentInternalEvent } from "./internal-events.js";
+import { stripInternalRuntimeContext } from "./internal-runtime-context.js";
 import { isEmbeddedPiRunActive, queueEmbeddedPiMessage } from "./pi-embedded.js";
 import {
   runSubagentAnnounceDispatch,
@@ -91,6 +93,80 @@ function summarizeDeliveryError(error: unknown): string {
   } catch {
     return "error";
   }
+}
+
+function normalizeCompletionReplyText(text: string): string {
+  const stripped = stripInternalRuntimeContext(text).trim();
+  if (!stripped) {
+    return "";
+  }
+  if (isAnnounceSkip(stripped) || isSilentReplyText(stripped, SILENT_REPLY_TOKEN)) {
+    return "";
+  }
+  return stripped;
+}
+
+function collectCompletionReplySignals(
+  value: unknown,
+  state: { texts: string[]; hasMedia: boolean },
+  depth = 0,
+): void {
+  if (value == null || depth > 5) {
+    return;
+  }
+  if (typeof value === "string") {
+    const normalized = normalizeCompletionReplyText(value);
+    if (normalized) {
+      state.texts.push(normalized);
+    }
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      collectCompletionReplySignals(item, state, depth + 1);
+    }
+    return;
+  }
+  if (typeof value !== "object") {
+    return;
+  }
+
+  const record = value as Record<string, unknown>;
+  if (typeof record.mediaUrl === "string" || typeof record.mediaPath === "string") {
+    state.hasMedia = true;
+  }
+
+  const content = record.content;
+  if (Array.isArray(content)) {
+    for (const block of content) {
+      if (!block || typeof block !== "object") {
+        continue;
+      }
+      const typedBlock = block as Record<string, unknown>;
+      const type = typeof typedBlock.type === "string" ? typedBlock.type : "";
+      if (type === "image" || type === "audio" || type === "video" || type === "file") {
+        state.hasMedia = true;
+      }
+      if (typeof typedBlock.text === "string") {
+        const normalized = normalizeCompletionReplyText(typedBlock.text);
+        if (normalized) {
+          state.texts.push(normalized);
+        }
+      }
+    }
+  }
+
+  for (const key of ["text", "reply", "payloads", "message", "messages", "final", "finalReply"]) {
+    if (key in record) {
+      collectCompletionReplySignals(record[key], state, depth + 1);
+    }
+  }
+}
+
+function hasDeliverableCompletionFinalResult(result: unknown): boolean {
+  const state = { texts: [] as string[], hasMedia: false };
+  collectCompletionReplySignals(result, state);
+  return state.hasMedia || state.texts.length > 0;
 }
 
 function shouldStripThreadFromAnnounceEntry(
@@ -526,7 +602,7 @@ async function sendSubagentAnnounceDirectly(params: {
         path: "none",
       };
     }
-    await runAnnounceDeliveryWithRetry({
+    const agentResult = await runAnnounceDeliveryWithRetry<unknown>({
       operation: params.expectsCompletionMessage
         ? "completion direct announce agent call"
         : "direct announce agent call",
@@ -568,6 +644,18 @@ async function sendSubagentAnnounceDirectly(params: {
           timeoutMs: announceTimeoutMs,
         }),
     });
+
+    if (
+      params.expectsCompletionMessage &&
+      !params.requesterIsSubagent &&
+      !hasDeliverableCompletionFinalResult(agentResult)
+    ) {
+      return {
+        delivered: false,
+        path: "direct",
+        error: "completion update produced no user-facing reply",
+      };
+    }
 
     return {
       delivered: true,
@@ -649,4 +737,6 @@ export const __testing = {
         }
       : defaultSubagentAnnounceDeliveryDeps;
   },
+  hasDeliverableCompletionFinalResult,
+  sendSubagentAnnounceDirectly,
 };

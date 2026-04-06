@@ -93,7 +93,7 @@
     },
     {
       "name": "Durable inbound queue",
-      "description": "Frankclaw durable worker for Discord inbound message processing with crash recovery",
+      "description": "Frankclaw durable worker for Discord inbound message processing with crash recovery, safe visibility timeout sizing, and coalesced batch handling",
       "static": [
         {
           "file": "extensions/discord/src/monitor/message-handler.ts",
@@ -116,16 +116,35 @@
           "context": "createDiscordMessageHandler",
           "minCount": 1,
           "note": "client must be passed so durable worker activates"
+        },
+        {
+          "file": "extensions/discord/src/monitor/inbound-worker.durable.frankclaw.ts",
+          "pattern": "resolveDiscordDurableLeaseMs",
+          "minCount": 1,
+          "note": "Lease sizing helper that ensures durable queue visibility timeout is >= worker run timeout"
+        },
+        {
+          "file": "extensions/discord/src/monitor/inbound-worker.durable.frankclaw.ts",
+          "pattern": "createCoalescedDiscordMessageHandler",
+          "minCount": 1,
+          "note": "Ensures durable queue batches are processed via coalesced handler when available"
         }
       ],
       "tests": [
         "extensions/discord/src/monitor/inbound-worker.durable.frankclaw.test.ts",
-        "extensions/discord/src/monitor/message-handler.worker.frankclaw.test.ts"
+        "extensions/discord/src/monitor/message-handler.worker.frankclaw.test.ts",
+        "extensions/discord/src/monitor/inbound-worker.durable.frankclaw.lease.test.ts",
+        "extensions/discord/src/monitor/inbound-worker.durable.frankclaw.batch-hook.test.ts"
       ],
       "runtime": [
         {
           "logPattern": "[frankclaw-durable-worker] started",
           "withinSeconds": 120
+        },
+        {
+          "logPattern": "[durable-queue-diag] processing batch:",
+          "onEvent": true,
+          "note": "Only fires when Discord messages are queued and coalesced by the durable inbound queue"
         }
       ]
     },
@@ -699,6 +718,20 @@
       "description": "Store offline catch-up (append upsert) messages in groupHistories buffer for group context, even when too old for auto-reply. Fixes empty InboundHistory when messages arrive before gateway start.",
       "status": "planned",
       "static": [],
+      "tests": [],
+      "runtime": []
+    },
+    {
+      "name": "Durable queue pre-run abort safety",
+      "description": "Pre-run abort checks in processDiscordMessage throw instead of returning silently, preventing the durable queue from permanently deleting messages that were never processed",
+      "static": [
+        {
+          "file": "extensions/discord/src/monitor/message-handler.process.ts",
+          "pattern": "process aborted before run started",
+          "minCount": 3,
+          "note": "Three pre-run abort checks must throw instead of return to prevent message loss on gateway shutdown"
+        }
+      ],
       "tests": [],
       "runtime": []
     },
