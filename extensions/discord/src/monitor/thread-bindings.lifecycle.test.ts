@@ -977,6 +977,52 @@ describe("thread binding lifecycle", () => {
     expect(hoisted.restPost).not.toHaveBeenCalled();
   });
 
+  it("strips channel: prefix from conversationId when creating child thread binding", async () => {
+    createThreadBindingManager({
+      accountId: "default",
+      persist: false,
+      enableSweeper: false,
+      idleTimeoutMs: 24 * 60 * 60 * 1000,
+      maxAgeMs: 0,
+    });
+
+    // Simulate what happens after the plugin refactor: resolveInboundConversation
+    // returns a prefixed conversationId like "channel:123456" instead of bare "123456".
+    hoisted.restGet.mockClear();
+    hoisted.restGet.mockResolvedValueOnce({
+      id: "123456",
+      type: ChannelType.GuildText,
+    });
+    hoisted.createThreadDiscord.mockClear();
+    hoisted.createThreadDiscord.mockResolvedValueOnce({ id: "thread-from-prefixed" });
+
+    const bound = await getSessionBindingService().bind({
+      targetSessionKey: "agent:claude:acp:session-1",
+      targetKind: "session",
+      conversation: {
+        channel: "discord",
+        accountId: "default",
+        conversationId: "channel:123456",
+      },
+      placement: "child",
+      metadata: {
+        threadName: "ACP test session",
+        agentId: "claude",
+        boundBy: "system",
+      },
+    });
+
+    expect(bound).toBeTruthy();
+    expect(bound.conversation.conversationId).toBe("thread-from-prefixed");
+    // The channel resolve call should receive the bare ID, not the prefixed one.
+    expect(hoisted.restGet).toHaveBeenCalledTimes(1);
+    expect(hoisted.createThreadDiscord).toHaveBeenCalledWith(
+      "123456",
+      expect.objectContaining({ autoArchiveMinutes: 60 }),
+      expect.objectContaining({ accountId: "default" }),
+    );
+  });
+
   it("keeps overlapping thread ids isolated per account", async () => {
     const a = createThreadBindingManager({
       accountId: "a",

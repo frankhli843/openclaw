@@ -181,9 +181,7 @@
           "minCount": 1
         }
       ],
-      "tests": [
-        "extensions/discord/src/monitor/message-handler.preflight.frankclaw.test.ts"
-      ],
+      "tests": ["extensions/discord/src/monitor/message-handler.preflight.frankclaw.test.ts"],
       "runtime": []
     },
     {
@@ -201,9 +199,7 @@
           "minCount": 1
         }
       ],
-      "tests": [
-        "extensions/whatsapp/src/auto-reply/monitor/group-gating.frankclaw.test.ts"
-      ],
+      "tests": ["extensions/whatsapp/src/auto-reply/monitor/group-gating.frankclaw.test.ts"],
       "runtime": []
     },
     {
@@ -394,9 +390,7 @@
           "minCount": 1
         }
       ],
-      "tests": [
-        "src/cli/daemon-cli/restart-selfheal.frankclaw.test.ts"
-      ],
+      "tests": ["src/cli/daemon-cli/restart-selfheal.frankclaw.test.ts"],
       "runtime": []
     },
     {
@@ -454,9 +448,7 @@
           "note": "called in toDiscordMessageEvent for batch path"
         }
       ],
-      "tests": [
-        "extensions/discord/src/monitor/inbound-job.rehydrate.test.ts"
-      ],
+      "tests": ["extensions/discord/src/monitor/inbound-job.rehydrate.test.ts"],
       "runtime": []
     },
     {
@@ -488,9 +480,7 @@
           "note": "wraps commandBody with global instructions for cron runs"
         }
       ],
-      "tests": [
-        "src/agents/subagent-instructions.test.ts"
-      ],
+      "tests": ["src/agents/subagent-instructions.test.ts"],
       "runtime": [
         {
           "logPattern": "Subagent Global Instructions prepended",
@@ -846,9 +836,7 @@
           "minCount": 1
         }
       ],
-      "tests": [
-        "src/agents/subagent-announce-delivery.silent-result.test.ts"
-      ],
+      "tests": ["src/agents/subagent-announce-delivery.silent-result.test.ts"],
       "runtime": []
     },
     {
@@ -919,6 +907,22 @@
         "extensions/acpx/src/runtime.resume-session-selection.test.ts",
         "src/acp/control-plane/identity.resume-session-selection.test.ts"
       ],
+      "runtime": []
+    },
+    {
+      "id": "discord-acp-thread-binding-prefix-strip",
+      "name": "Discord ACP thread binding prefix strip",
+      "description": "Strips channel:/user: prefix from conversation IDs before Discord API calls in the session binding adapter's child-placement bind path. Without this, the plugin refactor's resolveInboundConversation returns prefixed IDs that Discord rejects.",
+      "location": "extensions/discord/src/monitor/thread-bindings.manager.ts",
+      "hookPoint": "sessionBindingAdapter.bind() → resolveChannelIdForBinding call",
+      "static": [
+        {
+          "file": "extensions/discord/src/monitor/thread-bindings.manager.ts",
+          "pattern": "stripConversationPrefix",
+          "minCount": 2
+        }
+      ],
+      "tests": ["extensions/discord/src/monitor/thread-bindings.lifecycle.test.ts"],
       "runtime": []
     }
   ]

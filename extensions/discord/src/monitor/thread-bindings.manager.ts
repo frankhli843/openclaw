@@ -125,6 +125,11 @@ function isDirectConversationBindingId(value?: string | null): boolean {
   return Boolean(trimmed && /^(user:|channel:)/i.test(trimmed));
 }
 
+/** Strip `channel:` / `user:` prefix to get a bare Discord snowflake. */
+function stripConversationPrefix(value: string): string {
+  return value.replace(/^(channel:|user:)/i, "");
+}
+
 function toSessionBindingRecord(
   record: ThreadBindingRecord,
   defaults: { idleTimeoutMs: number; maxAgeMs: number },
@@ -614,12 +619,15 @@ export function createThreadBindingManager(
         createThread = true;
         if (!channelId && conversationId) {
           const cfg = resolveCurrentCfg();
+          // The conversation ID may carry a `channel:` prefix from the
+          // plugin's resolveInboundConversation; Discord API needs a bare
+          // snowflake, so strip it before the API call.
           channelId =
             (await resolveChannelIdForBinding({
               cfg,
               accountId,
               token: resolveCurrentToken(),
-              threadId: conversationId,
+              threadId: stripConversationPrefix(conversationId),
             })) ?? undefined;
         }
       } else {
