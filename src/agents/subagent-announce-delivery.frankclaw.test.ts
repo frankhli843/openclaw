@@ -38,18 +38,21 @@ describe("subagent announce dead-letter alert", () => {
     runId: "run-abc",
     childSessionKey: "agent:main:subagent:child-1",
     requesterSessionKey: "agent:main:session:req-1",
+    requesterDisplayKey: "req-1",
+    task: "test task",
+    cleanup: "delete",
+    createdAt: Date.now() - 120_000,
     label: "test-task",
     announceRetryCount: MAX_ANNOUNCE_RETRY_COUNT,
     endedAt: Date.now() - 60_000,
     startedAt: Date.now() - 120_000,
-    status: "ended",
-  } as SubagentRunRecord;
+  };
 
   it("fires dead-letter alert via callGateway on retry-limit give up", () => {
     logAnnounceGiveUp(baseEntry, "retry-limit");
 
     expect(mockCallGateway).toHaveBeenCalledOnce();
-    const call = mockCallGateway.mock.calls[0][0];
+    const call = mockCallGateway.mock.calls[0][0] as Record<string, any>;
     expect(call.method).toBe("send");
     expect(call.params.channel).toBe("discord");
     expect(call.params.message).toContain("dead-letter");
@@ -61,21 +64,21 @@ describe("subagent announce dead-letter alert", () => {
     logAnnounceGiveUp(baseEntry, "expiry");
 
     expect(mockCallGateway).toHaveBeenCalledOnce();
-    const call = mockCallGateway.mock.calls[0][0];
+    const call = mockCallGateway.mock.calls[0][0] as Record<string, any>;
     expect(call.params.message).toContain("reason=expiry");
   });
 
   it("includes label in the dead-letter message when present", () => {
     logAnnounceGiveUp(baseEntry, "retry-limit");
 
-    const call = mockCallGateway.mock.calls[0][0];
+    const call = mockCallGateway.mock.calls[0][0] as Record<string, any>;
     expect(call.params.message).toContain("label=test-task");
   });
 
   it("omits label from the dead-letter message when empty", () => {
     logAnnounceGiveUp({ ...baseEntry, label: "" }, "retry-limit");
 
-    const call = mockCallGateway.mock.calls[0][0];
+    const call = mockCallGateway.mock.calls[0][0] as Record<string, any>;
     expect(call.params.message).not.toContain("label=");
   });
 
@@ -90,7 +93,7 @@ describe("subagent announce dead-letter alert", () => {
   it("sends to the correct Discord channel for dead-letter alerts", () => {
     logAnnounceGiveUp(baseEntry, "retry-limit");
 
-    const call = mockCallGateway.mock.calls[0][0];
+    const call = mockCallGateway.mock.calls[0][0] as Record<string, any>;
     expect(call.params.to).toBe("1481643321922420787");
   });
 });
