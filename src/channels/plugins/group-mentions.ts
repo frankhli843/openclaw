@@ -1,3 +1,4 @@
+import { inspectSlackAccount } from "../../../extensions/slack/src/account-inspect.js";
 import type { OpenClawConfig } from "../../config/config.js";
 import {
   resolveChannelGroupGateMode,
@@ -12,7 +13,6 @@ import type {
   GroupToolPolicyBySenderConfig,
   GroupToolPolicyConfig,
 } from "../../config/types.tools.js";
-import { inspectSlackAccount } from "../../../extensions/slack/src/account-inspect.js";
 import { normalizeAtHashSlug, normalizeHyphenSlug } from "../../shared/string-normalization.js";
 import type { ChannelGroupContext } from "./types.js";
 
@@ -350,7 +350,91 @@ export function resolveBlueBubblesGroupToolPolicy(
   return resolveChannelToolPolicyForSender(params, "bluebubbles");
 }
 
-// LINE functions moved to extensions/line/src/group-policy.ts by upstream
+// ---- LINE group resolvers ----
+
+/**
+ * Expand a LINE groupId into candidate config keys.
+ * A bare id like "r123" also matches "group:r123" and "room:r123".
+ * A prefixed id like "room:r123" also matches the bare "r123".
+ */
+function resolveLineGroupLookupIds(groupId?: string | null): string[] {
+  const normalized = groupId?.trim();
+  if (!normalized) {
+    return [];
+  }
+  if (normalized.startsWith("group:") || normalized.startsWith("room:")) {
+    const rawId = normalized.split(":").slice(1).join(":");
+    return rawId ? [rawId, normalized] : [normalized];
+  }
+  return [normalized, `group:${normalized}`, `room:${normalized}`];
+}
+
+function resolveLineGroupsConfig(
+  cfg: OpenClawConfig,
+  accountId?: string | null,
+):
+  | Record<
+      string,
+      | {
+          requireMention?: boolean;
+          tools?: GroupToolPolicyConfig;
+          toolsBySender?: GroupToolPolicyBySenderConfig;
+        }
+      | undefined
+    >
+  | undefined {
+  const lineConfig = cfg.channels?.line as
+    | {
+        groups?: Record<string, unknown>;
+        accounts?: Record<string, { groups?: Record<string, unknown> }>;
+      }
+    | undefined;
+  if (!lineConfig) {
+    return undefined;
+  }
+  const normalizedAccountId = accountId?.trim() || undefined;
+  const accountGroups = normalizedAccountId
+    ? lineConfig.accounts?.[normalizedAccountId]?.groups
+    : undefined;
+  // oxlint-disable-next-line typescript/no-explicit-any
+  return (accountGroups ?? lineConfig.groups) as any;
+}
+
+function resolveLineGroupEntry(
+  cfg: OpenClawConfig,
+  groupId?: string | null,
+  accountId?: string | null,
+) {
+  const groups = resolveLineGroupsConfig(cfg, accountId);
+  if (!groups) {
+    return undefined;
+  }
+  for (const candidate of resolveLineGroupLookupIds(groupId)) {
+    const hit = groups[candidate];
+    if (hit) {
+      return hit;
+    }
+  }
+  return groups["*"];
+}
+
+export function resolveLineGroupRequireMention(params: GroupMentionParams): boolean {
+  const entry = resolveLineGroupEntry(params.cfg, params.groupId, params.accountId);
+  if (typeof entry?.requireMention === "boolean") {
+    return entry.requireMention;
+  }
+  return true;
+}
+
+export function resolveLineGroupToolPolicy(
+  params: GroupMentionParams,
+): GroupToolPolicyConfig | undefined {
+  const entry = resolveLineGroupEntry(params.cfg, params.groupId, params.accountId);
+  if (!entry) {
+    return undefined;
+  }
+  return resolveSenderToolsEntry(entry, params);
+}
 
 // ---- GateMode resolvers ----
 

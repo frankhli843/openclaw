@@ -2136,32 +2136,32 @@ describe("shouldInjectOllamaCompatNumCtx", () => {
 });
 
 describe("resolveEmbeddedAgentStreamFn", () => {
-  function createModelRegistry(apiKey = "test-key") {
+  function createAuthStorage(apiKey = "test-key") {
     return {
-      getApiKeyAndHeaders: vi.fn(async () => ({ ok: true, apiKey, headers: undefined })),
+      getApiKey: vi.fn(async (_provider: string) => apiKey as string | undefined),
     };
   }
 
   it("wraps the session-managed HTTP stream to inject auth when no override applies", async () => {
     const currentStreamFn = vi.fn(async () => createFakeStream({ events: [], resultMessage: {} }));
-    const modelRegistry = createModelRegistry();
+    const authStorage = createAuthStorage();
 
     const resolved = resolveEmbeddedAgentStreamFn({
       currentStreamFn: currentStreamFn as never,
       shouldUseWebSocketTransport: false,
       sessionId: "session-1",
       model: { provider: "xai" } as never,
-      modelRegistry: modelRegistry as never,
+      authStorage,
     });
 
     await resolved({} as never, {} as never, {} as never);
     expect(currentStreamFn).toHaveBeenCalledTimes(1);
-    expect(modelRegistry.getApiKeyAndHeaders).toHaveBeenCalledTimes(1);
+    expect(authStorage.getApiKey).toHaveBeenCalledTimes(1);
   });
 
   it("wraps the session-managed HTTP stream when websocket auth is unavailable", async () => {
     const currentStreamFn = vi.fn(async () => createFakeStream({ events: [], resultMessage: {} }));
-    const modelRegistry = createModelRegistry();
+    const authStorage = createAuthStorage();
 
     const resolved = resolveEmbeddedAgentStreamFn({
       currentStreamFn: currentStreamFn as never,
@@ -2169,18 +2169,17 @@ describe("resolveEmbeddedAgentStreamFn", () => {
       wsApiKey: undefined,
       sessionId: "session-1",
       model: { provider: "xai" } as never,
-      modelRegistry: modelRegistry as never,
+      authStorage,
     });
 
     await resolved({} as never, {} as never, {} as never);
     expect(currentStreamFn).toHaveBeenCalledTimes(1);
-    expect(modelRegistry.getApiKeyAndHeaders).toHaveBeenCalledTimes(1);
+    expect(authStorage.getApiKey).toHaveBeenCalledTimes(1);
   });
 
   it("prefers a provider-owned stream override when present", () => {
     const currentStreamFn = vi.fn();
     const providerStreamFn = vi.fn();
-    const modelRegistry = createModelRegistry();
 
     const resolved = resolveEmbeddedAgentStreamFn({
       currentStreamFn: currentStreamFn as never,
@@ -2188,7 +2187,6 @@ describe("resolveEmbeddedAgentStreamFn", () => {
       shouldUseWebSocketTransport: false,
       sessionId: "session-1",
       model: { provider: "xai" } as never,
-      modelRegistry: modelRegistry as never,
     });
 
     expect(resolved).toBe(providerStreamFn);

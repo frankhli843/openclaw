@@ -23,9 +23,9 @@ import { resolveSessionExistsFallback } from "./message-handler.preflight.frankc
 const loadSessionStoreMock = vi.fn();
 const resolveStorePathMock = vi.fn();
 const deps = {
-  resolveStorePath: resolveStorePathMock as (...args: unknown[]) => string,
-  loadSessionStore: loadSessionStoreMock as (...args: unknown[]) => Record<string, unknown>,
-};
+  resolveStorePath: resolveStorePathMock,
+  loadSessionStore: loadSessionStoreMock,
+} as Parameters<typeof resolveSessionExistsFallback>[0]["_deps"];
 
 describe("resolveSessionExistsFallback", () => {
   beforeEach(() => {

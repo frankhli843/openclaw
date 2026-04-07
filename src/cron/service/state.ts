@@ -112,12 +112,12 @@ export type CronServiceDeps = {
     accountId?: string;
   }) => Promise<void>;
   onEvent?: (evt: CronEvent) => void;
+  /** Frankclaw: optional dead-letter alert callback for self-heal exhaustion. */
+  sendDeadLetterAlert?: (message: string) => void | Promise<void>;
 };
 
 export type CronServiceDepsInternal = Omit<CronServiceDeps, "nowMs"> & {
   nowMs: () => number;
-  /** Frankclaw: optional dead-letter alert callback for self-heal exhaustion. */
-  sendDeadLetterAlert?: (message: string) => void | Promise<void>;
 };
 
 export type CronServiceState = {

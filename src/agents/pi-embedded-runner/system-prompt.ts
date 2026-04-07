@@ -97,15 +97,14 @@ export function applySystemPromptOverrideToSession(
   override: string | ((defaultPrompt?: string) => string),
 ) {
   const prompt = typeof override === "function" ? override() : override.trim();
-  // WORKAROUND: The bundler rewrites direct property assignment and Reflect.set
-  // into a non-existent `.setSystemPrompt()` call.  Use bracket notation with
-  // a runtime-computed key so the bundler cannot statically resolve the property.
-  // WORKAROUND: Use bracket notation with string literal for the property name.
-  // The bundler's class accessor transform rewrites `session.agent.state.systemPrompt = x`
-  // into `session.agent.setSystemPrompt(x)` which doesn't exist at runtime.
-  // Bracket notation prevents the transform.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (session.agent.state as any)["systemPrompt"] = prompt;
+  // WORKAROUND: rolldown's class accessor transform rewrites property
+  // assignments (even bracket notation, even on `_state`) into a non-existent
+  // `.setSystemPrompt()` call.  Use Object.assign on a runtime-computed
+  // object to make the assignment completely opaque to static analysis.
+  // oxlint-disable-next-line no-explicit-any, no-useless-concat -- intentional: defeat bundler static analysis
+  const state = (session.agent as any)["_st" + "ate"];
+  // oxlint-disable-next-line no-useless-concat -- intentional: defeat bundler static analysis
+  Object.assign(state, { ["system" + "Prompt"]: prompt });
   const mutableSession = session as unknown as {
     _baseSystemPrompt?: string;
     _rebuildSystemPrompt?: (toolNames: string[]) => string;

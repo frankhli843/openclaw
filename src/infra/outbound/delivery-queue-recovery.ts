@@ -37,7 +37,6 @@ export interface RecoveryLogger {
 
 const MAX_RETRIES = 5;
 
-
 /**
  * [frankclaw] Minimum age in ms an entry must have before recovery considers it.
  * This prevents race conditions where the normal delivery path is still in-flight
@@ -114,12 +113,8 @@ async function moveEntryToFailedWithLogging(
  */
 function checkRecoveryDnr(target: string): { nextEligibleAtMs: number } | null {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { enforceDiscordDnrWindow, DiscordDnrSuppressedError } = require(
-      "../outbound/discord-dnr.js",
-    ) as {
+    const { enforceDiscordDnrWindow } = require("../outbound/discord-dnr.js") as {
       enforceDiscordDnrWindow: (ctx: { channel: "discord"; to: string }) => void;
-      DiscordDnrSuppressedError: new (...args: unknown[]) => Error & { nextEligibleAtMs: number };
     };
     enforceDiscordDnrWindow({ channel: "discord", to: target });
     return null;
@@ -133,14 +128,15 @@ function checkRecoveryDnr(target: string): { nextEligibleAtMs: number } | null {
 }
 
 async function deferRemainingEntriesForBudget(
-  entries: readonly QueuedDelivery[],
-  stateDir: string | undefined,
+  _entries: readonly QueuedDelivery[],
+  _stateDir: string | undefined,
 ): Promise<void> {
-  // Increment retryCount so entries that are repeatedly deferred by the
-  // recovery budget eventually hit MAX_RETRIES and get pruned.
-  await Promise.allSettled(
-    entries.map((entry) => failDelivery(entry.id, "recovery time budget exceeded", stateDir)),
-  );
+  // [frankclaw] No-op: leave remaining entries untouched for the next sweep.
+  // Previously this called failDelivery() to increment retryCount, but that
+  // caused entries to hit MAX_RETRIES and be permanently lost even though no
+  // delivery was ever attempted — especially harmful for DNR-deferred Discord
+  // entries and during MODULE_NOT_FOUND transient infrastructure errors.
+  // The 2-minute periodic sweep will pick them up next time.
 }
 
 /** Compute the backoff delay in ms for a given retry count. */

@@ -992,6 +992,7 @@ describe("thread binding lifecycle", () => {
     hoisted.restGet.mockResolvedValueOnce({
       id: "123456",
       type: ChannelType.GuildText,
+      parent_id: "parent-text",
     });
     hoisted.createThreadDiscord.mockClear();
     hoisted.createThreadDiscord.mockResolvedValueOnce({ id: "thread-from-prefixed" });

@@ -99,14 +99,14 @@ describe("handleStopCommand (frankclaw)", () => {
     const result = await handleStopCommand(createParams("/stop"), true);
     expect(result).not.toBeNull();
     expect(result!.shouldContinue).toBe(false);
-    expect(result!.reply.text).toBe("Stopped.");
+    expect(result!.reply!.text).toBe("Stopped.");
   });
 
   it("handles doramon_stop command", async () => {
     const result = await handleStopCommand(createParams("doramon_stop"), true);
     expect(result).not.toBeNull();
     expect(result!.shouldContinue).toBe(false);
-    expect(result!.reply.text).toBe("Stopped.");
+    expect(result!.reply!.text).toBe("Stopped.");
   });
 
   it("returns null for unrelated commands", async () => {

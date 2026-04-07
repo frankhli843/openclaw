@@ -6,7 +6,7 @@ import { makeModelFallbackCfg } from "./test-helpers/model-fallback-config-fixtu
 
 // Mock sleepWithAbort to resolve instantly in tests
 vi.mock("../infra/backoff.js", async (importOriginal) => {
-  const actual = await importOriginal();
+  const actual = (await importOriginal()) as Record<string, unknown>;
   return {
     ...actual,
     sleepWithAbort: vi.fn().mockResolvedValue(undefined),

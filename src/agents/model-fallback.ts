@@ -638,6 +638,10 @@ export async function runWithModelFallback<T>(params: {
   fallbacksOverride?: string[];
   run: ModelFallbackRunFn<T>;
   onError?: ModelFallbackErrorHandler;
+  /** When provided, enables rate-limit retry: waits and retries after all models hit rate_limit. */
+  abortSignal?: AbortSignal;
+  /** Timestamp (ms) when the session started; used for rate-limit retry backoff budget. */
+  sessionStartedAt?: number;
 }): Promise<ModelFallbackRunResult<T>> {
   const candidates = resolveFallbackCandidates({
     cfg: params.cfg,

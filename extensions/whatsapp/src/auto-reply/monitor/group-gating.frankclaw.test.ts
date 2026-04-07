@@ -16,7 +16,7 @@ vi.mock("../../../../../src/config/group-policy.js", () => ({
 
 const notifyBlockedCalls: any[] = [];
 vi.mock("../../../../../src/channels/gate-notify.js", async (importOriginal) => {
-  const actual = await importOriginal();
+  const actual = await importOriginal<Record<string, unknown>>();
   return {
     ...actual,
     notifyBlocked: vi.fn((params: any) => {
@@ -38,9 +38,13 @@ vi.mock("./group-members.js", () => ({
   formatGroupMembers: vi.fn(() => "member1, member2"),
 }));
 
+import type { WebGroupGateModeCheckParams } from "./group-gating.frankclaw.js";
 import { resolveWebGroupGateModeCheck } from "./group-gating.frankclaw.js";
 
-function makeParams(conversationId: string, overrides: Partial<any> = {}) {
+function makeParams(
+  conversationId: string,
+  overrides: Partial<any> = {},
+): WebGroupGateModeCheckParams {
   return {
     cfg: {
       agents: { defaults: { mentionKeywords: ["doraemon", "doreamon"] } },
@@ -49,13 +53,22 @@ function makeParams(conversationId: string, overrides: Partial<any> = {}) {
     channel: "whatsapp",
     conversationId,
     msg: {
+      from: conversationId,
+      conversationId,
+      to: "self@s.whatsapp.net",
+      accountId: "default",
       body: overrides.body ?? "Hi",
+      chatType: "group",
+      chatId: conversationId,
       senderE164: overrides.senderE164 ?? "+14165551234",
       senderJid: overrides.senderJid ?? "14165551234@s.whatsapp.net",
       senderName: overrides.senderName ?? "Test User",
       groupSubject: overrides.groupSubject ?? "Test Group",
       groupParticipants: [],
       wasMentioned: overrides.wasMentioned ?? false,
+      sendComposing: vi.fn(),
+      reply: vi.fn(),
+      sendMedia: vi.fn(),
     },
     groupHistoryKey: conversationId,
     groupMemberNames: new Map(),
@@ -63,7 +76,7 @@ function makeParams(conversationId: string, overrides: Partial<any> = {}) {
     verbose: false,
     accountId: "default",
     recordHistory: vi.fn(),
-  };
+  } as unknown as WebGroupGateModeCheckParams;
 }
 
 describe("resolveWebGroupGateModeCheck (frankclaw)", () => {

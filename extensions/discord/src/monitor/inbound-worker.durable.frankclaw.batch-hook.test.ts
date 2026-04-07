@@ -1,5 +1,4 @@
 import { describe, expect, it, vi } from "vitest";
-
 import * as queueModule from "./inbound-durable-queue.js";
 
 describe("DurableDiscordInboundWorker batch hook wiring", () => {
@@ -15,23 +14,25 @@ describe("DurableDiscordInboundWorker batch hook wiring", () => {
       listLiveJobsForTest: vi.fn().mockResolvedValue([]),
     } as unknown as ReturnType<typeof queueModule.createDiscordInboundDurableQueue>);
 
-    const { createDurableDiscordInboundWorker } = await import(
-      "./inbound-worker.durable.frankclaw.js"
-    );
+    const { createDurableDiscordInboundWorker } =
+      await import("./inbound-worker.durable.frankclaw.js");
 
     const runtime = { log: vi.fn(), error: vi.fn(), exit: vi.fn() };
 
     const worker = createDurableDiscordInboundWorker({
       accountId: "test",
       runtime,
-      resolveRuntime: () => ({
-        runtime,
-        abortSignal: undefined,
-        guildHistories: undefined as unknown,
-        client: {} as unknown,
-        threadBindings: undefined as unknown,
-        discordRestFetch: undefined as unknown,
-      }),
+      resolveRuntime: () =>
+        ({
+          runtime,
+          abortSignal: undefined,
+          guildHistories: new Map(),
+          client: {},
+          threadBindings: { get: vi.fn(), set: vi.fn(), delete: vi.fn() },
+          discordRestFetch: vi.fn(),
+        }) as unknown as ReturnType<
+          Parameters<typeof createDurableDiscordInboundWorker>[0]["resolveRuntime"]
+        >,
     });
 
     await worker.start();

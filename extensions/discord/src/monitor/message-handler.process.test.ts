@@ -883,7 +883,7 @@ describe("processDiscordMessage DNR bed reaction", () => {
     deliverDiscordReply.mockResolvedValue({ dnrSuppressed: true });
     dispatchInboundMessage.mockImplementationOnce(async (params?: DispatchInboundParams) => {
       // Use the replyOptions callback which goes through the actual delivery path
-      await params?.replyOptions?.onFinalReply?.([{ text: "Suppressed reply" }]);
+      await params?.dispatcher.sendFinalReply({ text: "Suppressed reply" });
       return createNoQueuedDispatchResult();
     });
 
