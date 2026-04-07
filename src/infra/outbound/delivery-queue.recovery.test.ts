@@ -259,7 +259,10 @@ describe("delivery-queue recovery", () => {
 
     const remaining = await loadPendingDeliveries(tmpDir());
     expect(remaining).toHaveLength(3);
-    expect(remaining.every((entry) => entry.retryCount === 1)).toBe(true);
+    // [frankclaw] Budget-exceeded deferrals no longer increment retryCount —
+    // entries are left untouched for the next sweep to avoid killing entries
+    // that were never actually attempted.
+    expect(remaining.every((entry) => entry.retryCount === 0)).toBe(true);
     expect(log.warn).toHaveBeenCalledWith(expect.stringContaining("deferred to next startup"));
   });
 

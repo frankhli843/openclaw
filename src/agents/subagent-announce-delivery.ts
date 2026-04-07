@@ -581,16 +581,21 @@ async function sendSubagentAnnounceDirectly(params: {
         }),
     });
 
+    // [frankclaw] The gateway call succeeded — the parent session received and
+    // processed the completion message.  Whether the parent LLM chooses to
+    // produce a user-facing reply is the parent's decision (it may have made
+    // tool calls, processed internally, or deemed it informational).  Treating
+    // "no user-facing reply" as a delivery failure caused futile retries that
+    // re-fed the same completion into the parent, always with the same result,
+    // until MAX_ANNOUNCE_RETRY_COUNT was hit and the announce was given up.
     if (
       params.expectsCompletionMessage &&
       !params.requesterIsSubagent &&
       !hasDeliverableCompletionFinalResult(agentResult)
     ) {
-      return {
-        delivered: false,
-        path: "direct",
-        error: "completion update produced no user-facing reply",
-      };
+      defaultRuntime.log(
+        `[warn] Subagent completion announce for ${params.directIdempotencyKey}: parent session produced no user-facing reply (gateway call succeeded — treating as delivered)`,
+      );
     }
 
     return {

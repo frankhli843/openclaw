@@ -50,6 +50,34 @@ for file in "${files[@]}"; do
   esac
 done
 
+# ── Frankclaw guard: reject stale pre-built .js bundles shadowing .ts sources ──
+# Upstream ships pre-built .js bundles in extensions/. If these get staged during
+# a merge/restore, the bundler resolves them instead of the .ts source, silently
+# reverting fixes. Block any .js file >100KB that has a matching .ts sibling.
+shadow_errors=()
+for file in "${files[@]}"; do
+  case "$file" in
+    extensions/*.js)
+      tsfile="${file%.js}.ts"
+      if [[ -f "$ROOT_DIR/$tsfile" ]]; then
+        size=$(stat -c%s "$ROOT_DIR/$file" 2>/dev/null || stat -f%z "$ROOT_DIR/$file" 2>/dev/null || echo 0)
+        if [[ "$size" -gt 100000 ]]; then
+          shadow_errors+=("$file ($(numfmt --to=iec "$size" 2>/dev/null || echo "${size}B")) shadows $tsfile")
+        fi
+      fi
+      ;;
+  esac
+done
+if [ "${#shadow_errors[@]}" -gt 0 ]; then
+  echo "ERROR: Staged pre-built .js bundle(s) that shadow .ts sources:" >&2
+  for err in "${shadow_errors[@]}"; do
+    echo "  - $err" >&2
+  done
+  echo "These cause the bundler to use stale code instead of compiling .ts source." >&2
+  echo "Unstage them: git reset HEAD <file>  then delete: rm <file>" >&2
+  exit 1
+fi
+
 if [ "${#lint_files[@]}" -gt 0 ]; then
   "$RUN_NODE_TOOL" oxlint --type-aware --fix -- "${lint_files[@]}"
 fi

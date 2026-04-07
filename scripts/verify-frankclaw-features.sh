@@ -503,11 +503,52 @@ run_channels() {
 }
 
 # ---------------------------------------------------------------------------
+# Phase: PREBUILD (detect stale pre-built .js files shadowing .ts sources)
+# ---------------------------------------------------------------------------
+
+run_prebuild() {
+  echo -e "${BOLD}=== Frankclaw Pre-built Bundle Shadow Check ===${RESET}"
+  echo ""
+
+  local shadow_count=0
+  local shadow_list=""
+  while IFS= read -r jsfile; do
+    local tsfile="${jsfile%.js}.ts"
+    if [[ -f "$tsfile" ]]; then
+      local jssize
+      jssize=$(stat -c%s "$jsfile" 2>/dev/null || stat -f%z "$jsfile" 2>/dev/null || echo 0)
+      if [[ "$jssize" -gt 100000 ]]; then
+        shadow_count=$((shadow_count + 1))
+        local rel="${jsfile#"$REPO_DIR"/}"
+        shadow_list="${shadow_list}\n   ${RED}$rel${RESET} ($(numfmt --to=iec "$jssize" 2>/dev/null || echo "${jssize}B")) shadows ${rel%.js}.ts"
+      fi
+    fi
+  done < <(find "$REPO_DIR/extensions" -name "*.js" -not -path "*/node_modules/*" 2>/dev/null)
+
+  if [[ "$shadow_count" -gt 0 ]]; then
+    echo -e "  ${RED}❌ Found $shadow_count stale pre-built .js bundle(s) shadowing .ts sources:${RESET}"
+    echo -e "$shadow_list"
+    echo ""
+    echo -e "  ${YELLOW}Fix: delete the stale .js files so the bundler compiles from .ts source.${RESET}"
+    echo ""
+    echo -e "${RED}${BOLD}RESULT: Pre-built bundle shadow check FAILED${RESET}"
+    return 1
+  fi
+
+  echo -e "  ${GREEN}✅ No stale pre-built .js bundles shadowing .ts sources${RESET}"
+  echo ""
+  echo -e "${GREEN}${BOLD}RESULT: Pre-built bundle shadow check passed ✅${RESET}"
+  return 0
+}
+
+# ---------------------------------------------------------------------------
 # Phase: ALL (run static, test, runtime in sequence)
 # ---------------------------------------------------------------------------
 
 run_all() {
   run_registry || { echo -e "\n${RED}Registry validation failed. Stopping.${RESET}"; return 1; }
+  echo ""
+  run_prebuild || { echo -e "\n${RED}Pre-built bundle shadow check failed. Stopping.${RESET}"; return 1; }
   echo ""
   run_static || { echo -e "\n${RED}Static phase failed. Stopping.${RESET}"; return 1; }
   echo ""
@@ -534,11 +575,12 @@ PHASE="${1:-all}"
 
 case "$PHASE" in
   registry) run_registry ;;
+  prebuild) run_prebuild ;;
   static)   run_static ;;
   test)     run_test ;;
   e2e)      run_e2e ;;
   channels) run_channels ;;
   runtime)  run_runtime ;;
   all)      run_all ;;
-  *)        die "Unknown phase: $PHASE. Use: registry, static, test, e2e, channels, runtime, or all" ;;
+  *)        die "Unknown phase: $PHASE. Use: registry, prebuild, static, test, e2e, channels, runtime, or all" ;;
 esac

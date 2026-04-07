@@ -428,6 +428,11 @@ export const TOOL_DISPLAY_CONFIG: ToolDisplayConfig = {
       title: "Session Send",
       detailKeys: ["label", "sessionKey", "agentId", "timeoutSeconds"],
     },
+    raw_send: {
+      emoji: "📤",
+      title: "Raw Send",
+      detailKeys: ["channel", "target", "message"],
+    },
     sessions_history: {
       emoji: "🧾",
       title: "Session History",

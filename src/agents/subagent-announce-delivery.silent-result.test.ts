@@ -53,7 +53,10 @@ describe("completion direct announce delivery gating", () => {
     deliveryTesting.setDepsForTest();
   });
 
-  it("does not count NO_REPLY completion output as delivered", async () => {
+  it("treats NO_REPLY completion output as delivered (gateway call succeeded)", async () => {
+    // [frankclaw] The gateway call succeeded — the parent session received and
+    // processed the completion.  Whether it produces a user-facing reply is the
+    // parent's decision.  Treating this as "not delivered" caused futile retries.
     callGateway.mockResolvedValueOnce({ reply: { text: "NO_REPLY" } });
 
     const result = await deliveryTesting.sendSubagentAnnounceDirectly({
@@ -67,11 +70,7 @@ describe("completion direct announce delivery gating", () => {
       expectsCompletionMessage: true,
     });
 
-    expect(result).toEqual({
-      delivered: false,
-      path: "direct",
-      error: "completion update produced no user-facing reply",
-    });
+    expect(result).toEqual({ delivered: true, path: "direct" });
   });
 
   it("counts explicit safe fallback text as delivered", async () => {

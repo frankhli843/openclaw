@@ -150,3 +150,12 @@ test/fixtures/openclaw-vitest-unit-report.json
 analysis/
 .artifacts/qa-e2e/
 extensions/qa-lab/web/dist/
+
+# Stale pre-built extension bundles that shadow .ts sources (frankclaw patch)
+# These cause the bundler to use old code instead of compiling from .ts source.
+extensions/whatsapp/src/auto-reply/monitor.js
+extensions/whatsapp/src/auth-store.js
+extensions/whatsapp/src/setup-surface.js
+extensions/whatsapp/src/active-listener.js
+extensions/whatsapp/src/login.js
+extensions/discord/src/voice/manager.js
