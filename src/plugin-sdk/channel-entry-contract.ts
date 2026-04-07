@@ -278,8 +278,12 @@ function loadBundledEntryModuleSync(importMetaUrl: string, specifier: string): u
     return cached;
   }
   let loaded: unknown;
+  // Prefer nodeRequire for dist/ bundles on ALL platforms (not just Windows).
+  // Jiti's Proxy-based ESM shim fails on chunked re-exports (e.g., Telegram
+  // channel-plugin-api.js re-exporting from a shared chunk) with
+  // "Cannot read properties of undefined" errors.  nodeRequire handles these
+  // correctly since Node's native CJS loader resolves the ESM interop.
   if (
-    process.platform === "win32" &&
     modulePath.includes(`${path.sep}dist${path.sep}`) &&
     [".js", ".mjs", ".cjs"].includes(path.extname(modulePath).toLowerCase())
   ) {
@@ -313,7 +317,33 @@ export function loadBundledEntryExportSync<T>(
       `missing export "${reference.exportName}" from bundled entry module ${reference.specifier}`,
     );
   }
-  return record[reference.exportName] as T;
+  try {
+    return record[reference.exportName] as T;
+  } catch {
+    // Jiti Proxy property access can fail on chunked ESM re-exports
+    // (e.g., `import { n as foo }` where jiti can't resolve the alias).
+    // Clear the cached module and retry with nodeRequire which handles
+    // ESM interop correctly.
+    const modulePath = resolveBundledEntryModulePath(importMetaUrl, reference.specifier);
+    loadedModuleExports.delete(modulePath);
+    try {
+      const freshLoaded = nodeRequire(modulePath) as Record<string, unknown>;
+      const freshResolved =
+        freshLoaded && typeof freshLoaded === "object" && "default" in freshLoaded
+          ? (freshLoaded.default as Record<string, unknown>)
+          : freshLoaded;
+      const freshRecord = freshResolved ?? freshLoaded;
+      if (freshRecord && reference.exportName in freshRecord) {
+        loadedModuleExports.set(modulePath, freshLoaded);
+        return freshRecord[reference.exportName] as T;
+      }
+    } catch {
+      // nodeRequire fallback also failed
+    }
+    throw new Error(
+      `failed to access export "${reference.exportName}" from bundled entry module ${reference.specifier}`,
+    );
+  }
 }
 
 export function defineBundledChannelEntry<TPlugin = ChannelPlugin>({
