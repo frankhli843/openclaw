@@ -15,6 +15,11 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 FEATURES_JSON="$REPO_DIR/frankclaw-features.json"
+GIT_COMMON_DIR="$(git -C "$REPO_DIR" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
+CANONICAL_REPO_DIR="$REPO_DIR"
+if [[ -n "$GIT_COMMON_DIR" && "$(basename "$GIT_COMMON_DIR")" == ".git" ]]; then
+  CANONICAL_REPO_DIR="$(cd "$(dirname "$GIT_COMMON_DIR")" && pwd)"
+fi
 
 # Colors (if terminal supports it)
 if [[ -t 1 ]]; then
@@ -32,6 +37,23 @@ fi
 # ---------------------------------------------------------------------------
 
 die() { echo -e "${RED}ERROR: $*${RESET}" >&2; exit 2; }
+
+resolve_probe_path() {
+  local file="$1"
+  local full_path="$REPO_DIR/$file"
+  if [[ -f "$full_path" ]]; then
+    printf '%s\n' "$full_path"
+    return 0
+  fi
+  if [[ "$CANONICAL_REPO_DIR" != "$REPO_DIR" ]]; then
+    local canonical_full_path="$CANONICAL_REPO_DIR/$file"
+    if [[ -f "$canonical_full_path" ]]; then
+      printf '%s\n' "$canonical_full_path"
+      return 0
+    fi
+  fi
+  printf '%s\n' "$full_path"
+}
 
 require_jq() {
   command -v jq >/dev/null 2>&1 || die "jq is required but not installed. Run: sudo apt install jq"
@@ -78,7 +100,8 @@ run_static() {
       pattern=$(jq -r ".features[$i].static[$j].pattern" "$FEATURES_JSON")
       min_count=$(jq -r ".features[$i].static[$j].minCount // 1" "$FEATURES_JSON")
 
-      local full_path="$REPO_DIR/$file"
+      local full_path
+      full_path="$(resolve_probe_path "$file")"
       local actual_count=0
 
       if [[ -f "$full_path" ]]; then
