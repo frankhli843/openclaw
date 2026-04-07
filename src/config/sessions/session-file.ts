@@ -1,3 +1,4 @@
+import path from "node:path";
 import { resolveSessionFilePath } from "./paths.js";
 import { materializeSessionTranscriptFile } from "./session-file.frankclaw.js";
 import { updateSessionStore } from "./store.js";
@@ -24,7 +25,9 @@ export async function resolveAndPersistSessionFile(params: {
       : baseEntry;
   const sessionFile = resolveSessionFilePath(sessionId, entryForResolve, {
     agentId: params.agentId,
-    sessionsDir: params.sessionsDir,
+    sessionsDir:
+      params.sessionsDir ??
+      (fallbackSessionFile ? path.dirname(path.resolve(fallbackSessionFile)) : undefined),
   });
   const persistedEntry: SessionEntry = {
     ...baseEntry,

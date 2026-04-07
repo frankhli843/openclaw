@@ -76,7 +76,7 @@ run_static() {
       local file pattern min_count
       file=$(jq -r ".features[$i].static[$j].file" "$FEATURES_JSON")
       pattern=$(jq -r ".features[$i].static[$j].pattern" "$FEATURES_JSON")
-      min_count=$(jq -r ".features[$i].static[$j].minCount" "$FEATURES_JSON")
+      min_count=$(jq -r ".features[$i].static[$j].minCount // 1" "$FEATURES_JSON")
 
       local full_path="$REPO_DIR/$file"
       local actual_count=0

@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const source = readFileSync(resolve(here, "runtime.ts"), "utf8");
+const source = readFileSync(resolve(here, "../../../src/acp/runtime/session-identity.ts"), "utf8");
 const normalized = source.replace(/\s+/g, " ");
 
 describe("ACPX runtime resume selection source contract", () => {
@@ -14,12 +14,11 @@ describe("ACPX runtime resume selection source contract", () => {
   });
 
   it("contains an agentSessionId-first resume selection hint", () => {
-    const preferencePatterns = [
-      /agentSessionId\s*\?\?\s*acpxSessionId/,
-      /agentSessionId\s*\|\|\s*acpxSessionId/,
-      /agentSessionId[^]{0,240}acpxSessionId/,
-    ];
-
-    expect(preferencePatterns.some((pattern) => pattern.test(normalized))).toBe(true);
+    expect(normalized).toContain(
+      "return normalizeText(identity.agentSessionId) ?? normalizeText(identity.acpxSessionId);",
+    );
+    expect(normalized).not.toContain(
+      "return normalizeText(identity.acpxSessionId) ?? normalizeText(identity.agentSessionId);",
+    );
   });
 });
