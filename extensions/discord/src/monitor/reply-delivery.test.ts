@@ -10,6 +10,28 @@ const sendMessageDiscordMock = vi.hoisted(() => vi.fn());
 const sendVoiceMessageDiscordMock = vi.hoisted(() => vi.fn());
 const sendWebhookMessageDiscordMock = vi.hoisted(() => vi.fn());
 const sendDiscordTextMock = vi.hoisted(() => vi.fn());
+
+// Frankclaw: DNR mocks
+const dnrMocks = vi.hoisted(() => ({
+  enforceDiscordDnrWindow: vi.fn(),
+  DiscordDnrSuppressedError: class extends Error {
+    readonly nextEligibleAtMs: number;
+    constructor(nextEligibleAtMs: number) {
+      super("discord outbound suppressed by DNR window");
+      this.name = "DiscordDnrSuppressedError";
+      this.nextEligibleAtMs = nextEligibleAtMs;
+    }
+  },
+  enqueueDelivery: vi.fn(async () => "mock-queue-id"),
+  deferDelivery: vi.fn(async () => {}),
+}));
+
+vi.mock("openclaw/plugin-sdk/infra-runtime", () => ({
+  enforceDiscordDnrWindow: dnrMocks.enforceDiscordDnrWindow,
+  DiscordDnrSuppressedError: dnrMocks.DiscordDnrSuppressedError,
+  enqueueDelivery: dnrMocks.enqueueDelivery,
+  deferDelivery: dnrMocks.deferDelivery,
+}));
 const retryAsyncMock = vi.hoisted(() =>
   vi.fn(
     async (
@@ -136,6 +158,9 @@ describe("deliverDiscordReply", () => {
       channel_id: "channel-1",
     });
     retryAsyncMock.mockClear();
+    dnrMocks.enforceDiscordDnrWindow.mockClear();
+    dnrMocks.enqueueDelivery.mockClear().mockResolvedValue("mock-queue-id");
+    dnrMocks.deferDelivery.mockClear().mockResolvedValue(undefined);
     threadBindingTesting.resetThreadBindingsForTests();
   });
 
@@ -654,5 +679,81 @@ describe("deliverDiscordReply", () => {
       "Parent channel delivery",
       expect.objectContaining({ token: "token", accountId: "default" }),
     );
+  });
+
+  // ── Frankclaw: DNR quiet hours tests ──
+
+  it("returns dnrSuppressed=true and enqueues then defers when DNR active", async () => {
+    const nextEligibleAtMs = Date.now() + 60_000;
+    dnrMocks.enforceDiscordDnrWindow.mockImplementation(() => {
+      throw new dnrMocks.DiscordDnrSuppressedError(nextEligibleAtMs);
+    });
+
+    const result = await deliverDiscordReply({
+      replies: [{ text: "hello" }],
+      target: "channel:123",
+      token: "token",
+      runtime,
+      cfg,
+      textLimit: 2000,
+    });
+
+    expect(result.dnrSuppressed).toBe(true);
+    expect(dnrMocks.enqueueDelivery).toHaveBeenCalledOnce();
+    expect(dnrMocks.enqueueDelivery).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channel: "discord",
+        to: "channel:123",
+        payloads: [{ text: "hello" }],
+      }),
+    );
+    expect(dnrMocks.deferDelivery).toHaveBeenCalledOnce();
+    expect(dnrMocks.deferDelivery).toHaveBeenCalledWith(
+      "mock-queue-id",
+      nextEligibleAtMs,
+      "discord-dnr-window",
+    );
+
+    // enqueueDelivery must be called before deferDelivery
+    const enqueueOrder = dnrMocks.enqueueDelivery.mock.invocationCallOrder[0];
+    const deferOrder = dnrMocks.deferDelivery.mock.invocationCallOrder[0];
+    expect(enqueueOrder).toBeLessThan(deferOrder);
+  });
+
+  it("skips deferDelivery when enqueueDelivery fails during DNR", async () => {
+    dnrMocks.enforceDiscordDnrWindow.mockImplementation(() => {
+      throw new dnrMocks.DiscordDnrSuppressedError(Date.now() + 60_000);
+    });
+    dnrMocks.enqueueDelivery.mockRejectedValueOnce(new Error("disk full"));
+
+    const result = await deliverDiscordReply({
+      replies: [{ text: "hello" }],
+      target: "channel:123",
+      token: "token",
+      runtime,
+      cfg,
+      textLimit: 2000,
+    });
+
+    expect(result.dnrSuppressed).toBe(true);
+    expect(dnrMocks.deferDelivery).not.toHaveBeenCalled();
+  });
+
+  it("does not suppress delivery when DNR is inactive", async () => {
+    // enforceDiscordDnrWindow does not throw => DNR inactive
+    dnrMocks.enforceDiscordDnrWindow.mockImplementation(() => {});
+
+    const result = await deliverDiscordReply({
+      replies: [{ text: "hello" }],
+      target: "channel:123",
+      token: "token",
+      runtime,
+      cfg,
+      textLimit: 2000,
+    });
+
+    expect(result.dnrSuppressed).toBeUndefined();
+    expect(dnrMocks.enqueueDelivery).not.toHaveBeenCalled();
+    expect(dnrMocks.deferDelivery).not.toHaveBeenCalled();
   });
 });
