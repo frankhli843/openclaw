@@ -5,7 +5,6 @@ import type {
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-runtime";
 import {
   hasLegacyAccountStreamingAliases,
-  hasLegacyStreamingAliases,
   normalizeLegacyDmAliases,
   normalizeLegacyStreamingAliases,
 } from "openclaw/plugin-sdk/runtime-doctor";
@@ -18,7 +17,22 @@ function asObjectRecord(value: unknown): Record<string, unknown> | null {
 }
 
 function hasLegacyDiscordStreamingAliases(value: unknown): boolean {
-  return hasLegacyStreamingAliases(value, { includePreviewChunk: true });
+  const entry = asObjectRecord(value);
+  if (!entry) {
+    return false;
+  }
+  if (
+    typeof entry.streamMode === "string" ||
+    typeof entry.chunkMode === "string" ||
+    typeof entry.blockStreaming === "boolean" ||
+    typeof entry.blockStreamingCoalesce === "boolean" ||
+    typeof entry.draftChunk === "boolean" ||
+    (entry.draftChunk && typeof entry.draftChunk === "object")
+  ) {
+    return true;
+  }
+  const streaming = entry.streaming;
+  return typeof streaming === "string" || typeof streaming === "boolean";
 }
 
 const LEGACY_TTS_PROVIDER_KEYS = ["openai", "elevenlabs", "microsoft", "edge"] as const;

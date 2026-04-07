@@ -7,11 +7,12 @@
     "ignoreDeprecations": "6.0",
     "noEmit": false,
     "noEmitOnError": false,
-    "outDir": "dist/packages/plugin-sdk/src",
+    "outDir": "dist",
     "rootDir": "../.."
   },
   "include": [
     "../../src/plugin-sdk/config-runtime.ts",
+    "../../src/plugin-sdk/index.ts",
     "../../src/plugin-sdk/lazy-value.ts",
     "../../src/plugin-sdk/oauth-utils.ts",
     "../../src/plugin-sdk/plugin-entry.ts",
@@ -32,6 +33,8 @@
     "../../src/plugin-sdk/telegram-command-config.ts",
     "../../src/plugin-sdk/testing.ts",
     "../../src/plugin-sdk/video-generation.ts",
+    "../../src/video-generation/dashscope-compatible.ts",
+    "../../src/video-generation/types.ts",
     "../../src/types/**/*.d.ts"
   ],
   "exclude": [
