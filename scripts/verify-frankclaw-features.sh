@@ -428,6 +428,81 @@ run_runtime() {
 }
 
 # ---------------------------------------------------------------------------
+# Phase: CHANNELS (pre-restart channel health check)
+# ---------------------------------------------------------------------------
+
+run_channels() {
+  echo -e "${BOLD}=== Frankclaw Channel Health Check ===${RESET}"
+  echo ""
+
+  local openclaw_bin
+  openclaw_bin=$(command -v openclaw 2>/dev/null || echo "")
+  if [[ -z "$openclaw_bin" ]]; then
+    echo -e "  ${YELLOW}⚠️  openclaw CLI not found — skipping channel check${RESET}"
+    return 0
+  fi
+
+  local output
+  output=$(openclaw channels status --probe 2>&1) || true
+
+  # Check for config read errors (plugin load failures, Invalid config)
+  local config_errors=0
+  if echo "$output" | grep -q "Failed to read config\|Invalid config\|Cannot read properties"; then
+    config_errors=1
+  fi
+
+  # Check for channel-specific errors
+  local channel_errors=0
+  local error_channels=""
+  while IFS= read -r line; do
+    if echo "$line" | grep -qE "^- .+ error:"; then
+      local ch_name
+      ch_name=$(echo "$line" | sed 's/^- \([^ ]*\).*/\1/')
+      # Skip disabled channels
+      if echo "$line" | grep -q "error:disabled"; then
+        continue
+      fi
+      channel_errors=$((channel_errors + 1))
+      error_channels="${error_channels}\n   ERROR: $ch_name — $(echo "$line" | grep -oP 'error:.*')"
+    fi
+  done <<< "$output"
+
+  if [[ "$config_errors" -gt 0 ]]; then
+    echo -e "  ${RED}❌ Config read error detected${RESET}"
+    echo "$output" | grep -E "Failed to read config|Invalid config|Cannot read properties|plugin manifest not found" | head -5 | while read -r line; do
+      echo -e "   ${RED}$line${RESET}"
+    done
+    echo ""
+    echo -e "${RED}${BOLD}RESULT: Channel health check FAILED — config errors will prevent channels from starting${RESET}"
+    return 1
+  fi
+
+  if [[ "$channel_errors" -gt 0 ]]; then
+    echo -e "  ${YELLOW}⚠️  $channel_errors channel(s) have errors:${RESET}"
+    echo -e "$error_channels"
+  fi
+
+  # Show channel summary
+  echo "$output" | grep -E "^- " | while read -r line; do
+    if echo "$line" | grep -q "works"; then
+      echo -e "  ${GREEN}✅ $line${RESET}"
+    elif echo "$line" | grep -q "error:disabled"; then
+      echo -e "  ${YELLOW}⏭  $line${RESET}"
+    else
+      echo -e "  ${YELLOW}⚠️  $line${RESET}"
+    fi
+  done
+
+  echo ""
+  if [[ "$channel_errors" -gt 0 ]]; then
+    echo -e "${YELLOW}${BOLD}RESULT: $channel_errors channel(s) have errors (non-blocking)${RESET}"
+  else
+    echo -e "${GREEN}${BOLD}RESULT: Channel health check passed ✅${RESET}"
+  fi
+  return 0
+}
+
+# ---------------------------------------------------------------------------
 # Phase: ALL (run static, test, runtime in sequence)
 # ---------------------------------------------------------------------------
 
@@ -439,6 +514,8 @@ run_all() {
   run_test || { echo -e "\n${RED}Test phase failed. Stopping.${RESET}"; return 1; }
   echo ""
   run_e2e || { echo -e "\n${RED}E2E phase failed. Stopping.${RESET}"; return 1; }
+  echo ""
+  run_channels || { echo -e "\n${RED}Channel health check failed. Stopping.${RESET}"; return 1; }
   echo ""
   run_runtime || { echo -e "\n${RED}Runtime phase failed. Stopping.${RESET}"; return 1; }
   echo ""
@@ -460,7 +537,8 @@ case "$PHASE" in
   static)   run_static ;;
   test)     run_test ;;
   e2e)      run_e2e ;;
+  channels) run_channels ;;
   runtime)  run_runtime ;;
   all)      run_all ;;
-  *)        die "Unknown phase: $PHASE. Use: registry, static, test, e2e, runtime, or all" ;;
+  *)        die "Unknown phase: $PHASE. Use: registry, static, test, e2e, channels, runtime, or all" ;;
 esac
