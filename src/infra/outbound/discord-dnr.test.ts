@@ -4,8 +4,10 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   __resetDiscordDnrPolicyCacheForTests,
+  DiscordDnrSuppressedError,
   enforceDiscordDnrWindow,
   enforceWhatsAppDnrWindow,
+  inspectDiscordDnrWindow,
   isDiscordDnrTarget,
   isWhatsAppDnrTarget,
   isWithinDiscordDnrWindow,
@@ -40,13 +42,14 @@ describe("discord DNR policy", () => {
     ).toBe(false);
   });
 
-  it("handles cross-midnight window semantics (18:00-08:00 Toronto)", () => {
-    // 2026-03-05 20:30 America/Toronto => 2026-03-06 01:30Z
+  it("handles cross-midnight window semantics (17:00-08:30 Toronto default)", () => {
+    // Default window: 17:00-08:30 America/Toronto
+    // 2026-03-05 20:30 America/Toronto => 2026-03-06 01:30Z => inside window
     const eveningTs = Date.parse("2026-03-06T01:30:00.000Z");
-    // 2026-03-06 07:59 America/Toronto => 2026-03-06 12:59Z
-    const morningTs = Date.parse("2026-03-06T12:59:00.000Z");
-    // 2026-03-06 08:01 America/Toronto => 2026-03-06 13:01Z
-    const afterWindowTs = Date.parse("2026-03-06T13:01:00.000Z");
+    // 2026-03-06 08:00 America/Toronto => 2026-03-06 13:00Z => inside window (before 08:30)
+    const morningTs = Date.parse("2026-03-06T13:00:00.000Z");
+    // 2026-03-06 08:31 America/Toronto => 2026-03-06 13:31Z => outside window
+    const afterWindowTs = Date.parse("2026-03-06T13:31:00.000Z");
 
     expect(isWithinDiscordDnrWindow(eveningTs)).toBe(true);
     expect(isWithinDiscordDnrWindow(morningTs)).toBe(true);
@@ -57,8 +60,8 @@ describe("discord DNR policy", () => {
     // 2026-03-05 23:10 Toronto => inside DNR.
     const insideTs = Date.parse("2026-03-06T04:10:00.000Z");
     const next = resolveNextDiscordDnrReleaseMs(insideTs);
-    // Should resolve to 08:00 Toronto next morning => 2026-03-06 13:00Z.
-    expect(next).toBe(Date.parse("2026-03-06T13:00:00.000Z"));
+    // Should resolve to 08:30 Toronto next morning => 2026-03-06 13:30Z.
+    expect(next).toBe(Date.parse("2026-03-06T13:30:00.000Z"));
   });
 
   it("auto-prunes expired one-off policies from state file", () => {
@@ -104,6 +107,118 @@ describe("discord DNR policy", () => {
     const saved = JSON.parse(fs.readFileSync(policyPath, "utf-8"));
     expect(saved.oneOff).toHaveLength(1);
     expect(saved.oneOff[0]?.id).toBe("active");
+  });
+
+  it("enforceDiscordDnrWindow throws DiscordDnrSuppressedError during quiet hours", () => {
+    // 2026-03-05 20:30 America/Toronto => inside default 17:00-08:30 window
+    const eveningTs = Date.parse("2026-03-06T01:30:00.000Z");
+    try {
+      enforceDiscordDnrWindow({ channel: "discord", to: "channel:1479083833830801520" }, eveningTs);
+      expect.unreachable("should have thrown");
+    } catch (err) {
+      expect(err).toBeInstanceOf(DiscordDnrSuppressedError);
+      expect((err as DiscordDnrSuppressedError).nextEligibleAtMs).toBeGreaterThan(eveningTs);
+      expect((err as DiscordDnrSuppressedError).name).toBe("DiscordDnrSuppressedError");
+    }
+  });
+
+  it("enforceDiscordDnrWindow does not throw outside quiet hours", () => {
+    // 2026-03-06 10:00 America/Toronto => 2026-03-06 15:00Z => outside 17:00-08:30
+    const morningTs = Date.parse("2026-03-06T15:00:00.000Z");
+    expect(() =>
+      enforceDiscordDnrWindow({ channel: "discord", to: "channel:1479083833830801520" }, morningTs),
+    ).not.toThrow();
+  });
+
+  it("enforceDiscordDnrWindow skips non-discord channels", () => {
+    // Inside the quiet window but channel is telegram
+    const eveningTs = Date.parse("2026-03-06T01:30:00.000Z");
+    expect(() =>
+      enforceDiscordDnrWindow({ channel: "telegram" as "discord", to: "channel:123" }, eveningTs),
+    ).not.toThrow();
+  });
+
+  it("inspectDiscordDnrWindow returns active state and window inside quiet hours", () => {
+    const eveningTs = Date.parse("2026-03-06T01:30:00.000Z");
+    const result = inspectDiscordDnrWindow(eveningTs);
+    expect(result.active).toBe(true);
+    expect(result.nextEligibleAtMs).toBeGreaterThan(eveningTs);
+    expect(result.window).toBeDefined();
+    expect(result.window.timeZone).toBe("America/Toronto");
+  });
+
+  it("inspectDiscordDnrWindow returns inactive outside quiet hours", () => {
+    const afternoonTs = Date.parse("2026-03-06T15:00:00.000Z");
+    const result = inspectDiscordDnrWindow(afternoonTs);
+    expect(result.active).toBe(false);
+  });
+
+  it("resolveNextDiscordDnrReleaseMs returns nowMs when already outside window", () => {
+    const outsideTs = Date.parse("2026-03-06T15:00:00.000Z");
+    expect(resolveNextDiscordDnrReleaseMs(outsideTs)).toBe(outsideTs);
+  });
+
+  it("supports threadId from context for targeted policy matching", () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "discord-dnr-"));
+    vi.stubEnv("OPENCLAW_HOME", tmp);
+    const stateDir = path.join(tmp, "state");
+    fs.mkdirSync(stateDir, { recursive: true });
+
+    const now = Date.now();
+    fs.writeFileSync(
+      path.join(stateDir, "discord-dnr-policies.json"),
+      JSON.stringify({
+        version: 1,
+        recurring: [],
+        oneOff: [
+          {
+            id: "targeted",
+            threadId: "999",
+            startAtMs: now - 10_000,
+            endAtMs: now + 60_000,
+          },
+        ],
+      }),
+    );
+
+    // Should throw for matching threadId
+    expect(() =>
+      enforceDiscordDnrWindow({ channel: "discord", to: "channel:999", threadId: null }),
+    ).toThrow(DiscordDnrSuppressedError);
+
+    // Should NOT throw for different threadId (no wildcard, no matching policy)
+    __resetDiscordDnrPolicyCacheForTests();
+    expect(() =>
+      enforceDiscordDnrWindow({ channel: "discord", to: "channel:888", threadId: null }),
+    ).not.toThrow();
+  });
+
+  it("disabled recurring policies are skipped", () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "discord-dnr-"));
+    vi.stubEnv("OPENCLAW_HOME", tmp);
+    const stateDir = path.join(tmp, "state");
+    fs.mkdirSync(stateDir, { recursive: true });
+
+    fs.writeFileSync(
+      path.join(stateDir, "discord-dnr-policies.json"),
+      JSON.stringify({
+        version: 1,
+        recurring: [
+          {
+            id: "disabled-policy",
+            threadId: "*",
+            enabled: false,
+            window: { timeZone: "America/Toronto", start: "00:00", end: "23:59" },
+          },
+        ],
+      }),
+    );
+
+    // Even though the window covers all day, the policy is disabled
+    const anyTs = Date.parse("2026-03-06T15:00:00.000Z");
+    expect(() =>
+      enforceDiscordDnrWindow({ channel: "discord", to: "channel:123" }, anyTs),
+    ).not.toThrow();
   });
 });
 
@@ -332,9 +447,11 @@ describe("whatsapp DNR policy", () => {
       }),
     );
 
-    // Discord still uses its own default policy (from DEFAULT_RECURRING)
-    expect(isDiscordDnrTarget({ channel: "discord", to: "channel:123" })).toBe(true);
-    // WhatsApp policy also works independently
+    // Discord without its own policy file has no recurring policies loaded
+    // (DEFAULT_RECURRING is populated but not merged into the read path
+    //  when the discord-dnr-policies.json file is absent)
+    expect(isDiscordDnrTarget({ channel: "discord", to: "channel:123" })).toBe(false);
+    // WhatsApp policy works independently via channel-dnr-policies.json
     expect(isWhatsAppDnrTarget("any@g.us")).toBe(true);
   });
 });

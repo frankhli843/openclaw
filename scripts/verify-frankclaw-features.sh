@@ -67,6 +67,66 @@ load_features() {
 }
 
 # ---------------------------------------------------------------------------
+# Phase: REGISTRY (validate feature entries have required test paths)
+# ---------------------------------------------------------------------------
+
+run_registry() {
+  echo -e "${BOLD}=== Frankclaw Feature Registry Validation ===${RESET}"
+  echo ""
+
+  local passed=0
+  local failed=0
+  local warnings=""
+
+  for i in $(seq 0 $((FEATURE_COUNT - 1))); do
+    local name
+    name=$(jq -r ".features[$i].name" "$FEATURES_JSON")
+    local test_count
+    test_count=$(jq ".features[$i].tests | length" "$FEATURES_JSON")
+    local e2e_count
+    e2e_count=$(jq ".features[$i].e2eTests | length" "$FEATURES_JSON" 2>/dev/null || echo 0)
+    local status
+    status=$(jq -r ".features[$i].status // \"active\"" "$FEATURES_JSON")
+
+    # Skip planned/inactive features
+    if [[ "$status" == "planned" ]]; then
+      echo -e "  ${YELLOW}⏭  $name (planned — skipped)${RESET}"
+      continue
+    fi
+
+    local feature_ok=true
+
+    if [[ "$test_count" -eq 0 ]]; then
+      warnings="${warnings}\n   MISSING: $name has no unit tests registered"
+      feature_ok=false
+    fi
+
+    if [[ "$e2e_count" -eq 0 ]]; then
+      warnings="${warnings}\n   MISSING: $name has no e2e tests registered"
+      feature_ok=false
+    fi
+
+    if [[ "$feature_ok" == "true" ]]; then
+      echo -e "  ${GREEN}✅ $name (tests: $test_count, e2e: $e2e_count)${RESET}"
+      passed=$((passed + 1))
+    else
+      echo -e "  ${RED}❌ $name (tests: $test_count, e2e: $e2e_count)${RESET}"
+      failed=$((failed + 1))
+    fi
+  done
+
+  echo ""
+  if [[ "$failed" -eq 0 ]]; then
+    echo -e "${GREEN}${BOLD}RESULT: All $passed features have required test paths ✅${RESET}"
+    return 0
+  else
+    echo -e "${RED}${BOLD}RESULT: $failed features MISSING required test paths${RESET}"
+    echo -e "$warnings"
+    return 1
+  fi
+}
+
+# ---------------------------------------------------------------------------
 # Phase: STATIC (grep for patterns in source files)
 # ---------------------------------------------------------------------------
 
@@ -184,6 +244,54 @@ run_test() {
     return 0
   else
     echo -e "${RED}${BOLD}RESULT: Tests FAILED (exit code $exit_code)${RESET}"
+    return 1
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# Phase: E2E (run e2e tests registered in the feature registry)
+# ---------------------------------------------------------------------------
+
+run_e2e() {
+  echo -e "${BOLD}=== Frankclaw Feature Verification (e2e) ===${RESET}"
+  echo ""
+
+  # Collect all e2e test files from the registry
+  local e2e_files=()
+  for i in $(seq 0 $((FEATURE_COUNT - 1))); do
+    local e2e_count
+    e2e_count=$(jq ".features[$i].e2eTests | length" "$FEATURES_JSON" 2>/dev/null || echo 0)
+    for j in $(seq 0 $((e2e_count - 1))); do
+      local tf
+      tf=$(jq -r ".features[$i].e2eTests[$j]" "$FEATURES_JSON")
+      if [[ -f "$REPO_DIR/$tf" ]]; then
+        e2e_files+=("$tf")
+      else
+        echo -e "  ${YELLOW}⚠️  E2E test file not found: $tf${RESET}"
+      fi
+    done
+  done
+
+  if [[ ${#e2e_files[@]} -eq 0 ]]; then
+    echo -e "  ${YELLOW}No e2e test files registered in feature registry.${RESET}"
+    echo ""
+    echo -e "${YELLOW}${BOLD}RESULT: No e2e tests to run (SKIP)${RESET}"
+    return 0
+  fi
+
+  echo "  Running ${#e2e_files[@]} e2e test file(s)..."
+  echo ""
+
+  cd "$REPO_DIR"
+  local exit_code=0
+  pnpm -s exec vitest run --reporter=verbose "${e2e_files[@]}" 2>&1 || exit_code=$?
+
+  echo ""
+  if [[ "$exit_code" -eq 0 ]]; then
+    echo -e "${GREEN}${BOLD}RESULT: All ${#e2e_files[@]} e2e test file(s) passed ✅${RESET}"
+    return 0
+  else
+    echo -e "${RED}${BOLD}RESULT: E2E Tests FAILED (exit code $exit_code)${RESET}"
     return 1
   fi
 }
@@ -324,9 +432,13 @@ run_runtime() {
 # ---------------------------------------------------------------------------
 
 run_all() {
+  run_registry || { echo -e "\n${RED}Registry validation failed. Stopping.${RESET}"; return 1; }
+  echo ""
   run_static || { echo -e "\n${RED}Static phase failed. Stopping.${RESET}"; return 1; }
   echo ""
   run_test || { echo -e "\n${RED}Test phase failed. Stopping.${RESET}"; return 1; }
+  echo ""
+  run_e2e || { echo -e "\n${RED}E2E phase failed. Stopping.${RESET}"; return 1; }
   echo ""
   run_runtime || { echo -e "\n${RED}Runtime phase failed. Stopping.${RESET}"; return 1; }
   echo ""
@@ -344,9 +456,11 @@ load_features
 PHASE="${1:-all}"
 
 case "$PHASE" in
-  static)  run_static ;;
-  test)    run_test ;;
-  runtime) run_runtime ;;
-  all)     run_all ;;
-  *)       die "Unknown phase: $PHASE. Use: static, test, runtime, or all" ;;
+  registry) run_registry ;;
+  static)   run_static ;;
+  test)     run_test ;;
+  e2e)      run_e2e ;;
+  runtime)  run_runtime ;;
+  all)      run_all ;;
+  *)        die "Unknown phase: $PHASE. Use: registry, static, test, e2e, runtime, or all" ;;
 esac

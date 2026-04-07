@@ -13,8 +13,9 @@
           "minCount": 1
         }
       ],
-      "tests": [],
-      "runtime": []
+      "tests": ["src/infra/outbound/discord-dnr.test.ts"],
+      "runtime": [],
+      "e2eTests": ["test/frankclaw-features-e2e.test.ts"]
     },
     {
       "name": "Discord DNR quiet hours (outbound)",
@@ -31,8 +32,9 @@
           "minCount": 1
         }
       ],
-      "tests": [],
-      "runtime": []
+      "tests": ["src/infra/outbound/discord-dnr.test.ts"],
+      "runtime": [],
+      "e2eTests": ["test/frankclaw-features-e2e.test.ts"]
     },
     {
       "name": "Discord DNR quiet hours (actions)",
@@ -49,8 +51,9 @@
           "minCount": 1
         }
       ],
-      "tests": [],
-      "runtime": []
+      "tests": ["src/infra/outbound/discord-dnr.test.ts"],
+      "runtime": [],
+      "e2eTests": ["test/frankclaw-features-e2e.test.ts"]
     },
     {
       "name": "Discord DNR quiet hours (channel)",
@@ -62,8 +65,9 @@
           "minCount": 1
         }
       ],
-      "tests": [],
-      "runtime": []
+      "tests": ["src/infra/outbound/discord-dnr.test.ts"],
+      "runtime": [],
+      "e2eTests": ["test/frankclaw-features-e2e.test.ts"]
     },
     {
       "name": "Bed reaction on DNR",
@@ -75,8 +79,9 @@
           "minCount": 1
         }
       ],
-      "tests": [],
-      "runtime": []
+      "tests": ["extensions/discord/src/monitor/message-handler.process.test.ts"],
+      "runtime": [],
+      "e2eTests": ["test/frankclaw-features-e2e.test.ts"]
     },
     {
       "name": "DNR deferred delivery",
@@ -88,8 +93,9 @@
           "minCount": 1
         }
       ],
-      "tests": [],
-      "runtime": []
+      "tests": ["src/infra/outbound/delivery-queue.frankclaw.test.ts"],
+      "runtime": [],
+      "e2eTests": ["test/frankclaw-features-e2e.test.ts"]
     },
     {
       "name": "Durable inbound queue",
@@ -146,7 +152,8 @@
           "onEvent": true,
           "note": "Only fires when Discord messages are queued and coalesced by the durable inbound queue"
         }
-      ]
+      ],
+      "e2eTests": ["test/frankclaw-features-e2e.test.ts"]
     },
     {
       "name": "Message coalescing",
@@ -163,8 +170,9 @@
           "minCount": 1
         }
       ],
-      "tests": [],
-      "runtime": []
+      "tests": ["extensions/discord/src/monitor/message-handler.coalesce.frankclaw.test.ts"],
+      "runtime": [],
+      "e2eTests": ["test/frankclaw-features-e2e.test.ts"]
     },
     {
       "name": "Thread binding recovery",
@@ -182,7 +190,8 @@
         }
       ],
       "tests": ["extensions/discord/src/monitor/message-handler.preflight.frankclaw.test.ts"],
-      "runtime": []
+      "runtime": [],
+      "e2eTests": ["test/frankclaw-features-e2e.test.ts"]
     },
     {
       "name": "Gate-control unknown groups",
@@ -200,7 +209,8 @@
         }
       ],
       "tests": ["extensions/whatsapp/src/auto-reply/monitor/group-gating.frankclaw.test.ts"],
-      "runtime": []
+      "runtime": [],
+      "e2eTests": ["test/frankclaw-features-e2e.test.ts"]
     },
     {
       "name": "Raw send tool",
@@ -217,8 +227,9 @@
           "minCount": 1
         }
       ],
-      "tests": [],
-      "runtime": []
+      "tests": ["src/agents/tools/raw-send.frankclaw.test.ts"],
+      "runtime": [],
+      "e2eTests": ["test/frankclaw-features-e2e.test.ts"]
     },
     {
       "name": "Periodic delivery recovery",
@@ -230,8 +241,9 @@
           "minCount": 1
         }
       ],
-      "tests": [],
-      "runtime": []
+      "tests": ["src/gateway/delivery-recovery-schedule.frankclaw.test.ts"],
+      "runtime": [],
+      "e2eTests": ["test/frankclaw-features-e2e.test.ts"]
     },
     {
       "name": "WhatsApp DNR quiet hours",
@@ -243,8 +255,9 @@
           "minCount": 1
         }
       ],
-      "tests": [],
-      "runtime": []
+      "tests": ["extensions/whatsapp/src/outbound-adapter.frankclaw.test.ts"],
+      "runtime": [],
+      "e2eTests": ["test/frankclaw-features-e2e.test.ts"]
     },
     {
       "name": "Telegram DNR quiet hours",
@@ -261,8 +274,9 @@
           "minCount": 1
         }
       ],
-      "tests": [],
-      "runtime": []
+      "tests": ["extensions/telegram/src/bot/delivery.replies.frankclaw.test.ts"],
+      "runtime": [],
+      "e2eTests": ["test/frankclaw-features-e2e.test.ts"]
     },
     {
       "name": "Discord autoThread",
@@ -274,8 +288,9 @@
           "minCount": 1
         }
       ],
-      "tests": [],
-      "runtime": []
+      "tests": ["extensions/discord/src/monitor/discord-auto-thread-config.frankclaw.test.ts"],
+      "runtime": [],
+      "e2eTests": ["test/frankclaw-features-e2e.test.ts"]
     },
     {
       "name": "doramon_stop command",
@@ -292,8 +307,12 @@
           "minCount": 1
         }
       ],
-      "tests": [],
-      "runtime": []
+      "tests": [
+        "src/auto-reply/commands-registry.frankclaw.test.ts",
+        "src/auto-reply/reply/commands-session-abort.frankclaw.test.ts"
+      ],
+      "runtime": [],
+      "e2eTests": ["test/frankclaw-features-e2e.test.ts"]
     },
     {
       "name": "DNR policy exports in plugin-sdk",
@@ -310,8 +329,9 @@
           "minCount": 1
         }
       ],
-      "tests": [],
-      "runtime": []
+      "tests": ["src/plugin-sdk/dnr-exports.frankclaw.test.ts"],
+      "runtime": [],
+      "e2eTests": ["test/frankclaw-features-e2e.test.ts"]
     },
     {
       "name": "Telegram gateMode",
@@ -332,7 +352,8 @@
         "src/channels/gate-mode.frankclaw.test.ts",
         "src/config/config.telegram-gatemode.frankclaw.test.ts"
       ],
-      "runtime": []
+      "runtime": [],
+      "e2eTests": ["test/frankclaw-features-e2e.test.ts"]
     },
     {
       "name": "Durable subagent spawn",
@@ -349,8 +370,9 @@
           "minCount": 1
         }
       ],
-      "tests": [],
-      "runtime": []
+      "tests": ["src/agents/subagent-spawn.frankclaw.test.ts"],
+      "runtime": [],
+      "e2eTests": ["test/frankclaw-features-e2e.test.ts"]
     },
     {
       "name": "Agent runner deferred retry",
@@ -367,8 +389,12 @@
           "minCount": 1
         }
       ],
-      "tests": [],
-      "runtime": []
+      "tests": [
+        "src/auto-reply/reply/agent-runner.frankclaw.test.ts",
+        "src/auto-reply/reply/agent-runner-execution.frankclaw.test.ts"
+      ],
+      "runtime": [],
+      "e2eTests": ["test/frankclaw-features-e2e.test.ts"]
     },
     {
       "name": "Restart selfheal integration",
@@ -391,7 +417,8 @@
         }
       ],
       "tests": ["src/cli/daemon-cli/restart-selfheal.frankclaw.test.ts"],
-      "runtime": []
+      "runtime": [],
+      "e2eTests": ["test/frankclaw-features-e2e.test.ts"]
     },
     {
       "name": "Cron self-heal",
@@ -412,7 +439,8 @@
         "src/cron/service.timer.frankclaw.test.ts",
         "src/cron/service/self-heal.frankclaw.test.ts"
       ],
-      "runtime": []
+      "runtime": [],
+      "e2eTests": ["test/frankclaw-features-e2e.test.ts"]
     },
     {
       "name": "Delivery queue (frankclaw)",
@@ -429,8 +457,9 @@
           "minCount": 1
         }
       ],
-      "tests": [],
-      "runtime": []
+      "tests": ["src/infra/outbound/delivery-queue.frankclaw.test.ts"],
+      "runtime": [],
+      "e2eTests": ["test/frankclaw-features-e2e.test.ts"]
     },
     {
       "name": "Carbon message rehydration (attachments)",
@@ -449,7 +478,8 @@
         }
       ],
       "tests": ["extensions/discord/src/monitor/inbound-job.rehydrate.test.ts"],
-      "runtime": []
+      "runtime": [],
+      "e2eTests": ["test/frankclaw-features-e2e.test.ts"]
     },
     {
       "name": "SUBAGENTS.md global prepend",
@@ -488,7 +518,8 @@
           "withinSeconds": 0,
           "onEvent": true
         }
-      ]
+      ],
+      "e2eTests": ["test/frankclaw-features-e2e.test.ts"]
     },
     {
       "name": "DNR recovery pre-check (delivery queue)",
@@ -510,7 +541,8 @@
         "src/infra/outbound/delivery-queue.recovery.test.ts",
         "src/infra/outbound/delivery-queue.policy.test.ts"
       ],
-      "runtime": []
+      "runtime": [],
+      "e2eTests": ["test/frankclaw-features-e2e.test.ts"]
     },
     {
       "name": "PI embedded auth-aware stream wrapper",
@@ -535,8 +567,9 @@
           "note": "resolved wsApiKey injected into stream options for WebSocket transport"
         }
       ],
-      "tests": [],
-      "runtime": []
+      "tests": ["src/agents/pi-embedded-runner/run/attempt.frankclaw.test.ts"],
+      "runtime": [],
+      "e2eTests": ["test/frankclaw-features-e2e.test.ts"]
     },
     {
       "name": "Matrix SDK Jiti singleton workaround",
@@ -555,8 +588,9 @@
           "note": "plugin loader uses shared Jiti loader cache to prevent Matrix SDK singleton guard crashes across plugin loads"
         }
       ],
-      "tests": [],
-      "runtime": []
+      "tests": ["src/plugins/loader.jiti-singleton.test.ts"],
+      "runtime": [],
+      "e2eTests": ["test/frankclaw-features-e2e.test.ts"]
     },
     {
       "name": "Explicit exec capability baseline",
@@ -587,8 +621,9 @@
           "note": "tools.exec.ask must remain off"
         }
       ],
-      "tests": [],
-      "runtime": []
+      "tests": ["src/config/exec-capability-baseline.frankclaw.test.ts"],
+      "runtime": [],
+      "e2eTests": ["test/frankclaw-features-e2e.test.ts"]
     },
     {
       "id": "channel-config-relax-additional-properties",
@@ -612,7 +647,9 @@
         ],
         "test": [],
         "runtime": []
-      }
+      },
+      "e2eTests": ["test/frankclaw-features-e2e.test.ts"],
+      "tests": ["src/config/channel-config-relaxation.frankclaw.test.ts"]
     },
     {
       "name": "sessions.send delivery context forwarding",
@@ -634,7 +671,7 @@
           "minCount": 1
         }
       ],
-      "tests": [],
+      "tests": ["src/utils/delivery-context.forwarding.test.ts"],
       "runtime": [
         {
           "logPattern": "[agent:nested]",
@@ -642,7 +679,8 @@
           "onEvent": true,
           "note": "Only fires when sessions.send delivers to a Discord session. Expected to be absent after cold restart with no cross-session sends."
         }
-      ]
+      ],
+      "e2eTests": ["test/frankclaw-features-e2e.test.ts"]
     },
     {
       "name": "Discord durable queue pre-process diagnostics",
@@ -654,7 +692,7 @@
           "minCount": 1
         }
       ],
-      "tests": [],
+      "tests": ["src/jobs/durable-job-queue.diagnostics.test.ts"],
       "runtime": [
         {
           "logPattern": "[frankclaw-durable-worker] pre-process:",
@@ -662,7 +700,8 @@
           "onEvent": true,
           "note": "Only fires when Discord messages arrive. Expected to be absent if no Discord messages received since restart."
         }
-      ]
+      ],
+      "e2eTests": ["test/frankclaw-features-e2e.test.ts"]
     },
     {
       "name": "WhatsApp group gating observability",
@@ -701,7 +740,8 @@
           "logPattern": "[whatsapp] [history] group=",
           "onEvent": true
         }
-      ]
+      ],
+      "e2eTests": ["test/frankclaw-features-e2e.test.ts"]
     },
     {
       "name": "WhatsApp offline catch-up group history preservation",
@@ -709,7 +749,8 @@
       "status": "planned",
       "static": [],
       "tests": [],
-      "runtime": []
+      "runtime": [],
+      "e2eTests": ["test/frankclaw-features-e2e.test.ts"]
     },
     {
       "name": "Durable queue pre-run abort safety",
@@ -722,8 +763,9 @@
           "note": "Three pre-run abort checks must throw instead of return to prevent message loss on gateway shutdown"
         }
       ],
-      "tests": [],
-      "runtime": []
+      "tests": ["src/jobs/durable-job-queue.abort-safety.test.ts"],
+      "runtime": [],
+      "e2eTests": ["test/frankclaw-features-e2e.test.ts"]
     },
     {
       "name": "Discord inbound lifecycle sinkhole recovery",
@@ -799,7 +841,8 @@
           "onEvent": true,
           "note": "Recovery scan found persisted session metadata whose transcript file is absent, even if no transcript evidence exists"
         }
-      ]
+      ],
+      "e2eTests": ["test/frankclaw-features-e2e.test.ts"]
     },
     {
       "name": "Memory search path prepend",
@@ -818,8 +861,9 @@
           "note": "Comment markers for both code paths (embedding + FTS-only)"
         }
       ],
-      "tests": [],
-      "runtime": []
+      "tests": ["extensions/memory-core/src/memory/manager-embedding-ops.path-prepend.test.ts"],
+      "runtime": [],
+      "e2eTests": ["test/frankclaw-features-e2e.test.ts"]
     },
     {
       "name": "Subagent announce: direct delivery must be user-visible",
@@ -837,7 +881,8 @@
         }
       ],
       "tests": ["src/agents/subagent-announce-delivery.silent-result.test.ts"],
-      "runtime": []
+      "runtime": [],
+      "e2eTests": ["test/frankclaw-features-e2e.test.ts"]
     },
     {
       "name": "System event suppression for heartbeat and exec completions",
@@ -858,7 +903,8 @@
         "src/infra/heartbeat-events-filter.test.ts",
         "src/auto-reply/reply/session-system-events.heartbeat-routing.test.ts"
       ],
-      "runtime": []
+      "runtime": [],
+      "e2eTests": ["test/frankclaw-features-e2e.test.ts"]
     },
     {
       "name": "Subagent announce dead-letter alert",
@@ -870,13 +916,14 @@
           "minCount": 1
         }
       ],
-      "tests": [],
+      "tests": ["src/agents/subagent-announce-delivery.frankclaw.test.ts"],
       "runtime": [
         {
           "logPattern": "Subagent announce give up",
           "onEvent": true
         }
-      ]
+      ],
+      "e2eTests": ["test/frankclaw-features-e2e.test.ts"]
     },
     {
       "name": "ACPX resume prefers agentSessionId over stale acpxSessionId",
@@ -907,14 +954,15 @@
         "extensions/acpx/src/runtime.resume-session-selection.test.ts",
         "src/acp/control-plane/identity.resume-session-selection.test.ts"
       ],
-      "runtime": []
+      "runtime": [],
+      "e2eTests": ["test/frankclaw-features-e2e.test.ts"]
     },
     {
       "id": "discord-acp-thread-binding-prefix-strip",
       "name": "Discord ACP thread binding prefix strip",
       "description": "Strips channel:/user: prefix from conversation IDs before Discord API calls in the session binding adapter's child-placement bind path. Without this, the plugin refactor's resolveInboundConversation returns prefixed IDs that Discord rejects.",
       "location": "extensions/discord/src/monitor/thread-bindings.manager.ts",
-      "hookPoint": "sessionBindingAdapter.bind() → resolveChannelIdForBinding call",
+      "hookPoint": "sessionBindingAdapter.bind() \u2192 resolveChannelIdForBinding call",
       "static": [
         {
           "file": "extensions/discord/src/monitor/thread-bindings.manager.ts",
@@ -923,7 +971,8 @@
         }
       ],
       "tests": ["extensions/discord/src/monitor/thread-bindings.lifecycle.test.ts"],
-      "runtime": []
+      "runtime": [],
+      "e2eTests": ["test/frankclaw-features-e2e.test.ts"]
     }
   ]
 }
