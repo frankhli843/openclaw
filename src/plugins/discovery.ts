@@ -471,8 +471,10 @@ function discoverBundleInRoot(params: {
     rejectHardlinks: params.origin !== "bundled",
   });
   if (!bundleManifest.ok) {
+    const isBundledMissing =
+      params.origin === "bundled" && bundleManifest.error?.includes("manifest not found");
     params.diagnostics.push({
-      level: "error",
+      level: isBundledMissing ? "warn" : "error",
       message: bundleManifest.error,
       source: bundleManifest.manifestPath,
     });

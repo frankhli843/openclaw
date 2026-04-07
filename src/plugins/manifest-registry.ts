@@ -489,8 +489,14 @@ export function loadPluginManifestRegistry(
             })
           : loadPluginManifest(candidate.rootDir, rejectHardlinks);
     if (!manifestRes.ok) {
+      // Missing manifests in the stock bundled extensions root are expected
+      // (the extensions/ directory itself has no manifest).  Downgrade to warn
+      // so the config validator doesn't throw and crash channel subprocesses.
+      // Real plugin errors (non-bundled or non-missing) stay as errors.
+      const isBundledMissing =
+        candidate.origin === "bundled" && manifestRes.error?.includes("manifest not found");
       diagnostics.push({
-        level: "error",
+        level: isBundledMissing ? "warn" : "error",
         message: manifestRes.error,
         source: manifestRes.manifestPath,
       });
