@@ -158,7 +158,9 @@ export const telegramOutbound: ChannelOutboundAdapter = {
       threadId,
       gatewayClientScopes,
     }) => {
-      if (checkTelegramDnr()) return createEmptyChannelResult("telegram");
+      if (checkTelegramDnr()) {
+        return createEmptyChannelResult("telegram");
+      }
       const { send, baseOpts } = await resolveTelegramSendContext({
         cfg,
         deps,

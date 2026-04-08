@@ -46,9 +46,9 @@ export function createRawSendTool(options: {
       required: ["channel", "target", "message"],
     },
     execute: async (_toolCallId: string, params: Record<string, unknown>) => {
-      const channel = String(params.channel ?? "");
-      const target = String(params.target ?? "");
-      const message = String(params.message ?? "");
+      const channel = typeof params.channel === "string" ? params.channel : "";
+      const target = typeof params.target === "string" ? params.target : "";
+      const message = typeof params.message === "string" ? params.message : "";
 
       if (!channel || !target || !message) {
         return jsonResult({ error: "channel, target, and message are all required" });

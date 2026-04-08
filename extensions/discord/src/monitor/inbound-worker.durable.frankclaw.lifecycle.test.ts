@@ -57,7 +57,7 @@ function createProgressSequence(...entries: Array<Record<string, unknown>>) {
       transcriptExists: false,
       transcriptSize: 0,
       transcriptMtimeMs: 0,
-      ...(next ?? {}),
+      ...next,
     };
   });
 }

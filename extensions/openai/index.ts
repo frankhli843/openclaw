@@ -16,23 +16,6 @@ import { buildOpenAIRealtimeVoiceProvider } from "./realtime-voice-provider.js";
 import { buildOpenAISpeechProvider } from "./speech-provider.js";
 import { buildOpenAIVideoGenerationProvider } from "./video-generation-provider.js";
 
-type OptionalRegistrationApi = {
-  logger?: {
-    warn?: (...args: unknown[]) => void;
-  };
-} & Record<string, unknown>;
-
-function registerOptional(api: OptionalRegistrationApi, methodName: string, value: unknown): void {
-  const register = api[methodName];
-  if (typeof register !== "function") {
-    api.logger?.warn?.(
-      `[openai] host plugin API missing ${methodName}, skipping optional registration`,
-    );
-    return;
-  }
-  (register as (payload: unknown) => void)(value);
-}
-
 export default definePluginEntry({
   id: "openai",
   name: "OpenAI Provider",

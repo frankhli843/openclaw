@@ -1051,7 +1051,7 @@ export const telegramPlugin = createChatChannelPlugin({
           enforceDiscordDnrWindow({ channel: "discord", to: "telegram-global", threadId: "*" });
         } catch (err) {
           if (err instanceof DiscordDnrSuppressedError) {
-            return attachChannelToResult("telegram", { messageId: "dnr-suppressed" } as any);
+            return attachChannelToResult("telegram", { messageId: "dnr-suppressed" });
           }
           throw err;
         }

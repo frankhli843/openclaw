@@ -56,7 +56,7 @@ describe("enqueueSend", () => {
 
     await vi.advanceTimersByTimeAsync(DEFAULT_SEND_GAP_MS);
     await Promise.all([a, b]);
-    expect(events.sort()).toEqual(["a", "b"]);
+    expect(events.toSorted()).toEqual(["a", "b"]);
   });
 
   it("continues queue after failures", async () => {

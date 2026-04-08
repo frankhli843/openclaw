@@ -20,7 +20,9 @@ import { normalizeE164 } from "../../../../../src/utils.js";
 // where dist and src get separate EventEmitter instances.
 let gateNotifyRegistered = false;
 function ensureGateNotifyDiscord() {
-  if (gateNotifyRegistered) return;
+  if (gateNotifyRegistered) {
+    return;
+  }
   gateNotifyRegistered = true;
 
   onBlockedNotification(async (event) => {
@@ -90,12 +92,6 @@ export function resolveWebGroupGateModeCheck(
 ): WebGroupGateModeCheckResult {
   // Ensure Discord delivery is registered from the same module context
   ensureGateNotifyDiscord();
-
-  const noGate: WebGroupGateModeCheckResult = {
-    approved: false,
-    effectiveMention: false,
-    shouldDrop: false,
-  };
 
   const channelId = params.channel ?? "whatsapp";
   const gateModeResult = resolveChannelGroupGateMode({

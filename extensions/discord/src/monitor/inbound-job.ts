@@ -128,25 +128,28 @@ function normalizeDiscordThreadChannel(
  * (attachments, embeds, content, …) live only inside `_rawData`.
  * Hoist them so downstream code that reads `message.attachments` works.
  */
-export function rehydrateCarbonMessage(message: any): void {
+export function rehydrateCarbonMessage(message: unknown): void {
   if (!message || typeof message !== "object") {
     return;
   }
 
+  const mutableMessage = message as Record<string, unknown>;
+
   // Skip live Carbon Message instances whose prototype getters already resolve
-  if (Object.getPrototypeOf(message) !== Object.prototype) {
+  if (Object.getPrototypeOf(mutableMessage) !== Object.prototype) {
     return;
   }
 
-  const raw = message._rawData ?? message.rawData;
-  if (!raw || typeof raw !== "object") {
+  const rawValue = mutableMessage._rawData ?? mutableMessage.rawData;
+  const raw = rawValue && typeof rawValue === "object" ? (rawValue as Record<string, unknown>) : null;
+  if (!raw) {
     return;
   }
 
   // Hoist all raw fields that are not already own properties
   for (const field of Object.keys(raw)) {
-    if (raw[field] !== undefined && !Object.prototype.hasOwnProperty.call(message, field)) {
-      message[field] = raw[field];
+    if (raw[field] !== undefined && !Object.prototype.hasOwnProperty.call(mutableMessage, field)) {
+      mutableMessage[field] = raw[field];
     }
   }
 
@@ -160,8 +163,8 @@ export function rehydrateCarbonMessage(message: any): void {
     sticker_items: "stickerItems",
   };
   for (const [snake, camel] of Object.entries(camelAliases)) {
-    if (message[snake] !== undefined && message[camel] === undefined) {
-      message[camel] = message[snake];
+    if (mutableMessage[snake] !== undefined && mutableMessage[camel] === undefined) {
+      mutableMessage[camel] = mutableMessage[snake];
     }
   }
 }
