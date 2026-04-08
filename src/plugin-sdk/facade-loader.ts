@@ -4,13 +4,12 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { openBoundaryFileSync } from "../infra/boundary-file-read.js";
 import { resolveBundledPluginsDir } from "../plugins/bundled-dir.js";
+import { resolveBundledPluginPublicSurfacePath } from "../plugins/public-surface-runtime.js";
 import {
-  buildPluginLoaderAliasMap,
   buildPluginLoaderJitiOptions,
   resolveLoaderPackageRoot,
-  shouldPreferNativeJiti,
+  resolvePluginLoaderJitiConfig,
 } from "../plugins/sdk-alias.js";
-import { resolveBundledPluginPublicSurfacePath } from "../plugins/public-surface-runtime.js";
 
 const CURRENT_MODULE_PATH = fileURLToPath(import.meta.url);
 const PUBLIC_SURFACE_SOURCE_EXTENSIONS = [".ts", ".mts", ".js", ".mjs", ".cts", ".cjs"] as const;
@@ -136,13 +135,11 @@ function resolveFacadeModuleLocation(params: {
 }
 
 function getJiti(modulePath: string) {
-  const tryNative =
-    shouldPreferNativeJiti(modulePath) ||
-    modulePath.includes(`${path.sep}dist${path.sep}`);
-  const aliasMap = buildPluginLoaderAliasMap(modulePath, process.argv[1], import.meta.url);
-  const cacheKey = JSON.stringify({
-    tryNative,
-    aliasMap: Object.entries(aliasMap).toSorted(([left], [right]) => left.localeCompare(right)),
+  const { tryNative, aliasMap, cacheKey } = resolvePluginLoaderJitiConfig({
+    modulePath,
+    argv1: process.argv[1],
+    moduleUrl: import.meta.url,
+    preferBuiltDist: true,
   });
   const cached = jitiLoaders.get(cacheKey);
   if (cached) {
@@ -305,4 +302,10 @@ export function resetFacadeLoaderStateForTest(): void {
   cachedFacadeModuleLocationsByKey.clear();
   facadeLoaderJitiFactory = undefined;
   cachedOpenClawPackageRoot = undefined;
+}
+
+export function setFacadeLoaderJitiFactoryForTest(
+  factory: ((...args: Parameters<(typeof import("jiti"))["createJiti"]>) => JitiLoader) | undefined,
+): void {
+  facadeLoaderJitiFactory = factory;
 }

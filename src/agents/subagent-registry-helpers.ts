@@ -11,6 +11,7 @@ import {
 } from "../config/sessions.js";
 import { callGateway } from "../gateway/call.js";
 import { defaultRuntime } from "../runtime.js";
+import { normalizeLowercaseStringOrEmpty } from "../shared/string-coerce.js";
 import { type SubagentRunOutcome } from "./subagent-announce.js";
 import { SUBAGENT_ENDED_REASON_ERROR } from "./subagent-lifecycle-events.js";
 import { runOutcomesEqual } from "./subagent-registry-completion.js";
@@ -108,9 +109,9 @@ function findSessionEntryByKey(store: Record<string, SessionEntry>, sessionKey: 
   if (direct) {
     return direct;
   }
-  const normalized = sessionKey.toLowerCase();
+  const normalized = normalizeLowercaseStringOrEmpty(sessionKey);
   for (const [key, entry] of Object.entries(store)) {
-    if (key.toLowerCase() === normalized) {
+    if (normalizeLowercaseStringOrEmpty(key) === normalized) {
       return entry;
     }
   }

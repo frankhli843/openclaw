@@ -1,4 +1,5 @@
 import { HEARTBEAT_TOKEN } from "../auto-reply/tokens.js";
+import { normalizeLowercaseStringOrEmpty } from "../shared/string-coerce.js";
 
 // Build a dynamic prompt for cron events by embedding the actual event content.
 // This ensures the model sees the reminder text directly instead of relying on
@@ -52,7 +53,7 @@ export function buildExecEventPrompt(opts?: { deliverToUser?: boolean }): string
   );
 }
 
-const HEARTBEAT_OK_PREFIX = HEARTBEAT_TOKEN.toLowerCase();
+const HEARTBEAT_OK_PREFIX = normalizeLowercaseStringOrEmpty(HEARTBEAT_TOKEN);
 
 function normalizeSystemEventText(evt: string): string {
   const trimmed = evt.trim();

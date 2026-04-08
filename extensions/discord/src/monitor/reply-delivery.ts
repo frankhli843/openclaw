@@ -23,7 +23,7 @@ import {
   type RetryRunner,
 } from "openclaw/plugin-sdk/retry-runtime";
 import type { RuntimeEnv } from "openclaw/plugin-sdk/runtime-env";
-import { convertMarkdownTables } from "openclaw/plugin-sdk/text-runtime";
+import { convertMarkdownTables, normalizeOptionalString } from "openclaw/plugin-sdk/text-runtime";
 import { resolveDiscordAccount } from "../accounts.js";
 import { chunkDiscordTextWithMode } from "../chunk.js";
 import { isLikelyDiscordVideoMedia } from "../media-detection.js";
@@ -234,7 +234,7 @@ function createPayloadReplyToResolver(params: {
   replyToMode: ReplyToMode;
   resolveFallbackReplyTo: () => string | undefined;
 }): () => string | undefined {
-  const payloadReplyTo = params.payload.replyToId?.trim() || undefined;
+  const payloadReplyTo = normalizeOptionalString(params.payload.replyToId);
   const allowExplicitReplyWhenOff = Boolean(
     payloadReplyTo && (params.payload.replyToTag || params.payload.replyToCurrent),
   );
@@ -380,15 +380,12 @@ export async function deliverDiscordReply(params: {
   threadBindings?: DiscordThreadBindingLookup;
   mediaLocalRoots?: readonly string[];
 }): Promise<DeliverDiscordReplyResult> {
-  // ── Frankclaw: Discord DNR (Do-Not-Reply) quiet window enforcement ──
+  // Discord DNR quiet window enforcement.
   const dnrCtx = { channel: "discord" as const, to: params.target };
   try {
     enforceDiscordDnrWindow(dnrCtx);
   } catch (err) {
     if (err instanceof DiscordDnrSuppressedError) {
-      // Enqueue the reply payloads to disk FIRST, then defer until quiet window ends.
-      // Previously deferDelivery was called on a non-existent queue entry (ENOENT),
-      // which was silently swallowed by .catch(() => {}), losing the reply forever.
       const queueId = await enqueueDelivery({
         channel: "discord",
         to: params.target,
@@ -404,7 +401,7 @@ export async function deliverDiscordReply(params: {
     throw err;
   }
 
-  const replyTo = params.replyToId?.trim() || undefined;
+  const replyTo = normalizeOptionalString(params.replyToId);
   const replyToMode = params.replyToMode ?? "all";
   const replyOnce = isSingleUseReplyToMode(replyToMode);
   let replyUsed = false;

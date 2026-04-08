@@ -3,7 +3,10 @@ import { Type } from "@sinclair/typebox";
 import type { OpenClawConfig } from "../../config/config.js";
 import { extractPdfContent, type PdfExtractedContent } from "../../media/pdf-extract.js";
 import { loadWebMediaRaw } from "../../media/web-media.js";
-import { normalizeOptionalString } from "../../shared/string-coerce.js";
+import {
+  normalizeLowercaseStringOrEmpty,
+  normalizeOptionalString,
+} from "../../shared/string-coerce.js";
 import { resolveUserPath } from "../../utils.js";
 import { type ImageModelConfig } from "./image-tool.helpers.js";
 import {
@@ -44,6 +47,23 @@ const DEFAULT_MAX_PAGES = 20;
 
 const PDF_MIN_TEXT_CHARS = 200;
 const PDF_MAX_PIXELS = 4_000_000;
+
+export const PdfToolSchema = Type.Object({
+  prompt: Type.Optional(Type.String()),
+  pdf: Type.Optional(Type.String({ description: "Single PDF path or URL." })),
+  pdfs: Type.Optional(
+    Type.Array(Type.String(), {
+      description: "Multiple PDF paths or URLs (up to 10).",
+    }),
+  ),
+  pages: Type.Optional(
+    Type.String({
+      description: 'Page range to process, e.g. "1-5", "1,3,5-7". Defaults to all pages.',
+    }),
+  ),
+  model: Type.Optional(Type.String()),
+  maxBytesMb: Type.Optional(Type.Number()),
+});
 
 // ---------------------------------------------------------------------------
 // Model resolution (mirrors image tool pattern)
@@ -258,22 +278,7 @@ export function createPdfTool(options?: {
     label: "PDF",
     name: "pdf",
     description,
-    parameters: Type.Object({
-      prompt: Type.Optional(Type.String()),
-      pdf: Type.Optional(Type.String({ description: "Single PDF path or URL." })),
-      pdfs: Type.Optional(
-        Type.Array(Type.String(), {
-          description: "Multiple PDF paths or URLs (up to 10).",
-        }),
-      ),
-      pages: Type.Optional(
-        Type.String({
-          description: 'Page range to process, e.g. "1-5", "1,3,5-7". Defaults to all pages.',
-        }),
-      ),
-      model: Type.Optional(Type.String()),
-      maxBytesMb: Type.Optional(Type.Number()),
-    }),
+    parameters: PdfToolSchema,
     execute: async (_toolCallId, args) => {
       const record = args && typeof args === "object" ? (args as Record<string, unknown>) : {};
 
@@ -391,7 +396,7 @@ export function createPdfTool(options?: {
 
         if (media.kind !== "document") {
           // Check MIME type more specifically
-          const ct = (media.contentType ?? "").toLowerCase();
+          const ct = normalizeLowercaseStringOrEmpty(media.contentType);
           if (!ct.includes("pdf") && !ct.includes("application/pdf")) {
             throw new Error(`Expected PDF but got ${media.contentType ?? media.kind}: ${pdfRaw}`);
           }

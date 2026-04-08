@@ -1,6 +1,10 @@
 import type { ChannelId } from "../channels/plugins/types.js";
 import { resolveAccountEntry } from "../routing/account-lookup.js";
 import { normalizeAccountId } from "../routing/session-key.js";
+import {
+  normalizeLowercaseStringOrEmpty,
+  normalizeOptionalString,
+} from "../shared/string-coerce.js";
 import type { OpenClawConfig } from "./config.js";
 import type { GateMode } from "./types.base.js";
 import {
@@ -45,8 +49,10 @@ function resolveChannelGroupConfig(
   if (!caseInsensitive) {
     return undefined;
   }
-  const target = groupId.toLowerCase();
-  const matchedKey = Object.keys(groups).find((key) => key !== "*" && key.toLowerCase() === target);
+  const target = normalizeLowercaseStringOrEmpty(groupId);
+  const matchedKey = Object.keys(groups).find(
+    (key) => key !== "*" && normalizeLowercaseStringOrEmpty(key) === target,
+  );
   if (!matchedKey) {
     return undefined;
   }
@@ -89,7 +95,7 @@ function normalizeSenderKey(
     return "";
   }
   const withoutAt = options.stripLeadingAt && trimmed.startsWith("@") ? trimmed.slice(1) : trimmed;
-  return withoutAt.toLowerCase();
+  return normalizeLowercaseStringOrEmpty(withoutAt);
 }
 
 function normalizeTypedSenderKey(value: string, type: SenderKeyType): string {
@@ -210,7 +216,7 @@ function resolveCompiledToolsBySenderPolicy(
 }
 
 function normalizeCandidate(value: string | null | undefined, type: SenderKeyType): string {
-  const trimmed = value?.trim();
+  const trimmed = normalizeOptionalString(value);
   if (!trimmed) {
     return "";
   }
@@ -218,7 +224,7 @@ function normalizeCandidate(value: string | null | undefined, type: SenderKeyTyp
 }
 
 function normalizeSenderIdCandidates(value: string | null | undefined): string[] {
-  const trimmed = value?.trim();
+  const trimmed = normalizeOptionalString(value);
   if (!trimmed) {
     return [];
   }

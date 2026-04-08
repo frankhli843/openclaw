@@ -8,7 +8,10 @@ import {
 } from "../../infra/format-time/format-datetime.ts";
 import { isSuppressedSystemEvent } from "../../infra/heartbeat-events-filter.js";
 import { drainSystemEventEntries } from "../../infra/system-events.js";
-import { normalizeOptionalString } from "../../shared/string-coerce.js";
+import {
+  normalizeLowercaseStringOrEmpty,
+  normalizeOptionalString,
+} from "../../shared/string-coerce.js";
 
 /** Drain queued system events, format as `System:` lines, return the block (or undefined). */
 export async function drainFormattedSystemEvents(params: {
@@ -22,7 +25,7 @@ export async function drainFormattedSystemEvents(params: {
     if (!trimmed) {
       return null;
     }
-    const lower = trimmed.toLowerCase();
+    const lower = normalizeLowercaseStringOrEmpty(trimmed);
     if (lower.includes("reason periodic")) {
       return null;
     }
@@ -40,7 +43,7 @@ export async function drainFormattedSystemEvents(params: {
     if (!raw) {
       return { mode: "local" as const };
     }
-    const lowered = raw.toLowerCase();
+    const lowered = normalizeLowercaseStringOrEmpty(raw);
     if (lowered === "utc" || lowered === "gmt") {
       return { mode: "utc" as const };
     }
