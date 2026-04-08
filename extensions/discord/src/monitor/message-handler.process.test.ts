@@ -81,12 +81,18 @@ let createThreadBindingManager: typeof import("./thread-bindings.js").createThre
 let processDiscordMessage: typeof import("./message-handler.process.js").processDiscordMessage;
 
 const sendModule = await import("../send.js");
-vi.spyOn(sendModule, "reactMessageDiscord").mockImplementation(
-  async (channelId, messageId, emoji, opts) => {
-    await sendMocks.reactMessageDiscord(channelId, messageId, emoji, opts);
-    return { ok: true };
-  },
-);
+const sendReactionsModule = await import("../send.reactions.js");
+const reactMessageDiscordMock = async (
+  channelId: string,
+  messageId: string,
+  emoji: string,
+  opts: unknown,
+) => {
+  await sendMocks.reactMessageDiscord(channelId, messageId, emoji, opts);
+  return { ok: true };
+};
+vi.spyOn(sendModule, "reactMessageDiscord").mockImplementation(reactMessageDiscordMock);
+vi.spyOn(sendReactionsModule, "reactMessageDiscord").mockImplementation(reactMessageDiscordMock);
 vi.spyOn(sendModule, "removeReactionDiscord").mockImplementation(
   async (channelId, messageId, emoji, opts) => {
     await sendMocks.removeReactionDiscord(channelId, messageId, emoji, opts);
@@ -125,12 +131,12 @@ vi.spyOn(replyRuntimeModule, "createReplyDispatcherWithTyping").mockImplementati
 }) => ({
   dispatcher: {
     sendToolResult: vi.fn(() => true),
-    sendBlockReply: vi.fn((payload: unknown) => {
-      void opts.deliver(payload as never, { kind: "block" });
+    sendBlockReply: vi.fn(async (payload: unknown) => {
+      await opts.deliver(payload as never, { kind: "block" });
       return true;
     }),
-    sendFinalReply: vi.fn((payload: unknown) => {
-      void opts.deliver(payload as never, { kind: "final" });
+    sendFinalReply: vi.fn(async (payload: unknown) => {
+      await opts.deliver(payload as never, { kind: "final" });
       return true;
     }),
     waitForIdle: vi.fn(async () => {}),

@@ -594,7 +594,7 @@ async function sendSubagentAnnounceDirectly(params: {
       !hasDeliverableCompletionFinalResult(agentResult)
     ) {
       defaultRuntime.log(
-        `[warn] Subagent completion announce for ${params.directIdempotencyKey}: parent session produced no user-facing reply (gateway call succeeded — treating as delivered)`,
+        `[warn] Subagent completion announce for ${params.directIdempotencyKey}: completion update produced no user-facing reply (gateway call succeeded, treating as delivered)`,
       );
     }
 
