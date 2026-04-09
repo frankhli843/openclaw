@@ -589,14 +589,47 @@ async function sendSubagentAnnounceDirectly(params: {
     // "no user-facing reply" as a delivery failure caused futile retries that
     // re-fed the same completion into the parent, always with the same result,
     // until MAX_ANNOUNCE_RETRY_COUNT was hit and the announce was given up.
+    //
+    // But silently marking as delivered when the parent produces no reply means
+    // Frank never hears about the subagent's result (2026-04-09 regression).
+    // Fallback: if the parent produced no user-facing reply AND we have a valid
+    // external delivery target, push the trigger message (which is the subagent
+    // completion summary) directly to the external channel so Frank at least
+    // sees something. The parent session's own idle decision is preserved.
     if (
       params.expectsCompletionMessage &&
       !params.requesterIsSubagent &&
       !hasDeliverableCompletionFinalResult(agentResult)
     ) {
       defaultRuntime.log(
-        `[warn] Subagent completion announce for ${params.directIdempotencyKey}: completion update produced no user-facing reply (gateway call succeeded, treating as delivered)`,
+        `[warn] Subagent completion announce for ${params.directIdempotencyKey}: completion update produced no user-facing reply (gateway call succeeded) — attempting direct fallback delivery`,
       );
+      if (deliveryTarget.deliver && deliveryTarget.channel && deliveryTarget.to) {
+        try {
+          await subagentAnnounceDeliveryDeps.callGateway({
+            method: "message.send",
+            params: {
+              channel: deliveryTarget.channel,
+              accountId: deliveryTarget.accountId,
+              to: deliveryTarget.to,
+              threadId: deliveryTarget.threadId,
+              message: params.triggerMessage,
+              idempotencyKey: `${params.directIdempotencyKey}:fallback`,
+            },
+          });
+          defaultRuntime.log(
+            `[info] Subagent completion announce for ${params.directIdempotencyKey}: delivered via direct fallback to ${deliveryTarget.channel}:${deliveryTarget.to}`,
+          );
+        } catch (fallbackErr) {
+          defaultRuntime.log(
+            `[warn] Subagent completion announce for ${params.directIdempotencyKey}: direct fallback delivery also failed: ${summarizeDeliveryError(fallbackErr)} (treating as delivered to avoid retry loop)`,
+          );
+        }
+      } else {
+        defaultRuntime.log(
+          `[warn] Subagent completion announce for ${params.directIdempotencyKey}: no external delivery target available for fallback (treating as delivered)`,
+        );
+      }
     }
 
     return {

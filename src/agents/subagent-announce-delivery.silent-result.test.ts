@@ -91,4 +91,64 @@ describe("completion direct announce delivery gating", () => {
 
     expect(result).toEqual({ delivered: true, path: "direct" });
   });
+
+  // Regression test for 2026-04-09: when the parent session produces no
+  // user-facing reply to a subagent completion announce, fall back to direct
+  // delivery of the trigger message to the external channel so Frank at least
+  // sees the subagent's output. Previously it was silently dropped.
+  it("falls back to direct message.send when parent reply is empty and external target is available", async () => {
+    // First call = agent dispatch (empty reply), second call = fallback message.send
+    callGateway.mockResolvedValueOnce({ reply: { text: "NO_REPLY" } });
+    callGateway.mockResolvedValueOnce({ ok: true, messageId: "test-msg-1" });
+
+    const result = await deliveryTesting.sendSubagentAnnounceDirectly({
+      targetRequesterSessionKey: "agent:main:discord:channel:123",
+      triggerMessage: "Subagent investigation complete: found 3 bugs in task registry.",
+      directIdempotencyKey: "announce:test:empty-reply-fallback",
+      completionDirectOrigin: {
+        channel: "discord",
+        to: "channel:123",
+        accountId: "default",
+      },
+      directOrigin: { channel: "discord", to: "channel:123", accountId: "default" },
+      requesterSessionOrigin: { channel: "discord", to: "channel:123", accountId: "default" },
+      requesterIsSubagent: false,
+      expectsCompletionMessage: true,
+    });
+
+    expect(result).toEqual({ delivered: true, path: "direct" });
+    // Verify the fallback actually called message.send with the trigger content
+    expect(callGateway).toHaveBeenCalledTimes(2);
+    expect(callGateway.mock.calls[1][0]).toMatchObject({
+      method: "message.send",
+      params: expect.objectContaining({
+        channel: "discord",
+        to: "channel:123",
+        message: "Subagent investigation complete: found 3 bugs in task registry.",
+      }),
+    });
+  });
+
+  it("swallows fallback delivery errors without rethrowing to avoid retry loop", async () => {
+    callGateway.mockResolvedValueOnce({ reply: { text: "NO_REPLY" } });
+    callGateway.mockRejectedValueOnce(new Error("message.send unavailable"));
+
+    const result = await deliveryTesting.sendSubagentAnnounceDirectly({
+      targetRequesterSessionKey: "agent:main:discord:channel:123",
+      triggerMessage: "worker finished",
+      directIdempotencyKey: "announce:test:fallback-fail",
+      completionDirectOrigin: {
+        channel: "discord",
+        to: "channel:123",
+        accountId: "default",
+      },
+      directOrigin: { channel: "discord", to: "channel:123", accountId: "default" },
+      requesterSessionOrigin: { channel: "discord", to: "channel:123", accountId: "default" },
+      requesterIsSubagent: false,
+      expectsCompletionMessage: true,
+    });
+
+    // Still reports delivered — fallback failure is logged but doesn't block
+    expect(result).toEqual({ delivered: true, path: "direct" });
+  });
 });

@@ -996,6 +996,25 @@
       ],
       "runtime": [],
       "e2eTests": ["test/frankclaw-features-e2e.test.ts"]
+    },
+    {
+      "name": "Subagent completion announce direct fallback delivery",
+      "description": "When a subagent completion announce reaches the parent session but the parent produces no user-facing reply, fall back to sending the trigger message (subagent completion summary) directly to the external channel via message.send. Prevents silent drops of subagent output (2026-04-09 regression where CC workers completed real work but Frank saw nothing).",
+      "static": [
+        {
+          "file": "src/agents/subagent-announce-delivery.ts",
+          "pattern": "direct fallback delivery",
+          "minCount": 1
+        },
+        {
+          "file": "src/agents/subagent-announce-delivery.ts",
+          "pattern": ":fallback",
+          "minCount": 1
+        }
+      ],
+      "tests": ["src/agents/subagent-announce-delivery.silent-result.test.ts"],
+      "runtime": [],
+      "e2eTests": ["test/frankclaw-features-e2e.test.ts"]
     }
   ]
 }
