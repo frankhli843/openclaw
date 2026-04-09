@@ -180,9 +180,28 @@ function buildAnnounceReplyInstruction(params: {
   requesterIsSubagent: boolean;
   announceType: SubagentAnnounceType;
   expectsCompletionMessage?: boolean;
+  outcomeStatus?: SubagentRunOutcome["status"];
 }): string {
+  // [frankclaw] For a non-ok outcome (error, timeout, or the worker never
+  // reported a status), suppress the NO_REPLY escape hatch unconditionally.
+  // Users need to hear about failures promptly, and the LLM was previously
+  // concluding "I've been talking about this, no new user update needed" →
+  // NO_REPLY → direct fallback → silent drop (pre-49781f2d00 scope bug).
+  // Even with the scope bug fixed, keeping the LLM silent on failures is
+  // wrong: the LLM is the right surface to explain what went wrong and
+  // propose a next step, so force a user-facing reply.
+  const isFailure =
+    params.outcomeStatus === "error" ||
+    params.outcomeStatus === "timeout" ||
+    params.outcomeStatus === "unknown";
   if (params.requesterIsSubagent) {
+    if (isFailure) {
+      return `The child ${params.announceType} FAILED. Surface this to your parent agent explicitly: summarize the failure reason and what you'll try next. Do NOT reply with ${SILENT_REPLY_TOKEN} for failures. Keep internal context (system/log/stats/session ids) private.`;
+    }
     return `Convert this completion into a concise internal orchestration update for your parent agent in your own words. Keep this internal context private (don't mention system/log/stats/session details or announce type). If this result is duplicate or no update is needed, reply ONLY: ${SILENT_REPLY_TOKEN}.`;
+  }
+  if (isFailure) {
+    return `A ${params.announceType} FAILED. Tell the user in your normal assistant voice: summarize what failed, include any actionable error detail, and propose a next step. Do NOT reply with ${SILENT_REPLY_TOKEN} — the user needs to hear about this failure now. Keep internal context (system/log/stats/session ids) private and do not copy the internal event text verbatim.`;
   }
   if (params.expectsCompletionMessage) {
     return `A completed ${params.announceType} is ready for user delivery. Convert the result above into your normal assistant voice and send that user-facing update now. Keep this internal context private (don't mention system/log/stats/session details or announce type).`;
@@ -582,6 +601,7 @@ export async function runSubagentAnnounceFlow(params: {
       requesterIsSubagent,
       announceType,
       expectsCompletionMessage,
+      outcomeStatus: outcome.status,
     });
     const statsLine = await buildCompactAnnounceStatsLine({
       sessionKey: params.childSessionKey,
@@ -698,4 +718,5 @@ export const __testing = {
         }
       : defaultSubagentAnnounceDeps;
   },
+  buildAnnounceReplyInstruction,
 };

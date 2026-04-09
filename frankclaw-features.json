@@ -998,6 +998,30 @@
       "e2eTests": ["test/frankclaw-features-e2e.test.ts"]
     },
     {
+      "name": "Subagent failure reply instruction forces user-visible LLM response",
+      "description": "For subagent task outcomes with status 'error', 'timeout', or 'unknown', the replyInstruction baked into the parent agent's internal task_completion event explicitly forbids NO_REPLY and mandates a user-facing summary of the failure plus a next step. Prior behavior allowed NO_REPLY when the LLM thought content had already been delivered; combined with the earlier scope bug in the direct-fallback path (commit 49781f2d00), this silently dropped every failure notification reaching the user. Successful outcomes (status 'ok') retain the NO_REPLY escape hatch so in-flight progress updates don't spam the channel.",
+      "static": [
+        {
+          "file": "src/agents/subagent-announce.ts",
+          "pattern": "outcomeStatus: outcome.status",
+          "minCount": 1
+        },
+        {
+          "file": "src/agents/subagent-announce.ts",
+          "pattern": "Do NOT reply with ${SILENT_REPLY_TOKEN}",
+          "minCount": 2
+        },
+        {
+          "file": "src/agents/subagent-announce.ts",
+          "pattern": "const isFailure",
+          "minCount": 1
+        }
+      ],
+      "tests": ["src/agents/subagent-announce.reply-instruction.test.ts"],
+      "runtime": [],
+      "e2eTests": ["test/frankclaw-features-e2e.test.ts"]
+    },
+    {
       "name": "Subagent completion announce direct fallback delivery",
       "description": "When a subagent completion announce reaches the parent session but the parent produces no user-facing reply, fall back to sending the trigger message (subagent completion summary) directly to the external channel via the gateway 'send' method (WRITE_SCOPE). Prevents silent drops of subagent output. Original 2026-04-09 fix used the wrong method name 'message.send' (that's a channel tool name, not a JSON-RPC method), which fell through to ADMIN_SCOPE default-deny and silently dropped every fallback, hiding hours of real CC ACP subagent work from Frank. Static probe now enforces method: \"send\" and explicitly rejects method: \"message.send\" to prevent regression.",
       "static": [
