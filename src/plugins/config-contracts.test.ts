@@ -62,6 +62,7 @@ describe("resolvePluginConfigContractsById", () => {
           kind: undefined,
           modelSupport: undefined,
           channelEnvVars: undefined,
+          providerAuthAliases: undefined,
           providerAuthChoices: undefined,
           settingsFiles: undefined,
           setupSource: undefined,

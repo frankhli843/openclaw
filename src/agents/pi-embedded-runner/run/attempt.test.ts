@@ -38,13 +38,11 @@ function createOllamaProviderConfig(injectNumCtxForOpenAICompat: boolean): OpenC
       providers: {
         ollama: {
           baseUrl: "http://127.0.0.1:11434/v1",
-          api: "openai-completions",
           injectNumCtxForOpenAICompat,
-          models: [],
         },
       },
     },
-  };
+  } as unknown as OpenClawConfig;
 }
 
 function createFakeStream(params: {

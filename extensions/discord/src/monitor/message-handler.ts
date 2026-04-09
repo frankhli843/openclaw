@@ -5,7 +5,7 @@ import {
   shouldDebounceTextInbound,
 } from "openclaw/plugin-sdk/channel-inbound";
 import { resolveOpenProviderRuntimeGroupPolicy } from "openclaw/plugin-sdk/config-runtime";
-import { createDedupeCache } from "openclaw/plugin-sdk/core";
+import { createDedupeCache } from "openclaw/plugin-sdk/infra-runtime";
 import { danger, logVerbose } from "openclaw/plugin-sdk/runtime-env";
 import { reactMessageDiscord } from "../send.reactions.js";
 import { buildDiscordInboundJob } from "./inbound-job.js";
