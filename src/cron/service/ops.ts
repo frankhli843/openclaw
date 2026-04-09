@@ -109,18 +109,31 @@ export async function start(state: CronServiceState) {
     await ensureLoaded(state, { skipRecompute: true });
     const jobs = state.store?.jobs ?? [];
     for (const job of jobs) {
-      if (typeof job.state.runningAtMs === "number") {
+      const staleRunningAtMs = job.state.runningAtMs;
+      if (typeof staleRunningAtMs === "number") {
         state.deps.log.warn(
-          { jobId: job.id, runningAtMs: job.state.runningAtMs },
+          { jobId: job.id, runningAtMs: staleRunningAtMs },
           "cron: clearing stale running marker on startup",
         );
         job.state.runningAtMs = undefined;
         clearedAnyRunningMarker = true;
-        // One-shot jobs are not retried after interruption; recurring jobs
-        // (cron/every) are eligible for startup catch-up so they don't
-        // require a second restart to recover (#60495).
+        // One-shot jobs are not retried after interruption. Mark them skipped
+        // and disable them immediately so startup recompute/timer paths cannot
+        // re-arm an already-fired reminder and create a duplicate replay.
+        // Recurring jobs (cron/every) are still eligible for startup catch-up
+        // so they don't require a second restart to recover (#60495).
         if (job.schedule.kind === "at") {
           interruptedOneShotIds.add(job.id);
+          job.enabled = false;
+          job.state.nextRunAtMs = undefined;
+          job.state.lastStatus = "skipped";
+          job.state.lastRunStatus = "skipped";
+          job.state.lastRunAtMs = staleRunningAtMs;
+          job.updatedAtMs = Math.max(job.updatedAtMs, staleRunningAtMs);
+          state.deps.log.warn(
+            { jobId: job.id, staleRunningAtMs },
+            "cron: disabling interrupted one-shot job on startup to avoid duplicate replay",
+          );
         }
       }
     }

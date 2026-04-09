@@ -30,6 +30,25 @@ function createInterruptedMainJob(now: number): CronJob {
   };
 }
 
+function createInterruptedOneShotJob(now: number): CronJob {
+  return {
+    id: "startup-one-shot",
+    name: "startup one shot",
+    enabled: true,
+    createdAtMs: now - 86_400_000,
+    updatedAtMs: now - 30 * 60_000,
+    schedule: { kind: "at", at: new Date(now - 60_000).toISOString() },
+    sessionTarget: "isolated",
+    wakeMode: "next-heartbeat",
+    payload: { kind: "agentTurn", message: "should not replay on startup" },
+    sessionKey: "agent:main:main",
+    state: {
+      nextRunAtMs: now - 60_000,
+      runningAtMs: now - 30 * 60_000,
+    },
+  };
+}
+
 function createDueIsolatedJob(now: number): CronJob {
   return {
     id: "isolated-timeout",
@@ -113,6 +132,51 @@ describe("cron service ops seam coverage", () => {
     expect(delays.some((delay) => delay > 0)).toBe(true);
 
     timeoutSpy.mockRestore();
+    stop(state);
+  });
+
+  it("start disables interrupted one-shot jobs so startup does not re-arm them", async () => {
+    const { storePath } = await makeStorePath();
+    const now = Date.parse("2026-03-23T12:00:00.000Z");
+    const enqueueSystemEvent = vi.fn();
+    const requestHeartbeatNow = vi.fn();
+
+    await writeCronStoreSnapshot({
+      storePath,
+      jobs: [createInterruptedOneShotJob(now)],
+    });
+
+    const state = createCronServiceState({
+      storePath,
+      cronEnabled: true,
+      log: logger,
+      nowMs: () => now,
+      enqueueSystemEvent,
+      requestHeartbeatNow,
+      runIsolatedAgentJob: vi.fn(async () => ({ status: "ok" as const })),
+    });
+
+    await start(state);
+
+    expect(enqueueSystemEvent).not.toHaveBeenCalled();
+    expect(requestHeartbeatNow).not.toHaveBeenCalled();
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ jobId: "startup-one-shot" }),
+      "cron: disabling interrupted one-shot job on startup to avoid duplicate replay",
+    );
+
+    const persisted = JSON.parse(await fs.readFile(storePath, "utf8")) as {
+      jobs: CronJob[];
+    };
+    const job = persisted.jobs[0];
+    expect(job).toBeDefined();
+    expect(job?.enabled).toBe(false);
+    expect(job?.state.runningAtMs).toBeUndefined();
+    expect(job?.state.nextRunAtMs).toBeUndefined();
+    expect(job?.state.lastStatus).toBe("skipped");
+    expect(job?.state.lastRunStatus).toBe("skipped");
+    expect(job?.state.lastRunAtMs).toBe(now - 30 * 60_000);
+
     stop(state);
   });
 

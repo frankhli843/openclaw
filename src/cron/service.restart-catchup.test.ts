@@ -223,6 +223,55 @@ describe("CronService restart catch-up", () => {
         const listedJobs = await cron.list({ includeDisabled: true });
         const updated = listedJobs.find((job) => job.id === "restart-stale-one-shot");
         expect(updated?.state.runningAtMs).toBeUndefined();
+        // The job must be fully neutralized so no timer tick can re-arm it (#60496).
+        expect(updated?.enabled).toBe(false);
+        expect(updated?.state.nextRunAtMs).toBeUndefined();
+        expect(updated?.state.lastStatus).toBe("skipped");
+      },
+    );
+  });
+
+  it("does not re-arm interrupted one-shot via recomputeNextRuns after restart (#60496)", async () => {
+    // Reproduces the exact duplicate-replay scenario: a one-shot "at" job ran
+    // and delivered its message, but the gateway crashed before applyJobResult
+    // could persist lastStatus.  On restart the stale runningAtMs is cleared,
+    // and without the fix recomputeNextRuns would re-set nextRunAtMs to the
+    // past-due at-time, making the timer fire the job again.
+    const atTime = "2025-12-13T10:00:00.000Z";
+    const atMs = Date.parse(atTime);
+    const staleRunningAt = Date.parse("2025-12-13T10:01:00.000Z");
+
+    await withRestartedCron(
+      [
+        {
+          id: "one-shot-no-rearm",
+          name: "charlotte bloodwork reminder",
+          enabled: true,
+          createdAtMs: Date.parse("2025-12-12T22:00:00.000Z"),
+          updatedAtMs: staleRunningAt,
+          schedule: { kind: "at", at: atTime },
+          sessionTarget: "main",
+          wakeMode: "next-heartbeat",
+          payload: { kind: "systemEvent", text: "bloodwork reminder" },
+          state: {
+            // No lastStatus — gateway crashed before finalization persisted it.
+            nextRunAtMs: atMs,
+            runningAtMs: staleRunningAt,
+          },
+        },
+      ],
+      async ({ cron, enqueueSystemEvent }) => {
+        // Must not have been replayed.
+        expect(enqueueSystemEvent).not.toHaveBeenCalled();
+
+        const listedJobs = await cron.list({ includeDisabled: true });
+        const job = listedJobs.find((j) => j.id === "one-shot-no-rearm");
+        // Job must be disabled with no nextRunAtMs so no future timer tick
+        // can discover it as due.
+        expect(job?.enabled).toBe(false);
+        expect(job?.state.nextRunAtMs).toBeUndefined();
+        expect(job?.state.runningAtMs).toBeUndefined();
+        expect(job?.state.lastStatus).toBe("skipped");
       },
     );
   });
