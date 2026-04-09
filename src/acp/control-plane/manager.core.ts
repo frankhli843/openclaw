@@ -112,7 +112,7 @@ function resolveBackgroundTaskFailureStatus(error: AcpRuntimeError): "failed" | 
   return /\btimed out\b/i.test(error.message) ? "timed_out" : "failed";
 }
 
-function resolveBackgroundTaskTerminalResult(progressSummary: string): {
+export function resolveBackgroundTaskTerminalResult(progressSummary: string): {
   terminalOutcome?: "blocked";
   terminalSummary?: string;
 } {
@@ -138,6 +138,16 @@ function resolveBackgroundTaskTerminalResult(progressSummary: string): {
     return {
       terminalOutcome: "blocked",
       terminalSummary: "Writable session or apply_patch authorization required.",
+    };
+  }
+  if (
+    /\b(?:now|next) let me\b/i.test(normalized) ||
+    /\bif you want,? i can\b/i.test(normalized) ||
+    /\bi have full understanding(?: of the codebase)?\. let me now\b/i.test(normalized)
+  ) {
+    return {
+      terminalOutcome: "blocked",
+      terminalSummary: "ACP run stopped at a progress checkpoint instead of a terminal result.",
     };
   }
   return {};

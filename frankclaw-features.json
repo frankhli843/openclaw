@@ -1015,6 +1015,28 @@
       "tests": ["src/agents/subagent-announce-delivery.silent-result.test.ts"],
       "runtime": [],
       "e2eTests": ["test/frankclaw-features-e2e.test.ts"]
+    },
+    {
+      "name": "ACP background task terminal safety",
+      "description": "Promotes ACP background-task false-greens into explicit blocked or lost states. Progress-checkpoint endings are marked blocked, and stale ACP tasks are reconciled lost when the session store read fails after grace.",
+      "static": [
+        {
+          "file": "src/acp/control-plane/manager.core.ts",
+          "pattern": "ACP run stopped at a progress checkpoint instead of a terminal result.",
+          "minCount": 1
+        },
+        {
+          "file": "src/tasks/task-registry.maintenance.ts",
+          "pattern": "do NOT assume the session is alive",
+          "minCount": 1
+        }
+      ],
+      "tests": [
+        "src/acp/control-plane/manager.test.ts",
+        "src/tasks/task-registry.maintenance.issue-60299.test.ts"
+      ],
+      "runtime": [],
+      "e2eTests": ["test/frankclaw-features-e2e.test.ts"]
     }
   ]
 }

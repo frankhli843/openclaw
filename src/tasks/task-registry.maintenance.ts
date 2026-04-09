@@ -137,8 +137,17 @@ function hasBackingSession(task: TaskRecord): boolean {
     const acpEntry = taskRegistryMaintenanceRuntime.readAcpSessionEntry({
       sessionKey: childSessionKey,
     });
-    if (!acpEntry || acpEntry.storeReadFailed) {
+    if (!acpEntry) {
       return true;
+    }
+    // [frankclaw] When the session store is unreadable (corrupted / deleted),
+    // do NOT assume the session is alive.  The 5-minute grace period
+    // (checked before this function is called) already tolerates transient
+    // read failures.  Returning true here caused permanent false-green
+    // tasks when the backing ACP session was gone but the store was
+    // inaccessible.  See: Apr 9 social-media-aggregator incidents.
+    if (acpEntry.storeReadFailed) {
+      return false;
     }
     return Boolean(acpEntry.entry);
   }

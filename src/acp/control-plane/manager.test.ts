@@ -377,6 +377,75 @@ describe("AcpSessionManager", () => {
     });
   }, 300_000);
 
+  it("marks parented direct ACP turns blocked when they stop at a progress checkpoint", async () => {
+    await withAcpManagerTaskStateDir(async () => {
+      const runtimeState = createRuntime();
+      runtimeState.runTurn.mockImplementation(async function* () {
+        yield {
+          type: "text_delta" as const,
+          stream: "output" as const,
+          text: "I have full understanding of the codebase. Let me now execute the patches.",
+        };
+        yield { type: "done" as const };
+      });
+      hoisted.requireAcpRuntimeBackendMock.mockReturnValue({
+        id: "acpx",
+        runtime: runtimeState.runtime,
+      });
+      hoisted.readAcpSessionEntryMock.mockImplementation((paramsUnknown: unknown) => {
+        const sessionKey = (paramsUnknown as { sessionKey?: string }).sessionKey;
+        if (sessionKey === "agent:codex:acp:child-2") {
+          return {
+            sessionKey,
+            storeSessionKey: sessionKey,
+            entry: {
+              sessionId: "child-2",
+              updatedAt: Date.now(),
+              spawnedBy: "agent:quant:telegram:quant:direct:822430204",
+              label: "Quant patch follow-up",
+            },
+            acp: readySessionMeta(),
+          };
+        }
+        if (sessionKey === "agent:quant:telegram:quant:direct:822430204") {
+          return {
+            sessionKey,
+            storeSessionKey: sessionKey,
+            entry: {
+              sessionId: "parent-1",
+              updatedAt: Date.now(),
+            },
+          };
+        }
+        return null;
+      });
+
+      const manager = new AcpSessionManager();
+      await manager.runTurn({
+        cfg: baseCfg,
+        sessionKey: "agent:codex:acp:child-2",
+        text: "Implement the feature and report back",
+        mode: "prompt",
+        requestId: "direct-parented-run-progress-checkpoint",
+      });
+      await flushMicrotasks();
+
+      expect(findTaskByRunId("direct-parented-run-progress-checkpoint")).toMatchObject({
+        runtime: "acp",
+        ownerKey: "agent:quant:telegram:quant:direct:822430204",
+        scopeKind: "session",
+        childSessionKey: "agent:codex:acp:child-2",
+        label: "Quant patch follow-up",
+        task: "Implement the feature and report back",
+        status: "succeeded",
+        progressSummary:
+          "I have full understanding of the codebase. Let me now execute the patches.",
+        terminalOutcome: "blocked",
+        terminalSummary: "ACP run stopped at a progress checkpoint instead of a terminal result.",
+      });
+    });
+  }, 300_000);
+
   it("serializes concurrent turns for the same ACP session", async () => {
     const runtimeState = createRuntime();
     hoisted.requireAcpRuntimeBackendMock.mockReturnValue({

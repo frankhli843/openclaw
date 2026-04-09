@@ -26,6 +26,7 @@ async function loadMaintenanceModule(params: {
   tasks: TaskRecord[];
   sessionStore?: Record<string, unknown>;
   acpEntry?: unknown;
+  acpStoreReadFailed?: boolean;
   activeCronJobIds?: string[];
   activeRunIds?: string[];
 }) {
@@ -33,14 +34,15 @@ async function loadMaintenanceModule(params: {
 
   const sessionStore = params.sessionStore ?? {};
   const acpEntry = params.acpEntry;
+  const acpStoreReadFailed = params.acpStoreReadFailed ?? false;
   const activeCronJobIds = new Set(params.activeCronJobIds ?? []);
   const activeRunIds = new Set(params.activeRunIds ?? []);
   const currentTasks = new Map(params.tasks.map((task) => [task.taskId, { ...task }]));
 
   vi.doMock("../acp/runtime/session-meta.js", () => ({
     readAcpSessionEntry: () =>
-      acpEntry !== undefined
-        ? { entry: acpEntry, storeReadFailed: false }
+      acpEntry !== undefined || acpStoreReadFailed
+        ? { entry: acpEntry, storeReadFailed: acpStoreReadFailed }
         : { entry: undefined, storeReadFailed: false },
   }));
 
@@ -103,6 +105,31 @@ async function loadMaintenanceModule(params: {
 }
 
 describe("task-registry maintenance issue #60299", () => {
+  it("marks stale ACP tasks lost when reading the ACP session store fails", async () => {
+    const task = makeStaleTask({
+      runtime: "acp",
+      sourceId: "acp-run-store-read-failed",
+      runId: "acp-run-store-read-failed",
+      childSessionKey: "agent:claude:acp:store-read-failed",
+      ownerKey: "agent:main:discord:channel:123",
+      requesterSessionKey: "agent:main:discord:channel:123",
+      scopeKind: "session",
+      deliveryStatus: "pending",
+      notifyPolicy: "done_only",
+    });
+
+    const { mod, currentTasks } = await loadMaintenanceModule({
+      tasks: [task],
+      acpStoreReadFailed: true,
+    });
+
+    expect(await mod.runTaskRegistryMaintenance()).toMatchObject({ reconciled: 1 });
+    expect(currentTasks.get(task.taskId)).toMatchObject({
+      status: "lost",
+      error: "backing session missing",
+    });
+  });
+
   it("marks stale cron tasks lost once the runtime no longer tracks the job as active", async () => {
     const childSessionKey = "agent:main:slack:channel:test-channel";
     const task = makeStaleTask({
