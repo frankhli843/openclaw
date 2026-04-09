@@ -744,6 +744,7 @@ export class AcpSessionManager {
           let onCallerAbort: (() => void) | undefined;
           let activeTurnStarted = false;
           let sawTurnOutput = false;
+          let sawToolCall = false;
           let retryFreshHandle = false;
           let skipPostTurnCleanup = false;
           try {
@@ -812,6 +813,9 @@ export class AcpSessionManager {
                   );
                 } else if (event.type === "text_delta" || event.type === "tool_call") {
                   sawTurnOutput = true;
+                  if (event.type === "tool_call") {
+                    sawToolCall = true;
+                  }
                   if (event.type === "text_delta" && event.stream !== "thought" && event.text) {
                     taskProgressSummary = appendBackgroundTaskProgressSummary(
                       taskProgressSummary,
@@ -859,6 +863,25 @@ export class AcpSessionManager {
             });
             if (streamError) {
               throw streamError;
+            }
+            // [frankclaw] Guard against upstream acpx synthesizing a fake
+            // `end_turn` from its timeout fallback in `runPromptTurn` (see
+            // node_modules/acpx/dist/prompt-turn-CXMtXBl-.js around line 3351,
+            // `hasAgentReplyAfterPrompt(...) → stopReason: "end_turn"`). When
+            // the inner `withTimeout` fires, acpx checks if any agent reply
+            // exists in the conversation and, if so, returns a synthetic
+            // `end_turn` even if the agent only streamed narration and never
+            // actually ended the turn. For background tasks (which are
+            // expected to do real tool work), a narration-only completion is
+            // almost certainly this bug, and silently marking the task "done"
+            // orphans the still-running subprocess. Log a prominent warning
+            // and tag the task so the existing "blocked" classification fires
+            // loudly enough for post-turn alerting to catch it.
+            const suspectPrematureEndTurn = taskContext !== null && sawTurnOutput && !sawToolCall;
+            if (suspectPrematureEndTurn) {
+              console.warn(
+                `[acp-manager] suspected acpx synthetic end_turn for background task runId=${taskContext.runId} sessionKey=${sessionKey}: background turn produced narration text but zero tool calls. This matches the upstream acpx runPromptTurn timeout fallback pattern. Verify plugins.entries.acpx.config.timeoutSeconds is high enough for expected CC work (current task summary: ${JSON.stringify((taskProgressSummary || "").slice(0, 200))}).`,
+              );
             }
             this.recordTurnCompletion({
               startedAt: turnStartedAt,
