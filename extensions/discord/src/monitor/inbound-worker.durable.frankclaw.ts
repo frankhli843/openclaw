@@ -309,6 +309,12 @@ export function createDurableDiscordInboundWorker(
         params.__testing?.processDiscordMessage ?? processDiscordMessage;
       let noopReason: string | undefined;
       let finalReplyDelivered = false;
+      // When autoThread fires, the reply/session moves to a new channel key.
+      // Capture it so we check progress against the actual session key, not
+      // the original inbound orderingKey (fixes "missing terminal inbound
+      // lifecycle state" dead-letters on thread creation, 2026-04-09).
+      let resolvedSessionKey: string | undefined;
+      let createdThreadId: string | undefined;
       const didTimeout = await runDiscordTaskWithTimeout({
         run: async (abortSignal) => {
           await processDiscordMessageImpl(
@@ -319,6 +325,14 @@ export function createDurableDiscordInboundWorker(
               },
               onFinalReplyDelivered: () => {
                 finalReplyDelivered = true;
+              },
+              onReplyPlanResolved: ({ createdThreadId: tid, sessionKey }) => {
+                if (typeof sessionKey === "string" && sessionKey.trim()) {
+                  resolvedSessionKey = sessionKey.trim();
+                }
+                if (typeof tid === "string" && tid.trim()) {
+                  createdThreadId = tid.trim();
+                }
               },
             },
           );
@@ -354,7 +368,10 @@ export function createDurableDiscordInboundWorker(
         );
       }
 
-      const afterProgress = await captureSessionProgress(event.orderingKey);
+      // Check progress against the resolved session key (auto-thread may have
+      // moved the session to a new channel key) falling back to orderingKey.
+      const progressKey = resolvedSessionKey ?? event.orderingKey;
+      const afterProgress = await captureSessionProgress(progressKey);
       let terminalStage: "run_started" | "reply_delivered" | "dropped_intentionally" | undefined;
 
       if (noopReason) {
@@ -405,7 +422,8 @@ export function createDurableDiscordInboundWorker(
             `discord durable worker missing terminal inbound lifecycle state${suffix}: ` +
               `before=[${formatDurableSessionProgressSnapshot(beforeProgress)}] ` +
               `after=[${formatDurableSessionProgressSnapshot(afterProgress)}] ` +
-              `noopReason=${noopReason ?? "-"} finalReplyDelivered=${finalReplyDelivered ? "true" : "false"}`,
+              `noopReason=${noopReason ?? "-"} finalReplyDelivered=${finalReplyDelivered ? "true" : "false"} ` +
+              `resolvedSessionKey=${resolvedSessionKey ?? "-"} createdThreadId=${createdThreadId ?? "-"}`,
           ),
         );
         throw new Error(`discord durable worker missing terminal inbound lifecycle state${suffix}`);

@@ -975,6 +975,27 @@
       "tests": ["extensions/discord/src/monitor/thread-bindings.lifecycle.test.ts"],
       "runtime": [],
       "e2eTests": ["test/frankclaw-features-e2e.test.ts"]
+    },
+    {
+      "name": "Discord auto-thread durable worker session key tracking",
+      "description": "Durable worker tracks progress against the resolved session key (from onReplyPlanResolved) when auto-thread creation moves the session to a new channel key, preventing dead-letters of messages that triggered thread creation (2026-04-09 regression).",
+      "static": [
+        {
+          "file": "extensions/discord/src/monitor/inbound-worker.durable.frankclaw.ts",
+          "pattern": "onReplyPlanResolved",
+          "minCount": 1
+        },
+        {
+          "file": "extensions/discord/src/monitor/inbound-worker.durable.frankclaw.ts",
+          "pattern": "resolvedSessionKey",
+          "minCount": 2
+        }
+      ],
+      "tests": [
+        "extensions/discord/src/monitor/inbound-worker.durable.frankclaw.lifecycle.test.ts"
+      ],
+      "runtime": [],
+      "e2eTests": ["test/frankclaw-features-e2e.test.ts"]
     }
   ]
 }

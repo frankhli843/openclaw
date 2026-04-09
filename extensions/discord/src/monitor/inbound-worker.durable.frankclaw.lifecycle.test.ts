@@ -172,6 +172,81 @@ describe("durable discord worker inbound lifecycle terminals", () => {
     await worker.stop();
   });
 
+  // Regression test for 2026-04-09 bug: Discord durable worker dead-lettered
+  // messages when auto-thread creation moved the session to a new channel key.
+  // The worker was checking progress against the original orderingKey (parent
+  // channel), which never saw any session writes — the session was actually
+  // recorded under the new thread's channel key. Fix: capture the resolved
+  // session key via onReplyPlanResolved and check progress against it.
+  it("checks progress against resolved session key when auto-thread is created", async () => {
+    const runtime = makeRuntime();
+    const runtimeRef = makeRuntimeRef(runtime);
+    const onDeadLetter = vi.fn();
+    const orderingKey = "agent:main:discord:channel:1474343755153932394"; // parent channel
+    const resolvedSessionKey = "agent:main:discord:channel:1491803173252497548"; // new thread
+
+    // captureSessionProgress returns empty for orderingKey, but populated for resolvedSessionKey.
+    const captureSessionProgress = vi.fn(async (key: string) => {
+      if (key === resolvedSessionKey) {
+        return {
+          sessionId: "session-new-thread",
+          sessionFile: "/tmp/new-thread-session.jsonl",
+          updatedAt: Date.now(),
+          status: "done",
+          transcriptExists: true,
+          transcriptSize: 4096,
+          transcriptMtimeMs: Date.now(),
+        };
+      }
+      return {
+        transcriptExists: false,
+        transcriptSize: 0,
+        transcriptMtimeMs: 0,
+      };
+    });
+
+    const worker = createDurableDiscordInboundWorker({
+      accountId: "default",
+      runtime: runtime as never,
+      stateDir: tmpDir,
+      maxAttempts: 1,
+      resolveRuntime: () => runtimeRef as never,
+      onDeadLetter,
+      __testing: {
+        captureSessionProgress,
+        processDiscordMessage: vi.fn(async (_ctx, observer) => {
+          // Simulate auto-thread creation: resolver fires with new sessionKey
+          observer?.onReplyPlanResolved?.({
+            createdThreadId: "1491803173252497548",
+            sessionKey: resolvedSessionKey,
+          });
+          // Session write happens under the new thread key, not orderingKey
+        }) as never,
+      },
+    });
+
+    await worker.start();
+    worker.enqueue(
+      makeJob({
+        queueKey: orderingKey,
+        channelId: "1474343755153932394",
+        messageId: "1491803173252497548",
+      }) as never,
+    );
+
+    // Give the worker time to process
+    await new Promise((resolve) => setTimeout(resolve, 500));
+
+    // The worker should NOT dead-letter — the resolved session key showed real progress
+    expect(onDeadLetter).not.toHaveBeenCalled();
+    expect(runtime.error).not.toHaveBeenCalledWith(
+      expect.stringContaining("missing terminal inbound lifecycle state"),
+    );
+    // captureSessionProgress should have been called with the resolved session key
+    expect(captureSessionProgress).toHaveBeenCalledWith(resolvedSessionKey);
+    await worker.stop();
+  });
+
   it("logs session metadata exists but transcript missing for partial materialization", async () => {
     const runtime = makeRuntime();
     const runtimeRef = makeRuntimeRef(runtime);
