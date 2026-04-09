@@ -999,7 +999,7 @@
     },
     {
       "name": "Subagent completion announce direct fallback delivery",
-      "description": "When a subagent completion announce reaches the parent session but the parent produces no user-facing reply, fall back to sending the trigger message (subagent completion summary) directly to the external channel via message.send. Prevents silent drops of subagent output (2026-04-09 regression where CC workers completed real work but Frank saw nothing).",
+      "description": "When a subagent completion announce reaches the parent session but the parent produces no user-facing reply, fall back to sending the trigger message (subagent completion summary) directly to the external channel via the gateway 'send' method (WRITE_SCOPE). Prevents silent drops of subagent output. Original 2026-04-09 fix used the wrong method name 'message.send' (that's a channel tool name, not a JSON-RPC method), which fell through to ADMIN_SCOPE default-deny and silently dropped every fallback, hiding hours of real CC ACP subagent work from Frank. Static probe now enforces method: \"send\" and explicitly rejects method: \"message.send\" to prevent regression.",
       "static": [
         {
           "file": "src/agents/subagent-announce-delivery.ts",
@@ -1009,6 +1009,11 @@
         {
           "file": "src/agents/subagent-announce-delivery.ts",
           "pattern": ":fallback",
+          "minCount": 1
+        },
+        {
+          "file": "src/agents/subagent-announce-delivery.ts",
+          "pattern": "method: \"send\"",
           "minCount": 1
         }
       ],

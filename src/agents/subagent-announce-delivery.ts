@@ -606,8 +606,17 @@ async function sendSubagentAnnounceDirectly(params: {
       );
       if (deliveryTarget.deliver && deliveryTarget.channel && deliveryTarget.to) {
         try {
+          // [frankclaw] Real gateway method name is "send" (WRITE_SCOPE). The
+          // previous "message.send" was a channel tool name from plugin
+          // allowlists, not a JSON-RPC method — it fell through
+          // authorizeOperatorScopesForMethod's default-deny path and got
+          // ADMIN_SCOPE, which the subagent caller scopes don't have, so every
+          // fallback delivery silently failed with "missing scope:
+          // operator.admin". This meant Frank never saw any CC ACP subagent
+          // progress updates while the workers were actually doing real work
+          // (regression window: 2026-04-09 afternoon).
           await subagentAnnounceDeliveryDeps.callGateway({
-            method: "message.send",
+            method: "send",
             params: {
               channel: deliveryTarget.channel,
               accountId: deliveryTarget.accountId,

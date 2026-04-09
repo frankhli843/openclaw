@@ -120,7 +120,7 @@ describe("completion direct announce delivery gating", () => {
     // Verify the fallback actually called message.send with the trigger content
     expect(callGateway).toHaveBeenCalledTimes(2);
     expect(callGateway.mock.calls[1][0]).toMatchObject({
-      method: "message.send",
+      method: "send",
       params: expect.objectContaining({
         channel: "discord",
         to: "channel:123",
