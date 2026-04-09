@@ -1017,35 +1017,6 @@
       "e2eTests": ["test/frankclaw-features-e2e.test.ts"]
     },
     {
-      "name": "ACP background task narration-only synthetic end_turn guard",
-      "description": "Detects when upstream acpx's runPromptTurn timeout fallback synthesizes stopReason='end_turn' from any agent reply even when the agent only streamed narration and never actually ended the turn. For parented background tasks (expected to do tool work) this silently marks the run 'done' while the CC subprocess keeps running, orphaning real work. manager.core tracks sawToolCall alongside sawTurnOutput and logs a prominent '[acp-manager] suspected acpx synthetic end_turn' warning with runId/sessionKey when a taskContext-bearing turn finishes with narration but zero tool calls. Mitigated operationally by raising plugins.entries.acpx.config.timeoutSeconds (was 120s, now 1800s). See node_modules/acpx/dist/prompt-turn-*.js around the hasAgentReplyAfterPrompt branch for the upstream bug.",
-      "static": [
-        {
-          "file": "src/acp/control-plane/manager.core.ts",
-          "pattern": "sawToolCall",
-          "minCount": 2
-        },
-        {
-          "file": "src/acp/control-plane/manager.core.ts",
-          "pattern": "suspected acpx synthetic end_turn",
-          "minCount": 1
-        },
-        {
-          "file": "src/acp/control-plane/manager.core.ts",
-          "pattern": "suspectPrematureEndTurn",
-          "minCount": 1
-        }
-      ],
-      "tests": ["src/acp/control-plane/manager.test.ts"],
-      "runtime": [
-        {
-          "logPattern": "suspected acpx synthetic end_turn",
-          "onEvent": true
-        }
-      ],
-      "e2eTests": ["test/frankclaw-features-e2e.test.ts"]
-    },
-    {
       "name": "ACP background task terminal safety",
       "description": "Promotes ACP background-task false-greens into explicit blocked or lost states. Progress-checkpoint endings are marked blocked, and stale ACP tasks are reconciled lost when the session store read fails after grace.",
       "static": [
