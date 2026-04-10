@@ -349,8 +349,9 @@ export function mergeProviderRequestOverrides(
 export function mergeModelProviderRequestOverrides(
   ...overrides: Array<ModelProviderRequestTransportOverrides | undefined>
 ): ModelProviderRequestTransportOverrides | undefined {
-  let merged: ModelProviderRequestTransportOverrides | undefined =
-    mergeProviderRequestOverrides(...overrides);
+  let merged: ModelProviderRequestTransportOverrides | undefined = mergeProviderRequestOverrides(
+    ...overrides,
+  );
   for (const current of overrides) {
     if (current?.allowPrivateNetwork !== undefined) {
       merged = {
