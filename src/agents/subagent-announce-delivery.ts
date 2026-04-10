@@ -17,7 +17,10 @@ import {
 } from "../utils/message-channel.js";
 import { buildAnnounceIdempotencyKey, resolveQueueAnnounceId } from "./announce-idempotency.js";
 import type { AgentInternalEvent } from "./internal-events.js";
-import { stripInternalRuntimeContext } from "./internal-runtime-context.js";
+import {
+  hasInternalRuntimeContext,
+  stripInternalRuntimeContext,
+} from "./internal-runtime-context.js";
 import {
   callGateway,
   createBoundDeliveryRouter,
@@ -94,6 +97,49 @@ function summarizeDeliveryError(error: unknown): string {
   } catch {
     return "error";
   }
+}
+
+/**
+ * [frankclaw] Build a user-facing fallback message from internal events.
+ *
+ * The fallback delivery path previously sent `params.triggerMessage` (the raw
+ * <<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>> block) directly to external channels
+ * like WhatsApp.  This leaked internal session keys, stats, and untrusted
+ * child result text to the user and, worse, to any downstream ACP session
+ * that intercepted the message (2026-04-10 regression: completion context
+ * injected into an unrelated Claude Code session).
+ *
+ * Instead, extract a short user-facing summary from the structured
+ * `internalEvents` array.  If no events are available, strip the internal
+ * runtime context from the trigger message and use whatever remains.
+ */
+function buildSanitizedFallbackMessage(
+  triggerMessage: string,
+  internalEvents?: AgentInternalEvent[],
+): string {
+  // Prefer structured events — they carry task label + status without leaking
+  // session keys or raw child output.
+  if (internalEvents && internalEvents.length > 0) {
+    const summaries: string[] = [];
+    for (const event of internalEvents) {
+      if (event.type === "task_completion") {
+        const label = event.taskLabel?.trim() || "background task";
+        const status = event.statusLabel?.trim() || event.status || "done";
+        summaries.push(`${label}: ${status}`);
+      }
+    }
+    if (summaries.length > 0) {
+      return summaries.join("\n");
+    }
+  }
+
+  // Fallback: strip internal context markers.  If nothing meaningful remains,
+  // return a generic placeholder so we never send an empty or all-fence message.
+  const stripped = stripInternalRuntimeContext(triggerMessage).trim();
+  if (stripped && !hasInternalRuntimeContext(stripped)) {
+    return stripped;
+  }
+  return "A background task completed.";
 }
 
 function normalizeCompletionReplyText(text: string): string {
@@ -615,6 +661,15 @@ async function sendSubagentAnnounceDirectly(params: {
           // operator.admin". This meant Frank never saw any CC ACP subagent
           // progress updates while the workers were actually doing real work
           // (regression window: 2026-04-09 afternoon).
+          // [frankclaw] Send a sanitized summary, not the raw internal
+          // context block.  The previous code sent params.triggerMessage
+          // which is the full <<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>> payload
+          // — leaking session keys and raw child output to external channels
+          // and downstream ACP sessions.
+          const fallbackMessage = buildSanitizedFallbackMessage(
+            params.triggerMessage,
+            params.internalEvents,
+          );
           await subagentAnnounceDeliveryDeps.callGateway({
             method: "send",
             params: {
@@ -622,7 +677,7 @@ async function sendSubagentAnnounceDirectly(params: {
               accountId: deliveryTarget.accountId,
               to: deliveryTarget.to,
               threadId: deliveryTarget.threadId,
-              message: params.triggerMessage,
+              message: fallbackMessage,
               idempotencyKey: `${params.directIdempotencyKey}:fallback`,
             },
           });
@@ -721,6 +776,7 @@ export const __testing = {
         }
       : defaultSubagentAnnounceDeliveryDeps;
   },
+  buildSanitizedFallbackMessage,
   hasDeliverableCompletionFinalResult,
   sendSubagentAnnounceDirectly,
 };
