@@ -1046,6 +1046,21 @@
       "e2eTests": ["test/frankclaw-features-e2e.test.ts"]
     },
     {
+      "name": "ACP progress summary keeps tail not head",
+      "description": "The ACP background task progress summary now keeps the TAIL of the text instead of the HEAD when truncating to 240 chars. The terminal-result check (resolveBackgroundTaskTerminalResult) looks for patterns like 'now let me' to detect workers that stopped at a progress checkpoint. With head-truncation, early narration from a worker that completed 168 tool calls and created a PR would match, causing false-positive 'blocked' verdicts. Tail-truncation means the check sees how the run ended.",
+      "static": [
+        {
+          "file": "src/acp/control-plane/manager.core.ts",
+          "pattern": "Keep the TAIL",
+          "minCount": 1,
+          "note": "Comment explaining why tail truncation matters"
+        }
+      ],
+      "tests": ["src/acp/control-plane/manager.progress-summary.test.ts"],
+      "runtime": [],
+      "e2eTests": ["test/frankclaw-features-e2e.test.ts"]
+    },
+    {
       "name": "ACP background task terminal safety",
       "description": "Promotes ACP background-task false-greens into explicit blocked or lost states. Progress-checkpoint endings are marked blocked, and stale ACP tasks are reconciled lost when the session store read fails after grace.",
       "static": [

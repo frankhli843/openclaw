@@ -96,7 +96,7 @@ function summarizeBackgroundTaskText(text: string): string {
   return `${normalized.slice(0, ACP_BACKGROUND_TASK_TEXT_MAX_LENGTH - 1)}…`;
 }
 
-function appendBackgroundTaskProgressSummary(current: string, chunk: string): string {
+export function appendBackgroundTaskProgressSummary(current: string, chunk: string): string {
   const normalizedChunk = normalizeText(chunk)?.replace(/\s+/g, " ");
   if (!normalizedChunk) {
     return current;
@@ -105,7 +105,14 @@ function appendBackgroundTaskProgressSummary(current: string, chunk: string): st
   if (combined.length <= ACP_BACKGROUND_TASK_PROGRESS_MAX_LENGTH) {
     return combined;
   }
-  return `${combined.slice(0, ACP_BACKGROUND_TASK_PROGRESS_MAX_LENGTH - 1)}…`;
+  // [frankclaw] Keep the TAIL, not the head.  resolveBackgroundTaskTerminalResult
+  // checks for patterns like "now let me" to detect workers that stopped at a
+  // progress checkpoint.  When the summary is head-truncated, these patterns
+  // match early narration from a worker that went on to complete 168 tool calls
+  // and create a PR — causing false-positive "blocked" verdicts.  Keeping the
+  // tail means the terminal-result check sees how the run *ended*, not how it
+  // *started*.
+  return `…${combined.slice(combined.length - ACP_BACKGROUND_TASK_PROGRESS_MAX_LENGTH + 1)}`;
 }
 
 function resolveBackgroundTaskFailureStatus(error: AcpRuntimeError): "failed" | "timed_out" {
