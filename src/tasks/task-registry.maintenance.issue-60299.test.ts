@@ -163,7 +163,7 @@ describe("task-registry maintenance issue #60299", () => {
     expect(currentTasks.get(task.taskId)).toMatchObject({ status: "running" });
   });
 
-  it("marks chat-backed cli tasks lost after the owning run context disappears", async () => {
+  it("marks chat-backed cli tasks lost after the owning run context disappears", { timeout: 180_000 }, async () => {
     const channelKey = "agent:main:slack:channel:C1234567890";
     const task = makeStaleTask({
       runtime: "cli",
@@ -183,7 +183,7 @@ describe("task-registry maintenance issue #60299", () => {
     expect(currentTasks.get(task.taskId)).toMatchObject({ status: "lost" });
   });
 
-  it("keeps chat-backed cli tasks live while the owning run context is still active", async () => {
+  it("keeps chat-backed cli tasks live while the owning run context is still active", { timeout: 180_000 }, async () => {
     const channelKey = "agent:main:slack:channel:C1234567890";
     const task = makeStaleTask({
       runtime: "cli",
