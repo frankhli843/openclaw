@@ -1046,6 +1046,24 @@
       "e2eTests": ["test/frankclaw-features-e2e.test.ts"]
     },
     {
+      "name": "ACP manager registers subagent run for announce delivery",
+      "description": "The ACP manager now also registers a subagent run (registerSubagentRun) when creating a background task record. Previously, ACP workers spawned via the gateway agent method (not sessions_spawn) only created a task registry record. The announce/delivery flow reads the separate subagent registry, so without this registration, results from ACP workers were silently dropped — no announce was ever attempted.",
+      "static": [
+        {
+          "file": "src/acp/control-plane/manager.core.ts",
+          "pattern": "registerSubagentRun",
+          "minCount": 2,
+          "note": "Import + usage in createBackgroundTaskRecord"
+        }
+      ],
+      "tests": [
+        "src/acp/control-plane/manager.test.ts",
+        "src/acp/control-plane/manager.progress-summary.test.ts"
+      ],
+      "runtime": [],
+      "e2eTests": ["test/frankclaw-features-e2e.test.ts"]
+    },
+    {
       "name": "ACP progress summary keeps tail not head",
       "description": "The ACP background task progress summary now keeps the TAIL of the text instead of the HEAD when truncating to 240 chars. The terminal-result check (resolveBackgroundTaskTerminalResult) looks for patterns like 'now let me' to detect workers that stopped at a progress checkpoint. With head-truncation, early narration from a worker that completed 168 tool calls and created a PR would match, causing false-positive 'blocked' verdicts. Tail-truncation means the check sees how the run ended.",
       "static": [

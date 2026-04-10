@@ -1,3 +1,4 @@
+import { registerSubagentRun } from "../../agents/subagent-registry.js";
 import { resolveAgentTimeoutMs } from "../../agents/timeout.js";
 import type { OpenClawConfig } from "../../config/config.js";
 import { logVerbose } from "../../globals.js";
@@ -2168,6 +2169,33 @@ export class AcpSessionManager {
     } catch (error) {
       logVerbose(
         `acp-manager: failed creating background task for ${context.runId}: ${String(error)}`,
+      );
+    }
+    // [frankclaw] Also register in the subagent registry so the announce/delivery
+    // flow can route the completion result back to the requester session.
+    //
+    // The ACP manager path (callGateway → agent method → runTurn) only created
+    // a task registry record.  The announce flow reads the *subagent* registry,
+    // which is a separate in-memory store.  Without this registration, ACP
+    // workers spawned via the agent gateway method (not sessions_spawn) complete
+    // successfully but their results are silently dropped — no announce is ever
+    // attempted.  (2026-04-10: Notion notes worker completed 14 tool calls and
+    // fetched 885 blocks but "agent never posted back".)
+    try {
+      registerSubagentRun({
+        runId: context.runId,
+        childSessionKey: context.childSessionKey,
+        requesterSessionKey: context.requesterSessionKey,
+        requesterOrigin: context.requesterOrigin,
+        requesterDisplayKey: context.requesterSessionKey,
+        task: context.task,
+        cleanup: "keep",
+        label: context.label,
+        expectsCompletionMessage: true,
+      });
+    } catch (error) {
+      logVerbose(
+        `acp-manager: failed registering subagent run for ${context.runId}: ${String(error)}`,
       );
     }
   }
