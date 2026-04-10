@@ -17,7 +17,7 @@ const WINDOWS_DRIVE_RE = /^[a-zA-Z]:[\\/]/;
 const SCHEME_RE = /^[a-zA-Z][a-zA-Z0-9+.-]*:/;
 const HAS_FILE_EXT_RE = /\.\w{1,10}$/;
 const AGENT_STATE_MEDIA_DIRNAME = path.join(".openclaw", "media");
-const MANAGED_GLOBAL_MEDIA_SUBDIRS = new Set(["outbound"]);
+const MANAGED_GLOBAL_MEDIA_SUBDIRS = new Set(["outbound", "inbound"]);
 
 function isPathInside(root: string, candidate: string): boolean {
   const relative = path.relative(path.resolve(root), path.resolve(candidate));

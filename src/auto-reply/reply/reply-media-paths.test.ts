@@ -129,6 +129,29 @@ describe("createReplyMediaPathNormalizer", () => {
     expect(saveMediaSource).not.toHaveBeenCalled();
   });
 
+  it("keeps inbound media under the shared media root", async () => {
+    vi.stubEnv("OPENCLAW_STATE_DIR", "/Users/peter/.openclaw");
+    ensureSandboxWorkspaceForSession.mockResolvedValue({
+      workspaceDir: "/tmp/sandboxes/session-1",
+      containerWorkdir: "/workspace",
+    });
+    const normalize = createReplyMediaPathNormalizer({
+      cfg: {},
+      sessionKey: "session-key",
+      workspaceDir: "/tmp/agent-workspace",
+    });
+
+    const result = await normalize({
+      mediaUrls: ["/Users/peter/.openclaw/media/inbound/6bfd5602-fd0a-4278-b4ef-a4969bd543f9.jpg"],
+    });
+
+    expect(result).toMatchObject({
+      mediaUrl: "/Users/peter/.openclaw/media/inbound/6bfd5602-fd0a-4278-b4ef-a4969bd543f9.jpg",
+      mediaUrls: ["/Users/peter/.openclaw/media/inbound/6bfd5602-fd0a-4278-b4ef-a4969bd543f9.jpg"],
+    });
+    expect(saveMediaSource).not.toHaveBeenCalled();
+  });
+
   it("drops absolute file URLs outside managed reply media roots", async () => {
     ensureSandboxWorkspaceForSession.mockResolvedValue({
       workspaceDir: "/tmp/sandboxes/session-1",
