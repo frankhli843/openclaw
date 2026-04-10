@@ -10,7 +10,6 @@ import type {
   OpenClawConfig,
   ReplyToMode,
   TelegramAccountConfig,
-  TelegramDirectConfig,
 } from "openclaw/plugin-sdk/config-runtime";
 import { formatErrorMessage } from "openclaw/plugin-sdk/error-runtime";
 import { clearHistoryEntriesIfEnabled } from "openclaw/plugin-sdk/reply-history";
@@ -930,7 +929,7 @@ export const dispatchTelegramMessage = async ({
     const userMessage = (ctxPayload.RawBody ?? ctxPayload.Body ?? "").slice(0, 500);
     if (userMessage.trim()) {
       const agentDir = resolveAgentDir(cfg, route.agentId);
-      const directConfig = !isGroup ? (groupConfig as TelegramDirectConfig | undefined) : undefined;
+      const directConfig = !isGroup ? groupConfig : undefined;
       const directAutoTopicLabel = directConfig?.autoTopicLabel;
       const accountAutoTopicLabel = telegramCfg?.autoTopicLabel;
       const autoTopicConfig = resolveAutoTopicLabelConfig(
