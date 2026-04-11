@@ -72,9 +72,13 @@ describe("heartbeat event prompts", () => {
 describe("heartbeat event classification", () => {
   it.each([
     { value: "exec finished: ok", expected: true },
-    { value: "Exec Finished: failed", expected: true },
-    { value: "exec completed: ok", expected: true },
-    { value: "Exec Completed: failed", expected: true },
+    { value: "Exec finished (node=abc, code 0)", expected: true },
+    { value: "Exec Finished (node=abc, code 1)", expected: true },
+    { value: "Exec completed (abc12345, code 0) :: some output", expected: true },
+    { value: "Exec failed (abc12345, signal SIGTERM) :: error output", expected: true },
+    { value: "Exec completed (rotate api keys)", expected: false },
+    { value: "Exec failed: notify me if this happens", expected: false },
+    { value: "Reminder: if exec failed, notify me", expected: false },
     { value: "cron finished", expected: false },
   ])("classifies exec completion events for %j", ({ value, expected }) => {
     expect(isExecCompletionEvent(value)).toBe(expected);
@@ -88,7 +92,8 @@ describe("heartbeat event classification", () => {
     { value: "heartbeat poll: noop", expected: true },
     { value: "heartbeat wake: noop", expected: true },
     { value: "exec finished: ok", expected: true },
-    { value: "System: [2026-04-06 11:04:00] Exec completed: bash test.sh", expected: true },
+    { value: "Exec finished (node=abc, code 0)", expected: true },
+    { value: "Exec completed (abc12345, code 0) :: some output", expected: true },
     {
       value:
         "Exec completed: bash test.sh\nRead HEARTBEAT.md if it exists (workspace context). Follow it strictly.",
@@ -109,12 +114,11 @@ describe("heartbeat event classification", () => {
     { value: "heartbeat poll: noop", expected: false },
     { value: "heartbeat wake: noop", expected: false },
     { value: "exec finished: ok", expected: false },
-    { value: "exec completed: ok", expected: false },
-    {
-      value:
-        "Exec completed: bash test.sh\nRead HEARTBEAT.md if it exists (workspace context). Follow it strictly.",
-      expected: false,
-    },
+    { value: "Exec finished (node=abc, code 0)", expected: false },
+    { value: "Exec completed (abc12345, code 0) :: some output", expected: false },
+    { value: "Exec failed (abc12345, signal SIGTERM) :: error output", expected: false },
+    { value: "Exec completed (rotate api keys)", expected: true },
+    { value: "Reminder: if exec failed, notify me", expected: true },
   ])("classifies cron system events for %j", ({ value, expected }) => {
     expect(isCronSystemEvent(value)).toBe(expected);
   });

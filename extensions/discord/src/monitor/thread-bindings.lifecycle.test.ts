@@ -458,6 +458,62 @@ describe("thread binding lifecycle", () => {
     }
   });
 
+  it("preserves explicit lifecycle windows when rebinding the same thread", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-02-20T10:00:00.000Z"));
+      const manager = createThreadBindingManager({
+        accountId: "default",
+        persist: false,
+        enableSweeper: false,
+        idleTimeoutMs: 24 * 60 * 60 * 1000,
+        maxAgeMs: 0,
+      });
+
+      await manager.bindTarget({
+        threadId: "thread-1",
+        channelId: "parent-1",
+        targetKind: "subagent",
+        targetSessionKey: "agent:main:subagent:child",
+        agentId: "main",
+        webhookId: "wh-1",
+        webhookToken: "tok-1",
+      });
+
+      setThreadBindingIdleTimeoutBySessionKey({
+        accountId: "default",
+        targetSessionKey: "agent:main:subagent:child",
+        idleTimeoutMs: 2 * 60 * 60 * 1000,
+      });
+      setThreadBindingMaxAgeBySessionKey({
+        accountId: "default",
+        targetSessionKey: "agent:main:subagent:child",
+        maxAgeMs: 3 * 60 * 60 * 1000,
+      });
+
+      vi.setSystemTime(new Date("2026-02-20T10:30:00.000Z"));
+      const rebound = await manager.bindTarget({
+        threadId: "thread-1",
+        channelId: "parent-1",
+        targetKind: "subagent",
+        targetSessionKey: "agent:main:subagent:child",
+        webhookId: "wh-1",
+        webhookToken: "tok-1",
+      });
+
+      expect(rebound).toMatchObject({
+        idleTimeoutMs: 2 * 60 * 60 * 1000,
+        maxAgeMs: 3 * 60 * 60 * 1000,
+      });
+      expect(requireBinding(manager, "thread-1")).toMatchObject({
+        idleTimeoutMs: 2 * 60 * 60 * 1000,
+        maxAgeMs: 3 * 60 * 60 * 1000,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("keeps binding when idle timeout is disabled per session key", async () => {
     vi.useFakeTimers();
     try {
@@ -977,7 +1033,7 @@ describe("thread binding lifecycle", () => {
     expect(hoisted.restPost).not.toHaveBeenCalled();
   });
 
-  it("strips channel: prefix from conversationId when creating child thread binding", async () => {
+  it("preserves direct-binding metadata when rebinding the same conversation", async () => {
     createThreadBindingManager({
       accountId: "default",
       persist: false,
@@ -986,42 +1042,56 @@ describe("thread binding lifecycle", () => {
       maxAgeMs: 0,
     });
 
-    // Simulate what happens after the plugin refactor: resolveInboundConversation
-    // returns a prefixed conversationId like "channel:123456" instead of bare "123456".
-    hoisted.restGet.mockClear();
-    hoisted.restGet.mockResolvedValueOnce({
-      id: "123456",
-      type: ChannelType.GuildText,
-      parent_id: "parent-text",
-    });
-    hoisted.createThreadDiscord.mockClear();
-    hoisted.createThreadDiscord.mockResolvedValueOnce({ id: "thread-from-prefixed" });
-
-    const bound = await getSessionBindingService().bind({
-      targetSessionKey: "agent:claude:acp:session-1",
+    await getSessionBindingService().bind({
+      targetSessionKey: "plugin-binding:openclaw-codex-app-server:dm",
       targetKind: "session",
       conversation: {
         channel: "discord",
         accountId: "default",
-        conversationId: "channel:123456",
+        conversationId: "user:1177378744822943744",
       },
-      placement: "child",
+      placement: "current",
       metadata: {
-        threadName: "ACP test session",
-        agentId: "claude",
+        pluginBindingOwner: "plugin",
+        pluginId: "openclaw-codex-app-server",
+        pluginRoot: "/Users/huntharo/github/openclaw-app-server",
+        agentId: "codex",
         boundBy: "system",
       },
     });
 
-    expect(bound).toBeTruthy();
-    expect(bound.conversation.conversationId).toBe("thread-from-prefixed");
-    // The channel resolve call should receive the bare ID, not the prefixed one.
-    expect(hoisted.restGet).toHaveBeenCalledTimes(1);
-    expect(hoisted.createThreadDiscord).toHaveBeenCalledWith(
-      "123456",
-      expect.objectContaining({ autoArchiveMinutes: 60 }),
-      expect.objectContaining({ accountId: "default" }),
-    );
+    await getSessionBindingService().bind({
+      targetSessionKey: "plugin-binding:openclaw-codex-app-server:dm",
+      targetKind: "session",
+      conversation: {
+        channel: "discord",
+        accountId: "default",
+        conversationId: "user:1177378744822943744",
+      },
+      placement: "current",
+      metadata: {
+        label: "codex-dm",
+      },
+    });
+
+    expect(
+      getSessionBindingService().resolveByConversation({
+        channel: "discord",
+        accountId: "default",
+        conversationId: "user:1177378744822943744",
+      }),
+    ).toMatchObject({
+      metadata: expect.objectContaining({
+        pluginBindingOwner: "plugin",
+        pluginId: "openclaw-codex-app-server",
+        pluginRoot: "/Users/huntharo/github/openclaw-app-server",
+        agentId: "codex",
+        boundBy: "system",
+        label: "codex-dm",
+      }),
+    });
+    expect(hoisted.restGet).not.toHaveBeenCalled();
+    expect(hoisted.restPost).not.toHaveBeenCalled();
   });
 
   it("keeps overlapping thread ids isolated per account", async () => {
