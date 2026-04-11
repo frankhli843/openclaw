@@ -25,6 +25,10 @@ import {
   resolveStorePath,
 } from "openclaw/plugin-sdk/config-runtime";
 import { recordInboundSession } from "openclaw/plugin-sdk/conversation-runtime";
+import {
+  enforceDiscordDnrWindow,
+  DiscordDnrSuppressedError,
+} from "openclaw/plugin-sdk/infra-runtime";
 import { getAgentScopedMediaLocalRoots } from "openclaw/plugin-sdk/media-runtime";
 import { resolveChunkMode } from "openclaw/plugin-sdk/reply-chunking";
 import type { ReplyPayload } from "openclaw/plugin-sdk/reply-dispatch-runtime";
@@ -1013,6 +1017,17 @@ export async function processDiscordMessage(
   }
 
   if (!dispatchResult?.queuedFinal) {
+    // If agent produced no reply during DNR quiet hours, still react with 🛏️
+    // so the sender knows the message was received but deferred.
+    try {
+      enforceDiscordDnrWindow({ channel: "discord", to: `channel:${messageChannelId}` });
+    } catch (err) {
+      if (err instanceof DiscordDnrSuppressedError) {
+        await reactMessageDiscord(messageChannelId, message.id, "🛏️", {
+          rest: client.rest as never,
+        }).catch(() => {});
+      }
+    }
     if (isGuildMessage) {
       clearHistoryEntriesIfEnabled({
         historyMap: guildHistories,

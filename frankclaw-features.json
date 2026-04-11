@@ -84,6 +84,20 @@
       "e2eTests": ["test/frankclaw-features-e2e.test.ts"]
     },
     {
+      "name": "Bed reaction on DNR (no-reply)",
+      "description": "Reacts with bed emoji when agent produces no reply during DNR quiet hours, so sender knows the message was received but deferred",
+      "static": [
+        {
+          "file": "extensions/discord/src/monitor/message-handler.process.ts",
+          "pattern": "enforceDiscordDnrWindow.*channel.*messageChannelId",
+          "minCount": 1
+        }
+      ],
+      "tests": ["extensions/discord/src/monitor/message-handler.process.test.ts"],
+      "runtime": [],
+      "e2eTests": ["test/frankclaw-features-e2e.test.ts"]
+    },
+    {
       "name": "DNR deferred delivery",
       "description": "Enqueues then defers delivery when DNR suppresses a reply (enqueueDelivery before deferDelivery)",
       "static": [
