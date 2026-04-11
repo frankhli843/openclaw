@@ -30,7 +30,7 @@ export {
 
 export const MIN_ANNOUNCE_RETRY_DELAY_MS = 1_000;
 export const MAX_ANNOUNCE_RETRY_DELAY_MS = 8_000;
-export const MAX_ANNOUNCE_RETRY_COUNT = 3;
+export const MAX_ANNOUNCE_RETRY_COUNT = 6;
 export const ANNOUNCE_EXPIRY_MS = 5 * 60_000;
 export const ANNOUNCE_COMPLETION_HARD_EXPIRY_MS = 30 * 60_000;
 
