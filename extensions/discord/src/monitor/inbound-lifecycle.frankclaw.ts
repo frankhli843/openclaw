@@ -276,7 +276,7 @@ export async function recoverStaleDiscordInboundLifecycleStates(
   const now = Date.now();
   let recoveredCount = 0;
   let missingTranscriptCount = 0;
-  let cleanedCount = 0;
+  let staleCleanedCount = 0;
 
   for (const entry of entries) {
     if (!entry.endsWith(".json")) {
@@ -293,7 +293,7 @@ export async function recoverStaleDiscordInboundLifecycleStates(
     if (ageMs > LIFECYCLE_STALE_TTL_MS) {
       try {
         await fs.promises.unlink(filePath);
-        cleanedCount += 1;
+        staleCleanedCount += 1;
       } catch {
         // already gone
       }
@@ -301,10 +301,9 @@ export async function recoverStaleDiscordInboundLifecycleStates(
     }
 
     if (isDiscordInboundLifecycleTerminal(record.stage)) {
-      // Terminal files younger than 24h: delete them too, they're done
+      // Terminal files younger than 24h: delete them silently, they're done
       try {
         await fs.promises.unlink(filePath);
-        cleanedCount += 1;
       } catch {
         // already gone
       }
@@ -339,9 +338,9 @@ export async function recoverStaleDiscordInboundLifecycleStates(
     }
   }
 
-  if (cleanedCount > 0) {
+  if (staleCleanedCount > 0) {
     params.log?.(
-      `[frankclaw-durable-worker] cleaned ${cleanedCount} old/terminal lifecycle file(s)`,
+      `[frankclaw-durable-worker] cleaned ${staleCleanedCount} stale lifecycle file(s) older than 24h`,
     );
   }
 

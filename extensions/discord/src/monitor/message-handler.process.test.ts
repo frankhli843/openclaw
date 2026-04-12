@@ -148,6 +148,9 @@ vi.spyOn(replyRuntimeModule, "createReplyDispatcherWithTyping").mockImplementati
   markRunComplete: vi.fn(),
 })) as never);
 
+const infraRuntimeModule = await import("openclaw/plugin-sdk/infra-runtime");
+vi.spyOn(infraRuntimeModule, "enforceDiscordDnrWindow").mockImplementation(() => {});
+
 const conversationRuntimeModule = await import("openclaw/plugin-sdk/conversation-runtime");
 vi.spyOn(conversationRuntimeModule, "recordInboundSession").mockImplementation(
   ((params: Parameters<typeof conversationRuntimeModule.recordInboundSession>[0]) =>
