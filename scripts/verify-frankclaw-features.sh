@@ -542,6 +542,128 @@ run_prebuild() {
 }
 
 # ---------------------------------------------------------------------------
+# Phase: WORKSPACE (verify workspace infrastructure checks from registry)
+# ---------------------------------------------------------------------------
+
+run_workspace() {
+  echo -e "${BOLD}=== Frankclaw Workspace Infrastructure Check ===${RESET}"
+  echo ""
+
+  local check_count
+  check_count=$(jq '.workspaceChecks | length' "$FEATURES_JSON" 2>/dev/null || echo 0)
+
+  if [[ "$check_count" -eq 0 ]]; then
+    echo -e "  ${YELLOW}No workspace checks registered.${RESET}"
+    echo ""
+    echo -e "${YELLOW}${BOLD}RESULT: No workspace checks (SKIP)${RESET}"
+    return 0
+  fi
+
+  local passed=0
+  local failed=0
+  local fixed=0
+
+  for i in $(seq 0 $((check_count - 1))); do
+    local name
+    name=$(jq -r ".workspaceChecks[$i].name" "$FEATURES_JSON")
+    local fix_cmd
+    fix_cmd=$(jq -r ".workspaceChecks[$i].fix // \"\"" "$FEATURES_JSON")
+    local inner_count
+    inner_count=$(jq ".workspaceChecks[$i].checks | length" "$FEATURES_JSON")
+    local all_ok=true
+
+    for j in $(seq 0 $((inner_count - 1))); do
+      local check_type check_path check_target
+      check_type=$(jq -r ".workspaceChecks[$i].checks[$j].type" "$FEATURES_JSON")
+      check_path=$(jq -r ".workspaceChecks[$i].checks[$j].path" "$FEATURES_JSON")
+      check_target=$(jq -r ".workspaceChecks[$i].checks[$j].target // \"\"" "$FEATURES_JSON")
+
+      # Expand ~ to $HOME
+      check_path="${check_path/#\~/$HOME}"
+      check_target="${check_target/#\~/$HOME}"
+
+      if [[ "$check_type" == "symlink" ]]; then
+        if [[ -L "$check_path" ]]; then
+          local actual_target
+          actual_target=$(readlink "$check_path")
+          local expected_target="$check_target"
+          if [[ "$actual_target" == "$expected_target" ]]; then
+            continue
+          else
+            echo -e "  ${RED}  WRONG TARGET: $check_path -> $actual_target (expected $expected_target)${RESET}"
+            all_ok=false
+          fi
+        else
+          echo -e "  ${RED}  MISSING: $check_path${RESET}"
+          all_ok=false
+        fi
+      elif [[ "$check_type" == "file" ]]; then
+        if [[ ! -f "$check_path" ]]; then
+          echo -e "  ${RED}  MISSING: $check_path${RESET}"
+          all_ok=false
+        fi
+      elif [[ "$check_type" == "json_value" ]]; then
+        local json_path check_expected actual_value
+        json_path=$(jq -r ".workspaceChecks[$i].checks[$j].jsonPath" "$FEATURES_JSON")
+        check_expected=$(jq -r ".workspaceChecks[$i].checks[$j].expected" "$FEATURES_JSON")
+        if [[ -f "$check_path" ]]; then
+          actual_value=$(python3 -c "
+import json,sys
+d=json.load(open('$check_path'))
+keys='$json_path'.split('.')
+for k in keys:
+  d=d.get(k,{}) if isinstance(d,dict) else None
+  if d is None: break
+print(d if d is not None else 'NULL')
+" 2>/dev/null)
+          if [[ "$actual_value" != "$check_expected" ]]; then
+            echo -e "  ${RED}  WRONG: $check_path $json_path=$actual_value (expected $check_expected)${RESET}"
+            all_ok=false
+          fi
+        else
+          echo -e "  ${RED}  MISSING: $check_path${RESET}"
+          all_ok=false
+        fi
+      fi
+    done
+
+    if [[ "$all_ok" == "true" ]]; then
+      echo -e "  ${GREEN}✅ $name${RESET}"
+      passed=$((passed + 1))
+    else
+      if [[ -n "$fix_cmd" ]] && [[ "${WORKSPACE_AUTOFIX:-0}" == "1" ]]; then
+        echo -e "  ${YELLOW}🔧 Attempting fix: $fix_cmd${RESET}"
+        eval "${fix_cmd/#\~/$HOME}" 2>/dev/null && {
+          echo -e "  ${GREEN}✅ $name (auto-fixed)${RESET}"
+          fixed=$((fixed + 1))
+          passed=$((passed + 1))
+        } || {
+          echo -e "  ${RED}❌ $name (fix failed)${RESET}"
+          failed=$((failed + 1))
+        }
+      else
+        echo -e "  ${RED}❌ $name${RESET}"
+        if [[ -n "$fix_cmd" ]]; then
+          echo -e "  ${YELLOW}  Fix: $fix_cmd${RESET}"
+        fi
+        failed=$((failed + 1))
+      fi
+    fi
+  done
+
+  echo ""
+  if [[ "$failed" -eq 0 ]]; then
+    local extra=""
+    [[ "$fixed" -gt 0 ]] && extra=" ($fixed auto-fixed)"
+    echo -e "${GREEN}${BOLD}RESULT: $passed/$check_count workspace checks passed${extra} ✅${RESET}"
+    return 0
+  else
+    echo -e "${RED}${BOLD}RESULT: $passed/$check_count passed, $failed FAILED. Run with WORKSPACE_AUTOFIX=1 to auto-fix.${RESET}"
+    return 1
+  fi
+}
+
+# ---------------------------------------------------------------------------
 # Phase: ALL (run static, test, runtime in sequence)
 # ---------------------------------------------------------------------------
 
@@ -549,6 +671,8 @@ run_all() {
   run_registry || { echo -e "\n${RED}Registry validation failed. Stopping.${RESET}"; return 1; }
   echo ""
   run_prebuild || { echo -e "\n${RED}Pre-built bundle shadow check failed. Stopping.${RESET}"; return 1; }
+  echo ""
+  run_workspace || { echo -e "\n${RED}Workspace infrastructure check failed. Stopping.${RESET}"; return 1; }
   echo ""
   run_static || { echo -e "\n${RED}Static phase failed. Stopping.${RESET}"; return 1; }
   echo ""
@@ -574,13 +698,14 @@ load_features
 PHASE="${1:-all}"
 
 case "$PHASE" in
-  registry) run_registry ;;
-  prebuild) run_prebuild ;;
-  static)   run_static ;;
-  test)     run_test ;;
-  e2e)      run_e2e ;;
-  channels) run_channels ;;
-  runtime)  run_runtime ;;
-  all)      run_all ;;
-  *)        die "Unknown phase: $PHASE. Use: registry, prebuild, static, test, e2e, channels, runtime, or all" ;;
+  registry)  run_registry ;;
+  prebuild)  run_prebuild ;;
+  workspace) run_workspace ;;
+  static)    run_static ;;
+  test)      run_test ;;
+  e2e)       run_e2e ;;
+  channels)  run_channels ;;
+  runtime)   run_runtime ;;
+  all)       run_all ;;
+  *)         die "Unknown phase: $PHASE. Use: registry, prebuild, workspace, static, test, e2e, channels, runtime, or all" ;;
 esac

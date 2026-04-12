@@ -378,7 +378,7 @@ describe("sendMessageDiscord", () => {
     expect(body).toHaveProperty("files");
   });
 
-  it("preserves whitespace in media captions", async () => {
+  it("trims whitespace in media captions", async () => {
     const { rest, postMock } = makeDiscordRest();
     postMock.mockResolvedValue({ id: "msg", channel_id: "789" });
     await sendMessageDiscord("channel:789", "  spaced  ", {
@@ -387,7 +387,7 @@ describe("sendMessageDiscord", () => {
       mediaUrl: "file:///tmp/photo.jpg",
     });
     const body = postMock.mock.calls[0]?.[1]?.body;
-    expect(body).toHaveProperty("content", "  spaced  ");
+    expect(body).toHaveProperty("content", "spaced");
   });
 
   it("includes message_reference when replying", async () => {

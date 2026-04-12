@@ -1,3 +1,5 @@
+import { readFileSync, statSync } from "node:fs";
+import { join } from "node:path";
 import { normalizeLowercaseStringOrEmpty } from "openclaw/plugin-sdk/text-runtime";
 
 const OPENAI_PROVIDER_IDS = new Set(["openai", "openai-codex"]);
@@ -51,6 +53,31 @@ If another tool call would likely improve correctness or completeness, keep goin
 Multi-part requests stay incomplete until every requested item is handled or clearly marked blocked.
 Before the final answer, quickly verify correctness, coverage, formatting, and obvious side effects.`;
 
+// --- VOICE.md runtime loading (frankclaw addition) ---
+
+const VOICE_FILENAME = "VOICE.md";
+let voiceFileCache: { content: string; mtimeMs: number } | undefined;
+
+export function loadVoiceFile(workspaceDir: string): string | undefined {
+  const filePath = join(workspaceDir, VOICE_FILENAME);
+  try {
+    const { mtimeMs } = statSync(filePath);
+    if (voiceFileCache && voiceFileCache.mtimeMs === mtimeMs) {
+      return voiceFileCache.content;
+    }
+    const content = readFileSync(filePath, "utf-8").trim();
+    if (content) {
+      voiceFileCache = { content, mtimeMs };
+      return content;
+    }
+  } catch {
+    // File doesn't exist or unreadable, fall through
+  }
+  return undefined;
+}
+
+// --- End frankclaw addition ---
+
 export type OpenAIPromptOverlayMode = "friendly" | "off";
 
 export function resolveOpenAIPromptOverlayMode(
@@ -75,6 +102,7 @@ export function resolveOpenAISystemPromptContribution(params: {
   mode: OpenAIPromptOverlayMode;
   modelProviderId?: string;
   modelId?: string;
+  workspaceDir?: string;
 }) {
   if (
     !shouldApplyOpenAIPromptOverlay({
@@ -84,8 +112,22 @@ export function resolveOpenAISystemPromptContribution(params: {
   ) {
     return undefined;
   }
+  // Append VOICE.md content if present in the workspace (frankclaw addition)
+  const voiceContent = params.workspaceDir ? loadVoiceFile(params.workspaceDir) : undefined;
+  if (voiceContent) {
+    console.info(
+      `[frankclaw] VOICE.md loaded (${voiceContent.length} chars) from ${params.workspaceDir}`,
+    );
+  } else {
+    console.info(
+      `[frankclaw] VOICE.md not found (workspaceDir=${params.workspaceDir ?? "undefined"})`,
+    );
+  }
+  const stablePrefix = voiceContent
+    ? `${OPENAI_GPT5_OUTPUT_CONTRACT}\n\n## Writing Style\n\n${voiceContent}`
+    : OPENAI_GPT5_OUTPUT_CONTRACT;
   return {
-    stablePrefix: OPENAI_GPT5_OUTPUT_CONTRACT,
+    stablePrefix,
     sectionOverrides: {
       execution_bias: OPENAI_GPT5_EXECUTION_BIAS,
       ...(params.mode === "friendly" ? { interaction_style: OPENAI_FRIENDLY_PROMPT_OVERLAY } : {}),

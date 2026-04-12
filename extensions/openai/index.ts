@@ -34,6 +34,7 @@ export default definePluginEntry({
           mode: promptOverlayMode,
           modelProviderId: provider.id,
           modelId: ctx.modelId,
+          workspaceDir: ctx.workspaceDir,
         }),
     });
     api.registerCliBackend(buildOpenAICodexCliBackend());

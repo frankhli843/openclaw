@@ -559,4 +559,57 @@ describe("openai plugin", () => {
       },
     });
   });
+
+  it("appends VOICE.md content to stablePrefix when workspace has VOICE.md", async () => {
+    const fs = await import("node:fs");
+    const os = await import("node:os");
+    const path = await import("node:path");
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-voice-test-"));
+    fs.writeFileSync(path.join(tmpDir, "VOICE.md"), "Write like a poet, not a robot.");
+    try {
+      const { providers } = await registerOpenAIPluginWithHook();
+      const openaiProvider = requireRegisteredProvider(providers, "openai");
+      const result = openaiProvider.resolveSystemPromptContribution?.({
+        config: undefined,
+        agentDir: undefined,
+        workspaceDir: tmpDir,
+        provider: "openai",
+        modelId: "gpt-5.4",
+        promptMode: "full",
+        runtimeChannel: undefined,
+        runtimeCapabilities: undefined,
+        agentId: undefined,
+      });
+      expect(result?.stablePrefix).toContain(OPENAI_GPT5_OUTPUT_CONTRACT);
+      expect(result?.stablePrefix).toContain("## Writing Style");
+      expect(result?.stablePrefix).toContain("Write like a poet, not a robot.");
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("uses plain output contract when VOICE.md is absent", async () => {
+    const os = await import("node:os");
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-novoice-test-"));
+    try {
+      const { providers } = await registerOpenAIPluginWithHook();
+      const openaiProvider = requireRegisteredProvider(providers, "openai");
+      const result = openaiProvider.resolveSystemPromptContribution?.({
+        config: undefined,
+        agentDir: undefined,
+        workspaceDir: tmpDir,
+        provider: "openai",
+        modelId: "gpt-5.4",
+        promptMode: "full",
+        runtimeChannel: undefined,
+        runtimeCapabilities: undefined,
+        agentId: undefined,
+      });
+      expect(result?.stablePrefix).toBe(OPENAI_GPT5_OUTPUT_CONTRACT);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
 });

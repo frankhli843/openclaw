@@ -265,7 +265,7 @@ export function buildDiscordMessagePayload(params: {
   const hasV2 = hasV2Components(params.components);
   const trimmed = params.text.trim();
   if (!hasV2 && trimmed) {
-    payload.content = params.text;
+    payload.content = trimmed;
   }
   if (params.components?.length) {
     payload.components = params.components;

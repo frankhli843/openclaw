@@ -111,7 +111,10 @@ function resolveLifecycleFilePath(params: {
   event: DiscordInboundLifecycleEventRef;
 }): string {
   const accountId = params.accountId ?? params.event.accountId ?? "";
-  return path.join(resolveLifecycleRoot({ stateDir: params.stateDir, accountId }), `${createLifecycleId(params.event)}.json`);
+  return path.join(
+    resolveLifecycleRoot({ stateDir: params.stateDir, accountId }),
+    `${createLifecycleId(params.event)}.json`,
+  );
 }
 
 async function ensureLifecycleRoot(root: string): Promise<void> {
@@ -256,6 +259,9 @@ async function defaultCaptureSessionProgress(
   };
 }
 
+// frankclaw addition: TTL for lifecycle files. Files older than this are deleted on startup.
+const LIFECYCLE_STALE_TTL_MS = 24 * 60 * 60 * 1000;
+
 export async function recoverStaleDiscordInboundLifecycleStates(
   params: RecoverStaleDiscordInboundLifecycleStatesParams,
 ): Promise<RecoverStaleDiscordInboundLifecycleStatesResult> {
@@ -267,8 +273,10 @@ export async function recoverStaleDiscordInboundLifecycleStates(
     return { recoveredCount: 0, missingTranscriptCount: 0 };
   }
 
+  const now = Date.now();
   let recoveredCount = 0;
   let missingTranscriptCount = 0;
+  let cleanedCount = 0;
 
   for (const entry of entries) {
     if (!entry.endsWith(".json")) {
@@ -276,7 +284,30 @@ export async function recoverStaleDiscordInboundLifecycleStates(
     }
     const filePath = path.join(root, entry);
     const record = await readRecord(filePath);
-    if (!record || isDiscordInboundLifecycleTerminal(record.stage)) {
+    if (!record) {
+      continue;
+    }
+
+    // frankclaw addition: delete lifecycle files older than 24h regardless of stage
+    const ageMs = now - record.updatedAt;
+    if (ageMs > LIFECYCLE_STALE_TTL_MS) {
+      try {
+        await fs.promises.unlink(filePath);
+        cleanedCount += 1;
+      } catch {
+        // already gone
+      }
+      continue;
+    }
+
+    if (isDiscordInboundLifecycleTerminal(record.stage)) {
+      // Terminal files younger than 24h: delete them too, they're done
+      try {
+        await fs.promises.unlink(filePath);
+        cleanedCount += 1;
+      } catch {
+        // already gone
+      }
       continue;
     }
 
@@ -291,6 +322,13 @@ export async function recoverStaleDiscordInboundLifecycleStates(
         `messageId=${record.messageId ?? "-"} updatedAt=${record.updatedAt}`,
     );
 
+    // frankclaw addition: clear stale non-terminal files so they don't block future processing
+    try {
+      await fs.promises.unlink(filePath);
+    } catch {
+      // already gone
+    }
+
     if (progress?.sessionFile && !progress.transcriptExists) {
       missingTranscriptCount += 1;
       params.log?.(
@@ -299,6 +337,12 @@ export async function recoverStaleDiscordInboundLifecycleStates(
           `sessionFile=${progress.sessionFile}`,
       );
     }
+  }
+
+  if (cleanedCount > 0) {
+    params.log?.(
+      `[frankclaw-durable-worker] cleaned ${cleanedCount} old/terminal lifecycle file(s)`,
+    );
   }
 
   return { recoveredCount, missingTranscriptCount };

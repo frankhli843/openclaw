@@ -375,6 +375,30 @@ export function createDiscordInboundDurableQueue(options: DurableDiscordInboundQ
     return false;
   }
 
+  // frankclaw addition: on startup, reclaim ALL processing jobs regardless of lease.
+  // The previous gateway process is dead, so any "processing" state is guaranteed stale.
+  async function reclaimAllProcessingJobs(): Promise<number> {
+    const jobs = await listLiveJobs();
+    let reclaimed = 0;
+    const current = now();
+    for (const job of jobs) {
+      if (job.state !== "processing") {
+        continue;
+      }
+      console.info(
+        `[durable-queue] startup reclaim: id=${job.id} msgId=${job.event.messageId} channelId=${job.event.channelId} claimedAt=${job.claimedAt ?? "?"} leaseUntil=${job.leaseUntil ?? "?"} attempts=${job.attempts}`,
+      );
+      job.state = "queued";
+      job.claimedAt = null;
+      job.leaseUntil = null;
+      job.nextAttemptAt = Math.min(job.nextAttemptAt, current);
+      job.updatedAt = current;
+      await writeJob(job);
+      reclaimed += 1;
+    }
+    return reclaimed;
+  }
+
   async function recoverExpiredLeases(): Promise<number> {
     const jobs = await listLiveJobs();
     let recovered = 0;
@@ -647,6 +671,7 @@ export function createDiscordInboundDurableQueue(options: DurableDiscordInboundQ
           console.info(`[durable-queue-diag] recovered ${recovered} expired leases`);
         }
         while (processor) {
+          // eslint-disable-line no-unmodified-loop-condition -- processor is mutated by start()/stop() calls from outside this function
           if (activeBatches >= maxConcurrent) {
             break;
           }
@@ -688,7 +713,7 @@ export function createDiscordInboundDurableQueue(options: DurableDiscordInboundQ
             });
           }
         }
-      } while (drainRequested && processor);
+      } while (drainRequested && processor); // eslint-disable-line no-unmodified-loop-condition -- processor is mutated by start()/stop() calls from outside this function
     } finally {
       draining = false;
       // Always schedule next wake so lease-expiry timers fire even while jobs
@@ -705,10 +730,11 @@ export function createDiscordInboundDurableQueue(options: DurableDiscordInboundQ
       processor = params.process;
       batchProcessor = params.processBatch ?? null;
       await ensureDirs();
-      const recovered = await recoverExpiredLeases();
-      if (recovered > 0) {
+      // frankclaw addition: reclaim all in-flight jobs on startup since the previous process is dead
+      const startupReclaimed = await reclaimAllProcessingJobs();
+      if (startupReclaimed > 0) {
         console.info(
-          `[durable-queue] startup: reclaimed ${recovered} expired visibility timeout(s) for reprocessing`,
+          `[durable-queue] startup: reclaimed ${startupReclaimed} in-flight job(s) from previous process`,
         );
       }
       startPeriodicRecovery();

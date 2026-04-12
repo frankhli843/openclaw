@@ -92,6 +92,23 @@ describe("chunkDiscordText", () => {
     expect(chunks[1].trimStart().startsWith("_")).toBe(true);
   });
 
+  it("does not split messages under 50 lines with default maxLines", () => {
+    // frankclaw: DEFAULT_MAX_LINES is 50, so a 40-line message should stay as one chunk
+    const text = Array.from({ length: 40 }, (_, i) => `line-${i + 1}`).join("\n");
+    expect(text.length).toBeLessThan(2000);
+    const chunks = chunkDiscordText(text);
+    expect(chunks).toHaveLength(1);
+  });
+
+  it("splits messages over 50 lines with default maxLines", () => {
+    const text = Array.from({ length: 60 }, (_, i) => `line-${i + 1}`).join("\n");
+    const chunks = chunkDiscordText(text);
+    expect(chunks.length).toBeGreaterThan(1);
+    for (const chunk of chunks) {
+      expect(countLines(chunk)).toBeLessThanOrEqual(50);
+    }
+  });
+
   it("keeps reasoning italics balanced when chunks split by char limit", () => {
     const longLine = "This is a very long reasoning line that forces char splits.";
     const body = Array.from({ length: 5 }, () => longLine).join("\n");

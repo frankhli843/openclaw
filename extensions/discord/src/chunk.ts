@@ -20,7 +20,7 @@ type OpenFence = {
 };
 
 const DEFAULT_MAX_CHARS = 2000;
-const DEFAULT_MAX_LINES = 17;
+const DEFAULT_MAX_LINES = 50; // frankclaw: raised from 17 to reduce unnecessary message splits
 const FENCE_RE = /^( {0,3})(`{3,}|~{3,})(.*)$/;
 
 function countLines(text: string) {

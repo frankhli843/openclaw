@@ -1134,6 +1134,112 @@
       "tests": ["src/agents/subagent-announce-delivery.sanitized-fallback.test.ts"],
       "runtime": [],
       "e2eTests": ["test/frankclaw-features-e2e.test.ts"]
+    },
+    {
+      "name": "GPT-5 VOICE.md writing style injection",
+      "description": "Loads VOICE.md from workspace at runtime and appends it as a Writing Style section to the GPT-5 output contract. Falls back gracefully when VOICE.md is absent.",
+      "static": [
+        {
+          "file": "extensions/openai/prompt-overlay.ts",
+          "pattern": "VOICE_FILENAME",
+          "minCount": 1,
+          "note": "VOICE.md filename constant"
+        },
+        {
+          "file": "extensions/openai/prompt-overlay.ts",
+          "pattern": "loadVoiceFile",
+          "minCount": 2,
+          "note": "Function definition + usage in resolveOpenAISystemPromptContribution"
+        },
+        {
+          "file": "extensions/openai/prompt-overlay.ts",
+          "pattern": "Writing Style",
+          "minCount": 1,
+          "note": "Writing Style section header appended when VOICE.md present"
+        }
+      ],
+      "tests": ["extensions/openai/index.test.ts"],
+      "runtime": [],
+      "e2eTests": ["test/frankclaw-features-e2e.test.ts"]
+    },
+    {
+      "name": "Durable queue startup reclaim",
+      "description": "On gateway startup, immediately reclaims all in-flight durable queue jobs from the previous process instead of waiting for lease expiry",
+      "static": [
+        {
+          "file": "extensions/discord/src/monitor/inbound-durable-queue.ts",
+          "pattern": "reclaimAllProcessingJobs",
+          "minCount": 2,
+          "note": "Function definition + startup call"
+        }
+      ],
+      "tests": ["extensions/discord/src/monitor/inbound-durable-queue.test.ts"],
+      "runtime": [],
+      "e2eTests": ["test/frankclaw-features-e2e.test.ts"]
+    }
+  ],
+  "workspaceChecks": [
+    {
+      "name": "CC context injection symlinks",
+      "description": "AGENTS.md, MEMORY.md, SOUL.md, and CLAUDE.md symlinks in ~/.claude/ point to workspace originals so Claude Code auto-injects OpenClaw context into every session",
+      "checks": [
+        {
+          "type": "symlink",
+          "path": "~/.claude/CLAUDE.md",
+          "target": "~/.openclaw/workspace/CLAUDE.md"
+        },
+        {
+          "type": "symlink",
+          "path": "~/.claude/AGENTS.md",
+          "target": "~/.openclaw/workspace/AGENTS.md"
+        },
+        {
+          "type": "symlink",
+          "path": "~/.claude/MEMORY.md",
+          "target": "~/.openclaw/workspace/MEMORY.md"
+        },
+        {
+          "type": "symlink",
+          "path": "~/.claude/SOUL.md",
+          "target": "~/.openclaw/workspace/SOUL.md"
+        }
+      ],
+      "fix": "ln -sf ~/.openclaw/workspace/{AGENTS,MEMORY,SOUL,CLAUDE}.md ~/.claude/",
+      "addedDate": "2026-04-11"
+    },
+    {
+      "name": "Exec approval always-allow",
+      "description": "exec-approvals.json must have askFallback set to allow so commands never require manual approval",
+      "checks": [
+        {
+          "type": "json_value",
+          "path": "~/.openclaw/exec-approvals.json",
+          "jsonPath": "defaults.askFallback",
+          "expected": "allow"
+        }
+      ],
+      "fix": "python3 -c \"import json; f='~/.openclaw/exec-approvals.json'; import os; p=os.path.expanduser(f); d=json.load(open(p)); d.setdefault('defaults',{})['askFallback']='allow'; json.dump(d,open(p,'w'),indent=2)\"",
+      "addedDate": "2026-04-11"
+    },
+    {
+      "name": "Exec security settings",
+      "description": "openclaw.json must have tools.exec.ask=off and agents.defaults.sandbox.mode=off so execution is never gated",
+      "checks": [
+        {
+          "type": "json_value",
+          "path": "~/.openclaw/openclaw.json",
+          "jsonPath": "tools.exec.ask",
+          "expected": "off"
+        },
+        {
+          "type": "json_value",
+          "path": "~/.openclaw/openclaw.json",
+          "jsonPath": "agents.defaults.sandbox.mode",
+          "expected": "off"
+        }
+      ],
+      "fix": "python3 -c \"import json,os; p=os.path.expanduser('~/.openclaw/openclaw.json'); d=json.load(open(p)); d.setdefault('tools',{}).setdefault('exec',{})['ask']='off'; d.setdefault('agents',{}).setdefault('defaults',{}).setdefault('sandbox',{})['mode']='off'; json.dump(d,open(p,'w'),indent=2)\"",
+      "addedDate": "2026-04-11"
     }
   ]
 }
