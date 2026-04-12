@@ -383,8 +383,15 @@ export async function preflightDiscordMessage(
   const allowBotsMode =
     allowBotsSetting === "mentions" ? "mentions" : allowBotsSetting === true ? "all" : "off";
   if (params.botUserId && author.id === params.botUserId) {
-    // Always ignore own messages to prevent self-reply loops
-    return null;
+    // frankclaw addition: allow openclaw-watchdog recovery messages to fall
+    // through to the webhook relay below. Without this bypass, the watchdog's
+    // dead-letter recovery posts (which use the gateway's own bot account) get
+    // dropped here and never reach the relay that would rewrite their author.
+    const __fcRawText = message.content ?? "";
+    if (!__fcRawText.startsWith("[doramon you forgot to answer!]:")) {
+      // Always ignore own messages to prevent self-reply loops
+      return null;
+    }
   }
 
   // ── frankclaw: webhook relay check ──────────────────────────────
@@ -656,7 +663,7 @@ export async function preflightDiscordMessage(
   // Use the active runtime snapshot for bindings lookup; routing inputs are
   // still payload-derived, but this path should not reparse config from disk.
   const memberRoleIds = Array.isArray(params.data.rawMember?.roles)
-    ? params.data.rawMember.roles.map((roleId: string) => String(roleId))
+    ? params.data.rawMember.roles.map((roleId: string) => roleId)
     : [];
   const freshCfg = loadConfig();
   const conversationRuntime = await loadConversationRuntime();
@@ -752,10 +759,9 @@ export async function preflightDiscordMessage(
       (message.mentionedRoles?.length ?? 0) > 0 ||
       (message.mentionedEveryone && (!author.bot || sender.isPluralKit))),
   );
-  const hasUserOrRoleMention = Boolean(
+  const hasUserOrRoleMention =
     !isDirectMessage &&
-    ((message.mentionedUsers?.length ?? 0) > 0 || (message.mentionedRoles?.length ?? 0) > 0),
-  );
+    ((message.mentionedUsers?.length ?? 0) > 0 || (message.mentionedRoles?.length ?? 0) > 0);
 
   if (
     isGuildMessage &&
@@ -1055,7 +1061,7 @@ export async function preflightDiscordMessage(
         },
         policy: {
           isGroup: isGuildMessage,
-          requireMention: Boolean(shouldRequireMention),
+          requireMention: shouldRequireMention,
           allowTextCommands,
           hasControlCommand: hasControlCommandInMessage,
           commandAuthorized,
