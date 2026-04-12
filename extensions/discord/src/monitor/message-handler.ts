@@ -249,7 +249,14 @@ export function createDiscordMessageHandler(
       // slowdown (see #15874).
       const msgAuthorId = data.message?.author?.id ?? data.author?.id;
       if (params.botUserId && msgAuthorId === params.botUserId) {
-        return;
+        // frankclaw addition: allow openclaw-watchdog recovery messages to
+        // pass through to preflight where the webhook relay rewrites the
+        // author. Without this bypass the recovery posts get dropped here
+        // before they ever reach the relay.
+        const __fcContent = data.message?.content ?? "";
+        if (!__fcContent.startsWith("[doramon you forgot to answer!]:")) {
+          return;
+        }
       }
       const dedupeKey = buildDiscordInboundDedupeKey({
         accountId: params.accountId,
