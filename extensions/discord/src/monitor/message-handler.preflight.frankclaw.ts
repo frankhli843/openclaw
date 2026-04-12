@@ -243,8 +243,8 @@ function loadWebhookRelayEntries(): WebhookRelayEntry[] {
         return parsed
           .filter((v): v is Record<string, unknown> => typeof v === "object" && v !== null)
           .map((v) => ({
-            webhookBotId: String((v.webhookBotId as string) ?? "").trim(),
-            ownerUserId: String((v.ownerUserId as string) ?? "").trim(),
+            webhookBotId: ((v.webhookBotId as string) ?? "").trim(),
+            ownerUserId: ((v.ownerUserId as string) ?? "").trim(),
             stripPrefix: typeof v.stripPrefix === "string" ? v.stripPrefix : undefined,
           }))
           .filter((v) => v.webhookBotId && v.ownerUserId);
@@ -266,6 +266,14 @@ function loadWebhookRelayEntries(): WebhookRelayEntry[] {
   ];
 }
 
+// Special prefix used by openclaw-watchdog when re-injecting Discord
+// messages that the durable worker dead-lettered. The watchdog posts via
+// the bot account itself (not via a Discord webhook) and uses this prefix
+// so the relay can recognize it and rewrite the author to Frank. Without
+// this rewrite the message would be hard-discarded by the bot-self check.
+const WATCHDOG_RECOVERY_PREFIX = "[doramon you forgot to answer!]:";
+const FRANK_USER_ID = "257595674042826753";
+
 export function resolveWebhookRelay(params: {
   authorId: string;
   authorBot: boolean;
@@ -275,6 +283,23 @@ export function resolveWebhookRelay(params: {
 
   if (!params.authorBot) {
     return noMatch;
+  }
+
+  // ── openclaw-watchdog recovery relay ──
+  // Match by message prefix, not by bot ID. The watchdog posts as the
+  // gateway's own bot, so author.id == botUserId and the bot-self check
+  // would normally drop this message. Recognize the prefix and rewrite
+  // the author to Frank so the message flows through as a real inbound.
+  if (params.messageText.startsWith(WATCHDOG_RECOVERY_PREFIX)) {
+    const stripped = params.messageText.slice(WATCHDOG_RECOVERY_PREFIX.length).trim();
+    logVerbose(
+      `discord: watchdog recovery relay matched bot=${params.authorId} → owner=${FRANK_USER_ID}`,
+    );
+    return {
+      matched: true,
+      ownerUserId: FRANK_USER_ID,
+      rewrittenText: stripped,
+    };
   }
 
   const relayEntries = loadWebhookRelayEntries();
