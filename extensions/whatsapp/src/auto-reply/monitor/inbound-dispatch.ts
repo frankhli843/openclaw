@@ -129,7 +129,7 @@ export function buildWhatsAppInboundContext(params: {
     MediaUrl: params.msg.mediaUrl,
     MediaType: params.msg.mediaType ?? mediaTypes?.[0],
     // frankclaw addition: pass array forms for multi-media from history
-    ...(mediaPaths ? { MediaPaths: mediaPaths, MediaUrls: mediaPaths } : {}),
+    ...(mediaPaths ? { MediaPaths: mediaPaths } : {}),
     ...(mediaTypes ? { MediaTypes: mediaTypes } : {}),
     ChatType: params.msg.chatType,
     Timestamp: params.msg.timestamp,
