@@ -930,7 +930,10 @@ export const dispatchTelegramMessage = async ({
     if (userMessage.trim()) {
       const agentDir = resolveAgentDir(cfg, route.agentId);
       const directConfig = !isGroup ? groupConfig : undefined;
-      const directAutoTopicLabel = directConfig?.autoTopicLabel;
+      const directAutoTopicLabel =
+        directConfig && typeof directConfig === "object" && "dmPolicy" in directConfig
+          ? directConfig.autoTopicLabel
+          : undefined;
       const accountAutoTopicLabel = telegramCfg?.autoTopicLabel;
       const autoTopicConfig = resolveAutoTopicLabelConfig(
         directAutoTopicLabel,

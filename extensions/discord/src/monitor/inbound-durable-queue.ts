@@ -670,8 +670,8 @@ export function createDiscordInboundDurableQueue(options: DurableDiscordInboundQ
         if (recovered > 0) {
           console.info(`[durable-queue-diag] recovered ${recovered} expired leases`);
         }
+        // eslint-disable-next-line no-unmodified-loop-condition -- processor is mutated by start()/stop() calls from outside this function
         while (processor) {
-          // eslint-disable-line no-unmodified-loop-condition -- processor is mutated by start()/stop() calls from outside this function
           if (activeBatches >= maxConcurrent) {
             break;
           }

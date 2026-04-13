@@ -17,12 +17,12 @@ vi.mock("../gateway/call.js", () => ({
   callGateway: vi.fn(),
 }));
 
-import { runSpawnSubagentWithDurableQueue } from "./subagent-spawn.frankclaw.js";
 import type {
   SpawnSubagentParams,
   SpawnSubagentContext,
   SpawnSubagentResult,
-} from "./subagent-spawn.js";
+} from "./subagent-spawn.contract.js";
+import { runSpawnSubagentWithDurableQueue } from "./subagent-spawn.frankclaw.js";
 
 afterEach(() => {
   mockQueueRun.mockReset();

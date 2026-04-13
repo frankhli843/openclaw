@@ -100,7 +100,7 @@ export function isExecCompletionEvent(evt: string): boolean {
   const check = (s: string) =>
     /^exec finished(?::|\s*\()/.test(s) ||
     /^exec (completed|failed) \([a-z0-9_-]{1,64}, (code -?\d+|signal [^)]+)\)( :: .*)?$/.test(s) ||
-    /^exec completed:/.test(s);
+    s.startsWith("exec completed:");
   return check(normalized) || check(stripped);
 }
 

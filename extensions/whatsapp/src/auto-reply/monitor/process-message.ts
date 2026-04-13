@@ -1,12 +1,12 @@
+import {
+  enforceWhatsAppDnrWindow,
+  WhatsAppDnrSuppressedError,
+} from "../../../../../src/infra/outbound/discord-dnr.js";
 import { resolveWhatsAppAccount } from "../../accounts.js";
 import { getPrimaryIdentityId, getSelfIdentity, getSenderIdentity } from "../../identity.js";
 import { newConnectionId } from "../../reconnect.js";
 import { formatError } from "../../session.js";
 import { deliverWebReply } from "../deliver-reply.js";
-import {
-  enforceWhatsAppDnrWindow,
-  WhatsAppDnrSuppressedError,
-} from "../../../../../src/infra/outbound/discord-dnr.js";
 import { whatsappInboundLog } from "../loggers.js";
 import type { WebInboundMsg } from "../types.js";
 import { elide } from "../util.js";
@@ -16,6 +16,44 @@ import {
   resolveVisibleWhatsAppReplyContext,
   type GroupHistoryEntry,
 } from "./inbound-context.js";
+
+// frankclaw addition: collect recent media from same sender in group history
+const HISTORY_MEDIA_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
+const HISTORY_MEDIA_MAX_ITEMS = 3;
+
+/**
+ * When a mention-triggered message has no media of its own, look back through
+ * recent group history for media entries from the same sender within a short
+ * time window. Returns up to 3 media paths/types so the agent can OCR them.
+ */
+export function collectRecentMediaFromHistory(params: {
+  history: GroupHistoryEntry[];
+  senderJid?: string;
+  currentTimestamp?: number;
+}): { mediaPaths: string[]; mediaTypes: string[] } {
+  const { history, senderJid, currentTimestamp } = params;
+  if (!senderJid || !currentTimestamp || history.length === 0) {
+    return { mediaPaths: [], mediaTypes: [] };
+  }
+  const cutoff = currentTimestamp - HISTORY_MEDIA_WINDOW_MS;
+  const mediaPaths: string[] = [];
+  const mediaTypes: string[] = [];
+  for (const entry of history) {
+    if (
+      entry.mediaPath &&
+      entry.senderJid === senderJid &&
+      entry.timestamp != null &&
+      entry.timestamp >= cutoff
+    ) {
+      mediaPaths.push(entry.mediaPath);
+      mediaTypes.push(entry.mediaType ?? "application/octet-stream");
+      if (mediaPaths.length >= HISTORY_MEDIA_MAX_ITEMS) {
+        break;
+      }
+    }
+  }
+  return { mediaPaths, mediaTypes };
+}
 import {
   buildWhatsAppInboundContext,
   dispatchWhatsAppBufferedReply,
@@ -295,6 +333,18 @@ export async function processMessage(params: {
     pipelineResponsePrefix: replyPipeline.responsePrefix,
   });
 
+  // frankclaw addition: attach recent media from gated group history when
+  // the current message has no media of its own (e.g. mention after image)
+  const hasOwnMedia = Boolean(params.msg.mediaPath || params.msg.mediaUrl);
+  const historyMedia =
+    !hasOwnMedia && params.msg.chatType === "group" && visibleGroupHistory
+      ? collectRecentMediaFromHistory({
+          history: visibleGroupHistory,
+          senderJid: sender.jid ?? params.msg.senderJid,
+          currentTimestamp: params.msg.timestamp,
+        })
+      : undefined;
+
   const ctxPayload = buildWhatsAppInboundContext({
     combinedBody,
     commandAuthorized,
@@ -309,6 +359,9 @@ export async function processMessage(params: {
       e164: sender.e164 ?? undefined,
     },
     visibleReplyTo: visibleReplyTo ?? undefined,
+    // frankclaw addition
+    historyMediaPaths: historyMedia?.mediaPaths,
+    historyMediaTypes: historyMedia?.mediaTypes,
   });
 
   const pinnedMainDmRecipient = resolvePinnedMainDmRecipient({

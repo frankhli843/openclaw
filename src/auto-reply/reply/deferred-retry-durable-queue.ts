@@ -317,6 +317,7 @@ export function createDeferredRetryDurableQueue(options: DurableDeferredRetryQue
     draining = true;
     try {
       await recoverExpiredLeases();
+      // eslint-disable-next-line no-unmodified-loop-condition -- processor can be cleared by stop() while drain awaits
       while (processor) {
         const job = await claimNextDueJob();
         if (!job) {

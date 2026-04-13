@@ -92,7 +92,7 @@ export function checkChannelPolicy(
 ): PolicyDecision {
   const config = loadChannelPolicy();
   const channelKey = buildChannelKey(surface, chatId);
-  const aliasKeys = (options?.aliases ?? []).map((entry) => String(entry).trim()).filter(Boolean);
+  const aliasKeys = (options?.aliases ?? []).map((entry) => entry.trim()).filter(Boolean);
   const lookupOrder = [channelKey, ...aliasKeys];
 
   const matchedKey = lookupOrder.find((key) => Boolean(config.channels[key]));

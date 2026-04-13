@@ -340,7 +340,7 @@ export async function runDaemonRestart(opts: DaemonLifecycleOptions = {}): Promi
           if (!json) {
             defaultRuntime.log(theme.success("✅ Gateway recovered via self-heal."));
           }
-          return;
+          return undefined;
         }
       }
       // --- end frankclaw self-heal ---

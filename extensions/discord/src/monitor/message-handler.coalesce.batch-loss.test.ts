@@ -274,9 +274,7 @@ describe("coalesced message batch loss scenarios", () => {
     });
 
     it("command messages are NOT lost — they process individually before the batch", async () => {
-      mocks.hasControlCommand.mockImplementation((text?: string) =>
-        String(text ?? "").startsWith("/"),
-      );
+      mocks.hasControlCommand.mockImplementation((text?: string) => (text ?? "").startsWith("/"));
       mocks.preflightDiscordMessage.mockImplementation(async (params: { data: unknown }) => {
         return { payload: params.data };
       });

@@ -229,7 +229,7 @@ function readPolicyStore(nowMs: number): {
         if (!p || typeof p !== "object") {
           continue;
         }
-        const threadId = String(p.threadId ?? "").trim();
+        const threadId = (p.threadId ?? "").trim();
         if (!threadId) {
           continue;
         }
@@ -237,13 +237,13 @@ function readPolicyStore(nowMs: number): {
           continue;
         }
         recurring.push({
-          id: String(p.id ?? `recurring-${threadId}`),
+          id: p.id ?? `recurring-${threadId}`,
           threadId,
           enabled: p.enabled !== false,
           window: {
-            timeZone: String(p.window.timeZone ?? "America/Toronto"),
-            start: String(p.window.start ?? "18:00"),
-            end: String(p.window.end ?? "08:00"),
+            timeZone: p.window.timeZone ?? "America/Toronto",
+            start: p.window.start ?? "18:00",
+            end: p.window.end ?? "08:00",
           },
         });
       }
@@ -255,10 +255,10 @@ function readPolicyStore(nowMs: number): {
         if (!p || typeof p !== "object") {
           continue;
         }
-        const threadId = String(p.threadId ?? "").trim();
-        const startAtMs = Number(p.startAtMs);
-        const endAtMs = Number(p.endAtMs);
-        const expiresAtMs = p.expiresAtMs === undefined ? undefined : Number(p.expiresAtMs);
+        const threadId = (p.threadId ?? "").trim();
+        const startAtMs = p.startAtMs;
+        const endAtMs = p.endAtMs;
+        const expiresAtMs = p.expiresAtMs;
         const invalid =
           !threadId ||
           !Number.isFinite(startAtMs) ||
@@ -276,7 +276,7 @@ function readPolicyStore(nowMs: number): {
           continue;
         }
         oneOff.push({
-          id: String(p.id ?? `oneoff-${threadId}-${startAtMs}`),
+          id: p.id ?? `oneoff-${threadId}-${startAtMs}`,
           threadId,
           startAtMs,
           endAtMs,
@@ -453,7 +453,7 @@ function readWhatsAppPolicyStore(nowMs: number): {
         if (!p || typeof p !== "object") {
           continue;
         }
-        const groupId = String(p.groupId ?? "").trim();
+        const groupId = (p.groupId ?? "").trim();
         if (!groupId) {
           continue;
         }
@@ -461,14 +461,14 @@ function readWhatsAppPolicyStore(nowMs: number): {
           continue;
         }
         recurring.push({
-          id: String(p.id ?? `wa-recurring-${groupId}`),
+          id: p.id ?? `wa-recurring-${groupId}`,
           channel: "whatsapp",
           groupId,
           enabled: p.enabled !== false,
           window: {
-            timeZone: String(p.window.timeZone ?? "America/Toronto"),
-            start: String(p.window.start ?? "18:00"),
-            end: String(p.window.end ?? "08:00"),
+            timeZone: p.window.timeZone ?? "America/Toronto",
+            start: p.window.start ?? "18:00",
+            end: p.window.end ?? "08:00",
           },
         });
       }
@@ -480,10 +480,10 @@ function readWhatsAppPolicyStore(nowMs: number): {
         if (!p || typeof p !== "object") {
           continue;
         }
-        const groupId = String(p.groupId ?? "").trim();
-        const startAtMs = Number(p.startAtMs);
-        const endAtMs = Number(p.endAtMs);
-        const expiresAtMs = p.expiresAtMs === undefined ? undefined : Number(p.expiresAtMs);
+        const groupId = (p.groupId ?? "").trim();
+        const startAtMs = p.startAtMs;
+        const endAtMs = p.endAtMs;
+        const expiresAtMs = p.expiresAtMs;
         const invalid =
           !groupId ||
           !Number.isFinite(startAtMs) ||
@@ -501,7 +501,7 @@ function readWhatsAppPolicyStore(nowMs: number): {
           continue;
         }
         oneOff.push({
-          id: String(p.id ?? `wa-oneoff-${groupId}-${startAtMs}`),
+          id: p.id ?? `wa-oneoff-${groupId}-${startAtMs}`,
           channel: "whatsapp",
           groupId,
           startAtMs,

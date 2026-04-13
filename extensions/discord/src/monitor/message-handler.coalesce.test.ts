@@ -62,9 +62,7 @@ describe("createCoalescedDiscordMessageHandler", () => {
   });
 
   it("fast-lanes command messages and coalesces regular messages", async () => {
-    mocks.hasControlCommand.mockImplementation((text?: string) =>
-      String(text ?? "").startsWith("/"),
-    );
+    mocks.hasControlCommand.mockImplementation((text?: string) => (text ?? "").startsWith("/"));
 
     const handler = createCoalescedDiscordMessageHandler(baseParams);
     await handler(

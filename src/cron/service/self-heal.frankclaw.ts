@@ -94,7 +94,7 @@ export function formatCronSelfHealAlert(params: {
   error?: string;
 }): string {
   const runIso = new Date(params.originRunAtMs).toISOString();
-  const errText = params.error ? String(params.error) : "<no error>";
+  const errText = params.error ? params.error : "<no error>";
   return `⚠️ Cron self-heal give-up: job=${params.job.id} name=${params.job.name} run=${runIso} attempt=${params.attempt}/${params.maxAttempts} error=${errText}`;
 }
 

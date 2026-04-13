@@ -321,7 +321,8 @@ async function resolveTelegramCommandAuth(params: {
     !isGroup && groupConfig && "dmPolicy" in groupConfig
       ? (groupConfig.dmPolicy ?? telegramCfg.dmPolicy ?? "pairing")
       : (telegramCfg.dmPolicy ?? "pairing");
-  const requireTopic = groupConfig?.requireTopic;
+  const requireTopic =
+    !isGroup && groupConfig && "dmPolicy" in groupConfig ? groupConfig.requireTopic : undefined;
   if (!isGroup && requireTopic === true && dmThreadId == null) {
     logVerbose(`Blocked telegram command in DM ${chatId}: requireTopic=true but no topic present`);
     return null;

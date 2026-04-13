@@ -175,6 +175,87 @@ describe("whatsapp inbound dispatch", () => {
     });
   });
 
+  it("attaches history media when current message has no media", () => {
+    const ctx = buildWhatsAppInboundContext({
+      combinedBody: "Alice: @doraemon add this to calendar",
+      conversationId: "123@g.us",
+      groupHistory: [],
+      groupMemberRoster: new Map(),
+      msg: makeMsg({
+        from: "123@g.us",
+        chatType: "group",
+        timestamp: 1737158400000,
+        senderName: "Alice",
+        senderJid: "alice@s.whatsapp.net",
+        senderE164: "+15550002222",
+        groupSubject: "Test Group",
+        groupParticipants: [],
+        // no mediaPath, no mediaUrl
+      }),
+      route: makeRoute({ sessionKey: "agent:main:whatsapp:group:123@g.us" }),
+      sender: { name: "Alice", e164: "+15550002222" },
+      historyMediaPaths: ["/media/inbound/photo1.jpg", "/media/inbound/photo2.jpg"],
+      historyMediaTypes: ["image/jpeg", "image/png"],
+    });
+
+    expect(ctx.MediaPath).toBe("/media/inbound/photo1.jpg");
+    expect(ctx.MediaType).toBe("image/jpeg");
+    expect(ctx.MediaPaths).toEqual(["/media/inbound/photo1.jpg", "/media/inbound/photo2.jpg"]);
+    expect(ctx.MediaTypes).toEqual(["image/jpeg", "image/png"]);
+  });
+
+  it("does NOT attach history media when current message already has media", () => {
+    const ctx = buildWhatsAppInboundContext({
+      combinedBody: "Alice: check this",
+      conversationId: "123@g.us",
+      groupHistory: [],
+      groupMemberRoster: new Map(),
+      msg: makeMsg({
+        from: "123@g.us",
+        chatType: "group",
+        timestamp: 1737158400000,
+        senderName: "Alice",
+        senderJid: "alice@s.whatsapp.net",
+        senderE164: "+15550002222",
+        groupSubject: "Test Group",
+        groupParticipants: [],
+        mediaPath: "/media/inbound/own-photo.jpg",
+        mediaType: "image/jpeg",
+      }),
+      route: makeRoute({ sessionKey: "agent:main:whatsapp:group:123@g.us" }),
+      sender: { name: "Alice", e164: "+15550002222" },
+      historyMediaPaths: ["/media/inbound/old-photo.jpg"],
+      historyMediaTypes: ["image/png"],
+    });
+
+    expect(ctx.MediaPath).toBe("/media/inbound/own-photo.jpg");
+    expect(ctx.MediaType).toBe("image/jpeg");
+    // Should NOT have the history media arrays
+    expect(ctx.MediaPaths).toBeUndefined();
+  });
+
+  it("does not inject history media fields when historyMediaPaths is empty", () => {
+    const ctx = buildWhatsAppInboundContext({
+      combinedBody: "hi",
+      conversationId: "123@g.us",
+      groupHistory: [],
+      groupMemberRoster: new Map(),
+      msg: makeMsg({
+        from: "123@g.us",
+        chatType: "group",
+        groupParticipants: [],
+      }),
+      route: makeRoute({ sessionKey: "agent:main:whatsapp:group:123@g.us" }),
+      sender: { name: "Alice", e164: "+15550002222" },
+      historyMediaPaths: [],
+      historyMediaTypes: [],
+    });
+
+    expect(ctx.MediaPath).toBeUndefined();
+    expect(ctx.MediaPaths).toBeUndefined();
+    expect(ctx.MediaTypes).toBeUndefined();
+  });
+
   it("falls back SenderId to SenderE164 when sender id is missing", () => {
     const ctx = buildWhatsAppInboundContext({
       combinedBody: "hi",

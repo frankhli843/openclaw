@@ -5,7 +5,7 @@ import type {
   SpawnSubagentContext,
   SpawnSubagentParams,
   SpawnSubagentResult,
-} from "./subagent-spawn.js";
+} from "./subagent-spawn.contract.js";
 
 const SUBAGENT_DURABLE_QUEUE = createDurableJobQueue();
 

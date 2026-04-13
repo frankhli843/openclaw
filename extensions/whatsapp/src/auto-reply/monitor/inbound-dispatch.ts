@@ -91,6 +91,9 @@ export function buildWhatsAppInboundContext(params: {
   route: ReturnType<typeof resolveAgentRoute>;
   sender: SenderContext;
   visibleReplyTo?: VisibleReplyTarget;
+  // frankclaw addition: attach recent media from gated group history
+  historyMediaPaths?: string[];
+  historyMediaTypes?: string[];
 }) {
   const inboundHistory =
     params.msg.chatType === "group"
@@ -100,6 +103,13 @@ export function buildWhatsAppInboundContext(params: {
           timestamp: entry.timestamp,
         }))
       : undefined;
+
+  // frankclaw addition: if current message has no media, use history media
+  const hasOwnMedia = Boolean(params.msg.mediaPath || params.msg.mediaUrl);
+  const mediaPaths =
+    !hasOwnMedia && params.historyMediaPaths?.length ? params.historyMediaPaths : undefined;
+  const mediaTypes =
+    !hasOwnMedia && params.historyMediaTypes?.length ? params.historyMediaTypes : undefined;
 
   return finalizeInboundContext({
     Body: params.combinedBody,
@@ -115,9 +125,12 @@ export function buildWhatsAppInboundContext(params: {
     ReplyToId: params.visibleReplyTo?.id,
     ReplyToBody: params.visibleReplyTo?.body,
     ReplyToSender: params.visibleReplyTo?.sender?.label,
-    MediaPath: params.msg.mediaPath,
+    MediaPath: params.msg.mediaPath ?? mediaPaths?.[0],
     MediaUrl: params.msg.mediaUrl,
-    MediaType: params.msg.mediaType,
+    MediaType: params.msg.mediaType ?? mediaTypes?.[0],
+    // frankclaw addition: pass array forms for multi-media from history
+    ...(mediaPaths ? { MediaPaths: mediaPaths, MediaUrls: mediaPaths } : {}),
+    ...(mediaTypes ? { MediaTypes: mediaTypes } : {}),
     ChatType: params.msg.chatType,
     Timestamp: params.msg.timestamp,
     ConversationLabel: params.msg.chatType === "group" ? params.conversationId : params.msg.from,

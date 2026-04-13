@@ -132,7 +132,7 @@ export function resolveWebGroupGateModeCheck(
   const mentionKeywords = params.cfg.agents?.defaults?.mentionKeywords ?? [];
   const senderE164 = normalizeE164(params.msg.senderE164 ?? "");
   const allowFrom = (params.cfg.channels?.whatsapp?.allowFrom ?? [])
-    .map((e) => normalizeE164(String(e)))
+    .map((e) => normalizeE164(e))
     .filter((e): e is string => Boolean(e));
 
   const gateModeAction = resolveGateMode({
@@ -140,7 +140,7 @@ export function resolveWebGroupGateModeCheck(
     senderId: senderE164,
     allowFrom,
     allowedSenders: gateModeResult.allowedSenders
-      .map((s) => normalizeE164(String(s)))
+      .map((s) => normalizeE164(s))
       .filter((s): s is string => Boolean(s)),
     wasMentioned: params.msg.wasMentioned ?? false,
     messageText: params.msg.body ?? "",

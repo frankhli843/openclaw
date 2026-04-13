@@ -28,6 +28,10 @@ export type GroupHistoryEntry = {
   timestamp?: number;
   id?: string;
   senderJid?: string;
+  /** Absolute path to saved media file (frankclaw addition: propagate media through gated history). */
+  mediaPath?: string;
+  /** MIME type of the media (frankclaw addition). */
+  mediaType?: string;
 };
 
 type ApplyGroupGatingParams = {
@@ -84,6 +88,9 @@ function recordPendingGroupHistoryEntry(params: {
       timestamp: params.msg.timestamp,
       id: params.msg.id,
       senderJid: senderIdentity.jid ?? params.msg.senderJid,
+      // frankclaw addition: propagate media path through gated history
+      mediaPath: params.msg.mediaPath,
+      mediaType: params.msg.mediaType,
     },
   });
 }
