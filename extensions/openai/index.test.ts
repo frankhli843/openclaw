@@ -663,7 +663,9 @@ describe("openai plugin", () => {
         runtimeCapabilities: undefined,
         agentId: undefined,
       });
-      expect(result?.stablePrefix).toBe(OPENAI_GPT5_OUTPUT_CONTRACT);
+      expect(result?.stablePrefix).toBe(
+        [OPENAI_GPT5_OUTPUT_CONTRACT, OPENAI_GPT5_TOOL_CALL_STYLE].join("\n\n"),
+      );
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
