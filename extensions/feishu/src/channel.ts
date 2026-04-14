@@ -152,7 +152,7 @@ function describeFeishuMessageTool({
     enabledAccounts.length > 0 ||
     (!accountId &&
       cfg.channels?.feishu?.enabled !== false &&
-      Boolean(inspectFeishuCredentials(cfg.channels?.feishu as FeishuConfig | undefined)));
+      Boolean(inspectFeishuCredentials(cfg.channels?.feishu)));
   if (enabledAccounts.length === 0) {
     return {
       actions: [],
@@ -204,7 +204,7 @@ function setFeishuNamedAccountEnabled(
   accountId: string,
   enabled: boolean,
 ): ClawdbotConfig {
-  const feishuCfg = cfg.channels?.feishu as FeishuConfig | undefined;
+  const feishuCfg = cfg.channels?.feishu;
   return {
     ...cfg,
     channels: {
@@ -1090,6 +1090,18 @@ export const feishuPlugin: ChannelPlugin<ResolvedFeishuAccount, FeishuProbeResul
             commandTo,
             fallbackTo,
           }),
+      },
+      auth: {
+        login: async ({ cfg }) => {
+          const { createClackPrompter } = await import("openclaw/plugin-sdk/setup-runtime");
+          const { writeConfigFile } = await import("openclaw/plugin-sdk/config-runtime");
+          const prompter = createClackPrompter();
+          const { runFeishuLogin } = await import("./setup-surface.js");
+          const nextCfg = await runFeishuLogin({ cfg, prompter });
+          if (nextCfg !== cfg) {
+            await writeConfigFile(nextCfg);
+          }
+        },
       },
       setup: feishuSetupAdapter,
       setupWizard: feishuSetupWizard,

@@ -3204,6 +3204,10 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
         sensitive: true,
       },
     },
+    unsupportedSecretRefSurfacePatterns: [
+      "channels.discord.accounts.*.threadBindings.webhookToken",
+      "channels.discord.threadBindings.webhookToken",
+    ],
   },
   {
     pluginId: "feishu",
@@ -15553,6 +15557,10 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
         help: "Allow WhatsApp to write config in response to channel events/commands (default: true).",
       },
     },
+    unsupportedSecretRefSurfacePatterns: [
+      "channels.whatsapp.accounts.*.creds.json",
+      "channels.whatsapp.creds.json",
+    ],
   },
   {
     pluginId: "zalo",

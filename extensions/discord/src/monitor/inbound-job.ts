@@ -22,6 +22,7 @@ export type DiscordInboundJob = {
   queueKey: string;
   payload: DiscordInboundJobPayload;
   runtime: DiscordInboundJobRuntime;
+  replayKeys?: string[];
 };
 
 export function resolveDiscordInboundJobQueueKey(ctx: DiscordMessagePreflightContext): string {
@@ -36,7 +37,10 @@ export function resolveDiscordInboundJobQueueKey(ctx: DiscordMessagePreflightCon
   return ctx.messageChannelId;
 }
 
-export function buildDiscordInboundJob(ctx: DiscordMessagePreflightContext): DiscordInboundJob {
+export function buildDiscordInboundJob(
+  ctx: DiscordMessagePreflightContext,
+  options?: { replayKeys?: readonly string[] },
+): DiscordInboundJob {
   const {
     runtime,
     abortSignal,
@@ -70,6 +74,7 @@ export function buildDiscordInboundJob(ctx: DiscordMessagePreflightContext): Dis
       threadBindings,
       discordRestFetch,
     },
+    replayKeys: options?.replayKeys ? [...options.replayKeys] : undefined,
   };
 }
 
@@ -141,7 +146,8 @@ export function rehydrateCarbonMessage(message: unknown): void {
   }
 
   const rawValue = mutableMessage._rawData ?? mutableMessage.rawData;
-  const raw = rawValue && typeof rawValue === "object" ? (rawValue as Record<string, unknown>) : null;
+  const raw =
+    rawValue && typeof rawValue === "object" ? (rawValue as Record<string, unknown>) : null;
   if (!raw) {
     return;
   }

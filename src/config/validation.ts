@@ -9,6 +9,7 @@ import {
 } from "../plugins/config-state.js";
 import {
   collectRelevantDoctorPluginIds,
+  collectRelevantDoctorPluginIdsForTouchedPaths,
   listPluginDoctorLegacyConfigRules,
 } from "../plugins/doctor-contract-registry.js";
 import { resolveManifestCommandAliasOwner } from "../plugins/manifest-command-aliases.runtime.js";
@@ -31,8 +32,8 @@ import { normalizeLowercaseStringOrEmpty } from "../shared/string-coerce.js";
 import { isRecord } from "../utils.js";
 import { findDuplicateAgentDirs, formatDuplicateAgentDirError } from "./agent-dirs.js";
 import { appendAllowedValuesHint, summarizeAllowedValues } from "./allowed-values.js";
-import { relaxChannelSchemaFromRegistry } from "./bundled-channel-config-runtime.frankclaw.js";
 import { GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA } from "./bundled-channel-config-metadata.generated.js";
+import { relaxChannelSchemaFromRegistry } from "./bundled-channel-config-runtime.frankclaw.js";
 import { collectChannelSchemaMetadata } from "./channel-config-metadata.js";
 import { findLegacyConfigIssues } from "./legacy.js";
 import { materializeRuntimeConfig } from "./materialize.js";
@@ -572,13 +573,21 @@ function validateGatewayTailscaleBind(config: OpenClawConfig): ConfigValidationI
  */
 export function validateConfigObjectRaw(
   raw: unknown,
+  opts?: {
+    touchedPaths?: ReadonlyArray<ReadonlyArray<string>>;
+  },
 ): { ok: true; config: OpenClawConfig } | { ok: false; issues: ConfigValidationIssue[] } {
   const policyIssues = collectUnsupportedSecretRefPolicyIssues(raw);
-  const legacyIssues = findLegacyConfigIssues(
-    raw,
-    raw,
-    listPluginDoctorLegacyConfigRules({ pluginIds: collectRelevantDoctorPluginIds(raw) }),
-  );
+  const doctorPluginIds = opts?.touchedPaths
+    ? collectRelevantDoctorPluginIdsForTouchedPaths({
+        raw,
+        touchedPaths: opts.touchedPaths,
+      })
+    : collectRelevantDoctorPluginIds(raw);
+  const extraLegacyRules = listPluginDoctorLegacyConfigRules({
+    pluginIds: doctorPluginIds,
+  });
+  const legacyIssues = findLegacyConfigIssues(raw, raw, extraLegacyRules, opts?.touchedPaths);
   if (legacyIssues.length > 0) {
     return {
       ok: false,
