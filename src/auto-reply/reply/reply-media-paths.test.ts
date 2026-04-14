@@ -188,7 +188,7 @@ describe("createReplyMediaPathNormalizer", () => {
       path: "/Users/peter/.openclaw/media/outbound/persisted.png",
     });
     const normalize = createReplyMediaPathNormalizer({
-      cfg: {},
+      cfg: { agents: { defaults: { mediaMaxMb: 8 } } },
       sessionKey: "session-key",
       workspaceDir: "/Users/peter/.openclaw/workspace",
     });
@@ -203,6 +203,7 @@ describe("createReplyMediaPathNormalizer", () => {
       "/Users/peter/.openclaw/workspace/.openclaw/media/tool-image-generation/generated.png",
       undefined,
       "outbound",
+      8 * 1024 * 1024,
     );
     expect(result).toMatchObject({
       mediaUrl: "/Users/peter/.openclaw/media/outbound/persisted.png",
@@ -229,7 +230,7 @@ describe("createReplyMediaPathNormalizer", () => {
       mediaUrls: [tmpVoicePath],
     });
 
-    expect(saveMediaSource).toHaveBeenCalledWith(tmpVoicePath, undefined, "outbound");
+    expect(saveMediaSource).toHaveBeenCalledWith(tmpVoicePath, undefined, "outbound", undefined);
     expect(result).toMatchObject({
       mediaUrl: "/Users/peter/.openclaw/media/outbound/tts-voice.opus",
       mediaUrls: ["/Users/peter/.openclaw/media/outbound/tts-voice.opus"],
