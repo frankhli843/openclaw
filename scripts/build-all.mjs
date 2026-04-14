@@ -7,6 +7,8 @@ import { resolvePnpmRunner } from "./pnpm-runner.mjs";
 const nodeBin = process.execPath;
 const WINDOWS_BUILD_MAX_OLD_SPACE_MB = 4096;
 export const BUILD_ALL_STEPS = [
+  // frankclaw addition: guard against rebuilding while the gateway is running
+  { label: "build-guard", kind: "node", args: ["scripts/build-guard-check.mjs"] },
   { label: "canvas:a2ui:bundle", kind: "pnpm", pnpmArgs: ["canvas:a2ui:bundle"] },
   { label: "tsdown", kind: "node", args: ["scripts/tsdown-build.mjs"] },
   { label: "runtime-postbuild", kind: "node", args: ["scripts/runtime-postbuild.mjs"] },
