@@ -1205,6 +1205,31 @@
       "tests": ["extensions/discord/src/monitor/inbound-durable-queue.test.ts"],
       "runtime": [],
       "e2eTests": ["test/frankclaw-features-e2e.test.ts"]
+    },
+    {
+      "name": "verify-acp-roundtrip.sh node resolution guard",
+      "description": "The post-merge ACP smoke test script picks a supported Node (>=22.12) explicitly and prepends it to PATH (stripping nvm node dirs that would shadow it) before invoking `openclaw`, so callers with an nvm default pointing at an unsupported Node cannot make `/usr/bin/openclaw` hit its `Node.js v22.12+ is required` guard and silently misreport a CLI startup failure as an ACP dispatch regression. Also runs an explicit `openclaw --version` probe so CLI startup failures produce a distinct FAIL message.",
+      "static": [
+        {
+          "file": "scripts/verify-acp-roundtrip.sh",
+          "pattern": "find_supported_node",
+          "minCount": 1
+        },
+        {
+          "file": "scripts/verify-acp-roundtrip.sh",
+          "pattern": "FAIL: openclaw CLI failed to start",
+          "minCount": 1
+        },
+        {
+          "file": "scripts/verify-acp-roundtrip.sh",
+          "pattern": "FAIL: no Node >=22.12 found on host",
+          "minCount": 1
+        }
+      ],
+      "tests": ["test/scripts/verify-acp-roundtrip-node-resolution.frankclaw.test.ts"],
+      "runtime": [],
+      "e2eTests": ["test/scripts/verify-acp-roundtrip-node-resolution.frankclaw.test.ts"],
+      "addedDate": "2026-04-15"
     }
   ],
   "workspaceChecks": [
