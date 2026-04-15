@@ -74,6 +74,7 @@ const PERMANENT_ERROR_PATTERNS: readonly RegExp[] = [
 
 const drainInProgress = new Map<string, boolean>();
 const entriesInProgress = new Set<string>();
+let recoveryInProgress = false;
 
 function getErrnoCode(err: unknown): string | null {
   return err && typeof err === "object" && "code" in err
@@ -385,6 +386,34 @@ export async function recoverPendingDeliveries(opts: {
   cfg: OpenClawConfig;
   stateDir?: string;
   /** Maximum wall-clock time for recovery in ms. Remaining entries are deferred to next startup. Default: 60 000. */
+  maxRecoveryMs?: number;
+}): Promise<RecoverySummary> {
+  // [frankclaw] Re-entrancy guard: the periodic 2-minute interval can fire while
+  // a previous sweep is still running.  Without this guard, two concurrent sweeps
+  // interleave entries for the same channel/target and break FIFO ordering.
+  if (recoveryInProgress) {
+    opts.log.info("Recovery sweep already in progress, skipping to preserve ordering");
+    return createEmptyRecoverySummary();
+  }
+  recoveryInProgress = true;
+
+  try {
+    return await recoverPendingDeliveriesInner(opts);
+  } finally {
+    recoveryInProgress = false;
+  }
+}
+
+/** @internal Exported only for testing the re-entrancy guard. */
+export function _isRecoveryInProgress(): boolean {
+  return recoveryInProgress;
+}
+
+async function recoverPendingDeliveriesInner(opts: {
+  deliver: DeliverFn;
+  log: RecoveryLogger;
+  cfg: OpenClawConfig;
+  stateDir?: string;
   maxRecoveryMs?: number;
 }): Promise<RecoverySummary> {
   const pending = await loadPendingDeliveries(opts.stateDir);
