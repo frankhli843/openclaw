@@ -1240,6 +1240,37 @@
       ],
       "fix": "python3 -c \"import json,os; p=os.path.expanduser('~/.openclaw/openclaw.json'); d=json.load(open(p)); d.setdefault('tools',{}).setdefault('exec',{})['ask']='off'; d.setdefault('agents',{}).setdefault('defaults',{}).setdefault('sandbox',{})['mode']='off'; json.dump(d,open(p,'w'),indent=2)\"",
       "addedDate": "2026-04-11"
+    },
+    {
+      "name": "SKILL.md Discord slash commands",
+      "description": "Auto-registers commands from skills/commands/SKILL.md as Discord slash commands so /iterate etc appear in Discord autocomplete",
+      "static": [
+        {
+          "file": "extensions/discord/src/monitor/skill-commands.frankclaw.ts",
+          "pattern": "appendSkillCommandSpecs",
+          "minCount": 1
+        },
+        {
+          "file": "extensions/discord/src/monitor/provider.ts",
+          "pattern": "appendSkillCommandSpecsFrankclaw",
+          "minCount": 1
+        },
+        {
+          "file": "extensions/discord/src/monitor/skill-commands.frankclaw.ts",
+          "pattern": "parseSkillCommandsMd",
+          "minCount": 1
+        }
+      ],
+      "tests": ["extensions/discord/src/monitor/skill-commands.frankclaw.test.ts"],
+      "runtime": [
+        {
+          "logPattern": "registered .* skill commands from SKILL.md as slash commands",
+          "onEvent": true,
+          "note": "Fires on gateway startup when SKILL.md has commands"
+        }
+      ],
+      "e2eTests": ["extensions/discord/src/monitor/skill-commands.frankclaw.provider.test.ts"],
+      "addedDate": "2026-04-15"
     }
   ]
 }

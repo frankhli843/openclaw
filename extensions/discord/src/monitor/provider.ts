@@ -87,6 +87,11 @@ import {
   registerDiscordMonitorListeners,
 } from "./provider.startup.js";
 import { resolveDiscordRestFetch } from "./rest-fetch.js";
+// frankclaw addition: auto-register skill commands from SKILL.md as Discord slash commands
+import {
+  appendSkillCommandSpecs as appendSkillCommandSpecsFrankclaw,
+  resolveWorkspaceDirsFromConfig,
+} from "./skill-commands.frankclaw.js";
 import { formatDiscordStartupStatusMessage } from "./startup-status.js";
 import type { DiscordMonitorStatusSink } from "./status.js";
 import { formatThreadBindingDurationLabel } from "./thread-bindings.messages.js";
@@ -741,6 +746,9 @@ export async function monitorDiscordProvider(opts: MonitorDiscordOpts = {}) {
     : [];
   if (nativeEnabled) {
     commandSpecs = appendPluginCommandSpecs({ commandSpecs, runtime });
+    // frankclaw addition: append skill commands from skills/commands/SKILL.md
+    const workspaceDirs = resolveWorkspaceDirsFromConfig(cfg);
+    commandSpecs = appendSkillCommandSpecsFrankclaw({ commandSpecs, workspaceDirs });
   }
   const initialCommandCount = commandSpecs.length;
   if (nativeEnabled && nativeSkillsEnabled && commandSpecs.length > maxDiscordCommands) {
@@ -750,6 +758,12 @@ export async function monitorDiscordProvider(opts: MonitorDiscordOpts = {}) {
       { skillCommands: [], provider: "discord" },
     );
     commandSpecs = appendPluginCommandSpecs({ commandSpecs, runtime });
+    // frankclaw addition: re-append skill commands after overflow trim
+    const workspaceDirsRetry = resolveWorkspaceDirsFromConfig(cfg);
+    commandSpecs = appendSkillCommandSpecsFrankclaw({
+      commandSpecs,
+      workspaceDirs: workspaceDirsRetry,
+    });
     runtime.log?.(
       warn(
         `discord: ${initialCommandCount} commands exceeds limit; removing per-skill commands and keeping /skill.`,
