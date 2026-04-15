@@ -5,6 +5,7 @@ enum ChatMarkdownPreprocessor {
     // (`INBOUND_META_SENTINELS`), and extend parser expectations in
     // `ChatMarkdownPreprocessorTests` when sentinels change.
     private static let inboundContextHeaders = [
+        "Inbound context (joined; trusted+untrusted):",
         "Conversation info (untrusted metadata):",
         "Sender (untrusted metadata):",
         "Thread starter (untrusted, for context):",

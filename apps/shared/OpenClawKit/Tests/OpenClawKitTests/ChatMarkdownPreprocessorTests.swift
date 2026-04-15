@@ -93,6 +93,7 @@ struct ChatMarkdownPreprocessorTests {
 
     @Test func stripsAllKnownInboundMetadataSentinels() {
         let sentinels = [
+            "Inbound context (joined; trusted+untrusted):",
             "Conversation info (untrusted metadata):",
             "Sender (untrusted metadata):",
             "Thread starter (untrusted, for context):",
