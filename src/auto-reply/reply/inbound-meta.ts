@@ -108,25 +108,55 @@ function resolveInboundFormattingHints(ctx: TemplateContext):
   });
 }
 
-export function buildInboundMetaSystemPrompt(
+/** Maximum length for a string to qualify as an id-like value in the effective sub-object. */
+const MAX_EFFECTIVE_ID_LENGTH = 200;
+
+/**
+ * Returns true when `value` looks like a machine-generated identifier:
+ * non-empty, bounded length, no whitespace, no markdown fence tokens.
+ * Used to gate untrusted strings before they enter the `effective` sub-object
+ * of the joined inbound context.
+ */
+function isIdLikeString(value: unknown): value is string {
+  if (typeof value !== "string") {
+    return false;
+  }
+  if (!value || value.length > MAX_EFFECTIVE_ID_LENGTH) {
+    return false;
+  }
+  if (/\s/.test(value)) {
+    return false;
+  }
+  if (value.includes("```")) {
+    return false;
+  }
+  return true;
+}
+
+export type TrustedInboundPayload = {
+  schema: string;
+  chat_id?: string;
+  account_id?: string;
+  channel?: string;
+  provider?: string;
+  surface?: string;
+  chat_type?: string;
+  response_format?: { text_markup: string; rules: string[] };
+};
+
+/**
+ * Build the trusted metadata payload from template context.
+ * Shared between system prompt and joined context construction.
+ */
+export function buildTrustedPayload(
   ctx: TemplateContext,
   options?: { includeFormattingHints?: boolean },
-): string {
+): TrustedInboundPayload {
   const chatType = normalizeChatType(ctx.ChatType);
   const isDirect = !chatType || chatType === "direct";
-
-  // Keep system metadata strictly free of attacker-controlled strings (sender names, group subjects, etc.).
-  // Those belong in the user-role "untrusted context" blocks.
-  // Per-message identifiers and dynamic flags are also excluded here: they change on turns/replies
-  // and would bust prefix-based prompt caches on providers that use stable system prefixes.
-  // They are included in the user-role conversation info block instead.
-
-  // Resolve channel identity: prefer explicit channel, then surface, then provider.
-  // For webchat/Hub Chat sessions (when Surface is 'webchat' or undefined with no real channel),
-  // omit the channel field entirely rather than falling back to an unrelated provider.
   const channelValue = resolveInboundChannel(ctx);
 
-  const payload = {
+  return {
     schema: "openclaw.inbound_meta.v2",
     chat_id: normalizePromptMetadataString(ctx.OriginatingTo),
     account_id: normalizePromptMetadataString(ctx.AccountId),
@@ -137,6 +167,73 @@ export function buildInboundMetaSystemPrompt(
     response_format:
       options?.includeFormattingHints === false ? undefined : resolveInboundFormattingHints(ctx),
   };
+}
+
+/**
+ * Build the `effective` sub-object for the joined inbound context.
+ * Picks the most useful routing identifiers with explicit precedence:
+ * - chat_id: trusted first, fallback to untrusted conversation_label when id-like
+ * - channel, surface, provider, account_id: trusted only
+ * - message_id, reply_to_id, sender_id: untrusted only
+ * - topic_id: untrusted only when present
+ */
+export function buildEffectiveIdentifiers(
+  trusted: TrustedInboundPayload,
+  conversationInfo: Record<string, unknown>,
+): Record<string, unknown> {
+  const effective: Record<string, unknown> = {};
+
+  // chat_id: prefer trusted, fallback to untrusted conversation_label when id-like
+  if (trusted.chat_id) {
+    effective.chat_id = trusted.chat_id;
+  } else if (isIdLikeString(conversationInfo.conversation_label)) {
+    effective.chat_id = conversationInfo.conversation_label;
+  }
+
+  // Trusted-only routing fields
+  if (trusted.channel) {
+    effective.channel = trusted.channel;
+  }
+  if (trusted.surface) {
+    effective.surface = trusted.surface;
+  }
+  if (trusted.provider) {
+    effective.provider = trusted.provider;
+  }
+  if (trusted.account_id) {
+    effective.account_id = trusted.account_id;
+  }
+
+  // Untrusted-only per-message identifiers
+  if (isIdLikeString(conversationInfo.message_id)) {
+    effective.message_id = conversationInfo.message_id;
+  }
+  if (isIdLikeString(conversationInfo.reply_to_id)) {
+    effective.reply_to_id = conversationInfo.reply_to_id;
+  }
+  if (isIdLikeString(conversationInfo.sender_id)) {
+    effective.sender_id = conversationInfo.sender_id;
+  }
+
+  // topic_id: untrusted only when present
+  if (isIdLikeString(conversationInfo.topic_id)) {
+    effective.topic_id = conversationInfo.topic_id;
+  }
+
+  return Object.keys(effective).length > 0 ? effective : {};
+}
+
+export function buildInboundMetaSystemPrompt(
+  ctx: TemplateContext,
+  options?: { includeFormattingHints?: boolean },
+): string {
+  // Keep system metadata strictly free of attacker-controlled strings (sender names, group subjects, etc.).
+  // Those belong in the user-role "untrusted context" blocks.
+  // Per-message identifiers and dynamic flags are also excluded here: they change on turns/replies
+  // and would bust prefix-based prompt caches on providers that use stable system prefixes.
+  // They are included in the user-role conversation info block instead.
+
+  const payload = buildTrustedPayload(ctx, options);
 
   // Keep the instructions local to the payload so the meaning survives prompt overrides.
   return [
@@ -276,6 +373,31 @@ export function buildInboundUserContextPrefix(
           body: sanitizePromptBody(entry.body),
         })),
       ),
+    );
+  }
+
+  // Build the joined inbound context block when untrusted context blocks exist.
+  // Trusted metadata is always available in the system prompt; the joined block
+  // adds value by combining trusted + untrusted for downstream reasoning.
+  const hasConversationInfo = Object.values(conversationInfo).some((v) => v !== undefined);
+  const hasSenderInfo = Boolean(senderInfo?.label);
+  if (hasConversationInfo || hasSenderInfo) {
+    const trustedPayload = buildTrustedPayload(ctx);
+    const hasTrustedFields = Object.entries(trustedPayload).some(
+      ([k, v]) => k !== "schema" && v !== undefined,
+    );
+    const effective = buildEffectiveIdentifiers(trustedPayload, conversationInfo);
+    const joinedPayload: Record<string, unknown> = {
+      schema: "openclaw.joined_inbound_context.v1",
+      trusted: hasTrustedFields ? trustedPayload : undefined,
+      untrusted: {
+        conversation_info: hasConversationInfo ? conversationInfo : undefined,
+        sender: senderInfo?.label ? senderInfo : undefined,
+      },
+      effective: Object.keys(effective).length > 0 ? effective : undefined,
+    };
+    blocks.unshift(
+      formatUntrustedJsonBlock("Inbound context (joined; trusted+untrusted):", joinedPayload),
     );
   }
 

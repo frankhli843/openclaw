@@ -43,7 +43,6 @@ describe("verify-acp-roundtrip.sh node resolution guard", () => {
     const stat = fs.statSync(SCRIPT_PATH);
     expect(stat.isFile()).toBe(true);
     // Owner execute bit set.
-    // eslint-disable-next-line no-bitwise
     expect((stat.mode & 0o100) !== 0).toBe(true);
   });
 

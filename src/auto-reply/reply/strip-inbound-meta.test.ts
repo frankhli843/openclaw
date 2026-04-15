@@ -69,8 +69,9 @@ describe("stripInboundMetadata", () => {
     expect(stripInboundMetadata(input)).toBe("Got it, thanks!");
   });
 
-  it("strips all six known sentinel types", () => {
+  it("strips all seven known sentinel types", () => {
     const sentinels = [
+      "Inbound context (joined; trusted+untrusted):",
       "Conversation info (untrusted metadata):",
       "Sender (untrusted metadata):",
       "Thread starter (untrusted, for context):",
@@ -243,5 +244,32 @@ describe("builder compatibility", () => {
     } as TemplateContext)}\n\nActual user message`;
 
     expect(stripInboundMetadata(input)).toBe("Actual user message");
+  });
+
+  it("strips generated joined inbound context block alongside other metadata blocks", () => {
+    const input = `${buildInboundUserContextPrefix({
+      ChatType: "group",
+      OriginatingTo: "telegram:-100123",
+      OriginatingChannel: "telegram",
+      Provider: "telegram",
+      MessageSid: "msg-1",
+      SenderName: "Alice",
+      SenderId: "user-1",
+    } as TemplateContext)}\n\nActual user message`;
+
+    expect(input).toContain("Inbound context (joined; trusted+untrusted):");
+    expect(input).toContain("Conversation info (untrusted metadata):");
+    expect(input).toContain("Sender (untrusted metadata):");
+    expect(stripInboundMetadata(input)).toBe("Actual user message");
+  });
+
+  it("strips a standalone joined block", () => {
+    const input = `Inbound context (joined; trusted+untrusted):
+\`\`\`json
+{"schema": "openclaw.joined_inbound_context.v1"}
+\`\`\`
+
+User message after joined block`;
+    expect(stripInboundMetadata(input)).toBe("User message after joined block");
   });
 });

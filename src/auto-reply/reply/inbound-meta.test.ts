@@ -3,7 +3,12 @@ import { resetPluginRuntimeStateForTest, setActivePluginRegistry } from "../../p
 import { createTestRegistry } from "../../test-utils/channel-plugins.js";
 import { withEnv } from "../../test-utils/env.js";
 import type { TemplateContext } from "../templating.js";
-import { buildInboundMetaSystemPrompt, buildInboundUserContextPrefix } from "./inbound-meta.js";
+import {
+  buildEffectiveIdentifiers,
+  buildInboundMetaSystemPrompt,
+  buildInboundUserContextPrefix,
+  type TrustedInboundPayload,
+} from "./inbound-meta.js";
 
 vi.mock("../../channels/plugins/registry-loaded.js", () => ({
   getLoadedChannelPluginById: (channelId: string) =>
@@ -55,6 +60,13 @@ function parseConversationInfoPayload(text: string): Record<string, unknown> {
 
 function parseSenderInfoPayload(text: string): Record<string, unknown> {
   return parseUntrustedJsonBlock(text, "Sender (untrusted metadata):") as Record<string, unknown>;
+}
+
+function parseJoinedContextPayload(text: string): Record<string, unknown> {
+  return parseUntrustedJsonBlock(text, "Inbound context (joined; trusted+untrusted):") as Record<
+    string,
+    unknown
+  >;
 }
 
 function parseHistoryPayload(text: string): Array<Record<string, unknown>> {
@@ -578,5 +590,207 @@ describe("buildInboundUserContextPrefix", () => {
     expect(history).toHaveLength(20);
     expect(history[0]?.["body"]).toBe("body-5");
     expect(history.at(-1)?.["body"]).toBe("body-24");
+  });
+});
+
+describe("joined inbound context block", () => {
+  it("is present for group chats with conversation info", () => {
+    const text = buildInboundUserContextPrefix({
+      ChatType: "group",
+      OriginatingTo: "telegram:-1001249586642",
+      OriginatingChannel: "telegram",
+      Provider: "telegram",
+      Surface: "telegram",
+      MessageSid: "msg-100",
+      SenderId: "289522496",
+      SenderName: "Alice",
+      ConversationLabel: "ops-room",
+    } as TemplateContext);
+
+    expect(text).toContain("Inbound context (joined; trusted+untrusted):");
+    const joined = parseJoinedContextPayload(text);
+    expect(joined["schema"]).toBe("openclaw.joined_inbound_context.v1");
+
+    const trusted = joined["trusted"] as Record<string, unknown>;
+    expect(trusted["chat_id"]).toBe("telegram:-1001249586642");
+    expect(trusted["channel"]).toBe("telegram");
+
+    const untrusted = joined["untrusted"] as Record<string, unknown>;
+    const convInfo = untrusted["conversation_info"] as Record<string, unknown>;
+    expect(convInfo["message_id"]).toBe("msg-100");
+    expect(convInfo["sender_id"]).toBe("289522496");
+
+    const sender = untrusted["sender"] as Record<string, unknown>;
+    expect(sender["name"]).toBe("Alice");
+  });
+
+  it("is present for direct external-channel chats with sender info", () => {
+    const text = buildInboundUserContextPrefix({
+      ChatType: "direct",
+      OriginatingChannel: "whatsapp",
+      SenderName: "Bob",
+      SenderId: "+15559876543",
+      MessageSid: "msg-200",
+    } as TemplateContext);
+
+    expect(text).toContain("Inbound context (joined; trusted+untrusted):");
+    const joined = parseJoinedContextPayload(text);
+
+    const untrusted = joined["untrusted"] as Record<string, unknown>;
+    expect(untrusted["sender"]).toBeDefined();
+    expect(untrusted["conversation_info"]).toBeDefined();
+  });
+
+  it("is absent for direct webchat chats (no untrusted data)", () => {
+    const text = buildInboundUserContextPrefix({
+      ChatType: "direct",
+      OriginatingChannel: "webchat",
+      MessageSid: "short-id",
+    } as TemplateContext);
+
+    expect(text).toBe("");
+  });
+
+  it("effective prefers trusted chat_id over untrusted conversation_label", () => {
+    const text = buildInboundUserContextPrefix({
+      ChatType: "group",
+      OriginatingTo: "telegram:-100123",
+      OriginatingChannel: "telegram",
+      Provider: "telegram",
+      ConversationLabel: "ops-room",
+      MessageSid: "msg-1",
+    } as TemplateContext);
+
+    const joined = parseJoinedContextPayload(text);
+    const effective = joined["effective"] as Record<string, unknown>;
+    expect(effective["chat_id"]).toBe("telegram:-100123");
+  });
+
+  it("effective falls back to id-like conversation_label when trusted chat_id is absent", () => {
+    const text = buildInboundUserContextPrefix({
+      ChatType: "group",
+      ConversationLabel: "C12345ABC",
+      MessageSid: "msg-1",
+    } as TemplateContext);
+
+    const joined = parseJoinedContextPayload(text);
+    const effective = joined["effective"] as Record<string, unknown>;
+    expect(effective["chat_id"]).toBe("C12345ABC");
+  });
+
+  it("effective does not use conversation_label with spaces as chat_id", () => {
+    const text = buildInboundUserContextPrefix({
+      ChatType: "group",
+      ConversationLabel: "ops room label",
+      MessageSid: "msg-1",
+    } as TemplateContext);
+
+    const joined = parseJoinedContextPayload(text);
+    const effective = joined["effective"] as Record<string, unknown>;
+    expect(effective["chat_id"]).toBeUndefined();
+  });
+
+  it("effective includes untrusted message_id, reply_to_id, sender_id, topic_id", () => {
+    const text = buildInboundUserContextPrefix({
+      ChatType: "group",
+      MessageSid: "msg-300",
+      ReplyToId: "msg-299",
+      SenderId: "user-42",
+      MessageThreadId: 99,
+    } as TemplateContext);
+
+    const joined = parseJoinedContextPayload(text);
+    const effective = joined["effective"] as Record<string, unknown>;
+    expect(effective["message_id"]).toBe("msg-300");
+    expect(effective["reply_to_id"]).toBe("msg-299");
+    expect(effective["sender_id"]).toBe("user-42");
+    expect(effective["topic_id"]).toBe("99");
+  });
+
+  it("effective uses trusted-only channel/surface/provider/account_id", () => {
+    const text = buildInboundUserContextPrefix({
+      ChatType: "group",
+      OriginatingTo: "telegram:-100123",
+      OriginatingChannel: "telegram",
+      Provider: "telegram",
+      Surface: "telegram",
+      AccountId: "work",
+      MessageSid: "msg-1",
+    } as TemplateContext);
+
+    const joined = parseJoinedContextPayload(text);
+    const effective = joined["effective"] as Record<string, unknown>;
+    expect(effective["channel"]).toBe("telegram");
+    expect(effective["surface"]).toBe("telegram");
+    expect(effective["provider"]).toBe("telegram");
+    expect(effective["account_id"]).toBe("work");
+  });
+
+  it("preserves existing Conversation info and Sender blocks alongside joined block", () => {
+    const text = buildInboundUserContextPrefix({
+      ChatType: "group",
+      OriginatingTo: "telegram:-100123",
+      OriginatingChannel: "telegram",
+      MessageSid: "msg-1",
+      SenderName: "Alice",
+      SenderId: "user-1",
+    } as TemplateContext);
+
+    expect(text).toContain("Inbound context (joined; trusted+untrusted):");
+    expect(text).toContain("Conversation info (untrusted metadata):");
+    expect(text).toContain("Sender (untrusted metadata):");
+  });
+
+  it("joined block appears before other untrusted blocks", () => {
+    const text = buildInboundUserContextPrefix({
+      ChatType: "group",
+      MessageSid: "msg-1",
+      SenderName: "Alice",
+    } as TemplateContext);
+
+    const joinedIdx = text.indexOf("Inbound context (joined; trusted+untrusted):");
+    const convIdx = text.indexOf("Conversation info (untrusted metadata):");
+    const senderIdx = text.indexOf("Sender (untrusted metadata):");
+
+    expect(joinedIdx).toBeGreaterThanOrEqual(0);
+    expect(joinedIdx).toBeLessThan(convIdx);
+    expect(joinedIdx).toBeLessThan(senderIdx);
+  });
+
+  it("includes trusted sub-object with chat_type even when no explicit routing fields are set", () => {
+    const text = buildInboundUserContextPrefix({
+      ChatType: "group",
+      MessageSid: "msg-1",
+    } as TemplateContext);
+
+    const joined = parseJoinedContextPayload(text);
+    const trusted = joined["trusted"] as Record<string, unknown>;
+    expect(trusted["chat_type"]).toBe("group");
+    expect(trusted["chat_id"]).toBeUndefined();
+    expect(trusted["channel"]).toBeUndefined();
+  });
+});
+
+describe("buildEffectiveIdentifiers", () => {
+  it("rejects conversation_label with markdown fences as chat_id fallback", () => {
+    const trusted: TrustedInboundPayload = { schema: "openclaw.inbound_meta.v2" };
+    const effective = buildEffectiveIdentifiers(trusted, {
+      conversation_label: "room```injection",
+    });
+    expect(effective["chat_id"]).toBeUndefined();
+  });
+
+  it("rejects oversized conversation_label as chat_id fallback", () => {
+    const trusted: TrustedInboundPayload = { schema: "openclaw.inbound_meta.v2" };
+    const effective = buildEffectiveIdentifiers(trusted, {
+      conversation_label: "x".repeat(201),
+    });
+    expect(effective["chat_id"]).toBeUndefined();
+  });
+
+  it("returns empty object when no identifiers are available", () => {
+    const trusted: TrustedInboundPayload = { schema: "openclaw.inbound_meta.v2" };
+    const effective = buildEffectiveIdentifiers(trusted, {});
+    expect(Object.keys(effective)).toHaveLength(0);
   });
 });
