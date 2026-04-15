@@ -22,6 +22,7 @@ import {
   hasInternalRuntimeContext,
   stripInternalRuntimeContext,
 } from "./internal-runtime-context.js";
+import { readLatestAssistantReply } from "./run-wait.js";
 import {
   callGateway,
   createBoundDeliveryRouter,
@@ -55,11 +56,13 @@ const MAX_TIMER_SAFE_TIMEOUT_MS = 2_147_000_000;
 type SubagentAnnounceDeliveryDeps = {
   callGateway: typeof callGateway;
   loadConfig: typeof loadConfig;
+  readLatestAssistantReply: typeof readLatestAssistantReply;
 };
 
 const defaultSubagentAnnounceDeliveryDeps: SubagentAnnounceDeliveryDeps = {
   callGateway,
   loadConfig,
+  readLatestAssistantReply,
 };
 
 let subagentAnnounceDeliveryDeps: SubagentAnnounceDeliveryDeps =
@@ -215,6 +218,43 @@ function hasDeliverableCompletionFinalResult(result: unknown): boolean {
   const state = { texts: [] as string[], hasMedia: false };
   collectCompletionReplySignals(result, state);
   return state.hasMedia || state.texts.length > 0;
+}
+
+/**
+ * [frankclaw] Re-read the parent session store to see if the completion turn
+ * produced a user-facing assistant reply that the `method: "agent"` gateway
+ * return shape did not expose.
+ *
+ * Background: for some provider return shapes (notably openai-codex / gpt-5.2
+ * responses), `hasDeliverableCompletionFinalResult(agentResult)` returns false
+ * even when the parent session DID produce a full assistant text reply — the
+ * reply is in the session JSONL but not in the specific `result` object passed
+ * back through `callGateway({ method: "agent" })`.  The old fallback path then
+ * shipped a sanitized "task done" stub instead of Frank's actual answer
+ * (2026-04-15 regression: full "Yep, fixed" reply was generated at 07:09 EDT
+ * but only a `completed successfully` stub was queued for Discord delivery).
+ *
+ * This helper consults `chat.history` via `readLatestAssistantReply` and
+ * returns the normalized tail assistant text if it is a real user-facing
+ * reply.  The caller should prefer this text over `buildSanitizedFallbackMessage`
+ * when it is non-empty.  Any failure (gateway error, timeout, empty tail) is
+ * swallowed so the existing sanitized-fallback path still runs.
+ */
+async function readSessionStoreFallbackReply(params: {
+  sessionKey: string;
+}): Promise<string | undefined> {
+  try {
+    const text = await subagentAnnounceDeliveryDeps.readLatestAssistantReply({
+      sessionKey: params.sessionKey,
+    });
+    if (typeof text !== "string") {
+      return undefined;
+    }
+    const normalized = normalizeCompletionReplyText(text);
+    return normalized || undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 const TRANSIENT_ANNOUNCE_DELIVERY_ERROR_PATTERNS: readonly RegExp[] = [
@@ -662,15 +702,37 @@ async function sendSubagentAnnounceDirectly(params: {
           // operator.admin". This meant Frank never saw any CC ACP subagent
           // progress updates while the workers were actually doing real work
           // (regression window: 2026-04-09 afternoon).
-          // [frankclaw] Send a sanitized summary, not the raw internal
-          // context block.  The previous code sent params.triggerMessage
-          // which is the full <<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>> payload
-          // — leaking session keys and raw child output to external channels
-          // and downstream ACP sessions.
-          const fallbackMessage = buildSanitizedFallbackMessage(
-            params.triggerMessage,
-            params.internalEvents,
-          );
+          //
+          // [frankclaw] Prefer the parent session's real assistant reply over
+          // the sanitized trigger summary.  For some provider return shapes
+          // (for example openai-codex/gpt-5.2) the parent session actually
+          // DOES produce a full user-facing reply but `agentResult` from the
+          // `method: "agent"` gateway call does not expose it in a way the
+          // `hasDeliverableCompletionFinalResult` walker can detect.  In that
+          // case the old fallback shipped a short sanitized stub ("task
+          // done") and Frank never saw the real text (2026-04-15 regression:
+          // the full "Yep, fixed. Root cause was…" reply was generated at
+          // 07:09 EDT in the Discord session JSONL but only the sanitized
+          // summary was queued for delivery, and even that never reached the
+          // thread).  `readSessionStoreFallbackReply` consults `chat.history`
+          // for the canonical requester session key and returns the latest
+          // tail assistant text when present; if it is empty or the read
+          // fails, we fall through to the existing sanitized-trigger path so
+          // Frank still sees something.
+          //
+          // [frankclaw] Send a sanitized summary as the last-resort fallback,
+          // not the raw internal context block.  The previous code sent
+          // `params.triggerMessage` which is the full
+          // <<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>> payload — leaking session
+          // keys and raw child output to external channels and downstream
+          // ACP sessions.
+          const sessionStoreReply = await readSessionStoreFallbackReply({
+            sessionKey: canonicalRequesterSessionKey,
+          });
+          const fallbackMessage =
+            sessionStoreReply ??
+            buildSanitizedFallbackMessage(params.triggerMessage, params.internalEvents);
+          const fallbackSource = sessionStoreReply ? "session-store-reply" : "sanitized-summary";
           await subagentAnnounceDeliveryDeps.callGateway({
             method: "send",
             params: {
@@ -683,7 +745,7 @@ async function sendSubagentAnnounceDirectly(params: {
             },
           });
           defaultRuntime.log(
-            `[info] Subagent completion announce for ${params.directIdempotencyKey}: delivered via direct fallback to ${deliveryTarget.channel}:${deliveryTarget.to}`,
+            `[info] Subagent completion announce for ${params.directIdempotencyKey}: delivered via direct fallback (${fallbackSource}) to ${deliveryTarget.channel}:${deliveryTarget.to}`,
           );
         } catch (fallbackErr) {
           defaultRuntime.log(

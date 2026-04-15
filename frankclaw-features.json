@@ -901,6 +901,35 @@
       "e2eTests": ["test/frankclaw-features-e2e.test.ts"]
     },
     {
+      "name": "Subagent announce: session-store reply fallback",
+      "description": "When the agent gateway method returns an agentResult shape the walker cannot detect a reply in (e.g. openai-codex/gpt-5.2 response shape), the fallback path re-reads the parent session via readLatestAssistantReply (chat.history) and delivers the real assistant text instead of the sanitized trigger summary. Regression: 2026-04-15 DNR Replays thread where the full 'Yep, fixed' reply was generated but only a 'completed successfully' stub was queued for Discord and never reached the thread.",
+      "static": [
+        {
+          "file": "src/agents/subagent-announce-delivery.ts",
+          "pattern": "readSessionStoreFallbackReply",
+          "minCount": 2
+        },
+        {
+          "file": "src/agents/subagent-announce-delivery.ts",
+          "pattern": "session-store-reply",
+          "minCount": 1
+        },
+        {
+          "file": "src/agents/subagent-announce-delivery.ts",
+          "pattern": "readLatestAssistantReply: typeof readLatestAssistantReply",
+          "minCount": 1
+        }
+      ],
+      "tests": ["src/agents/subagent-announce-delivery.silent-result.test.ts"],
+      "runtime": [
+        {
+          "pattern": "delivered via direct fallback \\(session-store-reply\\)",
+          "description": "Emitted when the fallback successfully delivered the real parent session reply instead of the sanitized trigger summary."
+        }
+      ],
+      "e2eTests": ["test/frankclaw-features-e2e.test.ts"]
+    },
+    {
       "name": "System event suppression for heartbeat and exec completions",
       "description": "Suppresses internal heartbeat and exec completion system-event noise from user-facing prompts, preventing leakage into live Discord threads and other sessions.",
       "static": [
