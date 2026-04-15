@@ -1209,16 +1209,16 @@
     },
     {
       "name": "Exec approval always-allow",
-      "description": "exec-approvals.json must have askFallback set to allow so commands never require manual approval",
+      "description": "exec-approvals.json must have defaults.askFallback set to full so exec can proceed even if approval prompting is unavailable",
       "checks": [
         {
           "type": "json_value",
           "path": "~/.openclaw/exec-approvals.json",
           "jsonPath": "defaults.askFallback",
-          "expected": "allow"
+          "expected": "full"
         }
       ],
-      "fix": "python3 -c \"import json; f='~/.openclaw/exec-approvals.json'; import os; p=os.path.expanduser(f); d=json.load(open(p)); d.setdefault('defaults',{})['askFallback']='allow'; json.dump(d,open(p,'w'),indent=2)\"",
+      "fix": "python3 -c \"import json; f='~/.openclaw/exec-approvals.json'; import os; p=os.path.expanduser(f); d=json.load(open(p)); d.setdefault('defaults',{})['askFallback']='full'; json.dump(d,open(p,'w'),indent=2)\"",
       "addedDate": "2026-04-11"
     },
     {

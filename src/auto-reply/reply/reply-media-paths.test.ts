@@ -320,7 +320,7 @@ describe("createReplyMediaPathNormalizer", () => {
       mediaUrl: "/Users/peter/.openclaw/media/inbound/6bfd5602-fd0a-4278-b4ef-a4969bd543f9.jpg",
       mediaUrls: ["/Users/peter/.openclaw/media/inbound/6bfd5602-fd0a-4278-b4ef-a4969bd543f9.jpg"],
     });
-    expect(saveMediaSource).not.toHaveBeenCalled();
+    expect(resolveOutboundAttachmentFromUrl).not.toHaveBeenCalled();
   });
 
   it("drops host-local media when shared outbound attachment policy rejects it", async () => {
