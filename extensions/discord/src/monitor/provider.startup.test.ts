@@ -122,4 +122,58 @@ describe("createDiscordMonitorClient", () => {
       expect.arrayContaining([expect.objectContaining({ type: "legacy-voice-listener" })]),
     );
   });
+
+  it("passes devGuilds to Carbon client options when configured", () => {
+    const gatewayPlugin = {
+      id: "gateway",
+      registerClient: vi.fn(),
+      registerRoutes: vi.fn(),
+    } as Plugin;
+
+    const createClientSpy = vi.fn((_options, handlers, plugins: Plugin[] = []) => {
+      const pluginRegistry: Array<{ id: string; plugin: Plugin }> = plugins.map(
+        (plugin: Plugin) => ({ id: plugin.id, plugin }),
+      );
+      return {
+        listeners: [...(handlers.listeners ?? [])],
+        plugins: pluginRegistry,
+        getPlugin: (id: string) =>
+          pluginRegistry.find((entry: { id: string; plugin: Plugin }) => entry.id === id)?.plugin,
+      } as Client;
+    });
+
+    createDiscordMonitorClient({
+      accountId: "default",
+      applicationId: "app-1",
+      token: "token-1",
+      devGuilds: ["guild-1", "guild-2"],
+      commands: [],
+      components: [],
+      modals: [],
+      voiceEnabled: false,
+      discordConfig: {},
+      runtime: {
+        log: vi.fn(),
+        error: vi.fn(),
+        exit: vi.fn(),
+      },
+      createClient: createClientSpy,
+      createGatewayPlugin: () => gatewayPlugin as never,
+      createGatewaySupervisor: () => ({ shutdown: vi.fn(), handleError: vi.fn() }) as never,
+      createAutoPresenceController: () =>
+        ({
+          enabled: false,
+          start: vi.fn(),
+          stop: vi.fn(),
+          refresh: vi.fn(),
+          runNow: vi.fn(),
+        }) as never,
+      isDisallowedIntentsError: () => false,
+    });
+
+    expect(createClientSpy).toHaveBeenCalledTimes(1);
+    expect(createClientSpy.mock.calls[0]?.[0]).toEqual(
+      expect.objectContaining({ devGuilds: ["guild-1", "guild-2"] }),
+    );
+  });
 });

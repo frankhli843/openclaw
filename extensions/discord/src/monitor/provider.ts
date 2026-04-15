@@ -64,6 +64,8 @@ import {
   createDiscordComponentUserSelect,
 } from "./agent-components.js";
 import { createDiscordAutoPresenceController } from "./auto-presence.js";
+// frankclaw addition: instant guild-scoped command deployment (Carbon devGuilds)
+import { resolveDiscordDevGuildsFromSlashCommandConfig } from "./commands.frankclaw.js";
 import { resolveDiscordSlashCommandConfig } from "./commands.js";
 import {
   createExecApprovalButton,
@@ -678,6 +680,8 @@ export async function monitorDiscordProvider(opts: MonitorDiscordOpts = {}) {
   const slashCommand = resolveDiscordSlashCommandConfig(discordCfg.slashCommand);
   const sessionPrefix = "discord:slash";
   const ephemeralDefault = slashCommand.ephemeral;
+  // frankclaw addition: use Carbon devGuilds for instant slash command propagation.
+  const devGuilds = resolveDiscordDevGuildsFromSlashCommandConfig(discordCfg.slashCommand);
   const voiceEnabled = discordCfg.voice?.enabled !== false;
 
   const allowlistResolved = await resolveDiscordAllowlistConfig({
@@ -946,6 +950,8 @@ export async function monitorDiscordProvider(opts: MonitorDiscordOpts = {}) {
       applicationId,
       token,
       proxyFetch: discordProxyFetch,
+      // frankclaw addition: instant guild-scoped slash commands.
+      devGuilds,
       commands,
       components,
       modals,

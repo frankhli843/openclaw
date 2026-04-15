@@ -111,6 +111,8 @@ export function createDiscordMonitorClient(params: {
   applicationId: string;
   token: string;
   proxyFetch?: typeof fetch;
+  /** frankclaw addition: Carbon devGuilds for instant guild-scoped command propagation. */
+  devGuilds?: string[];
   commands: BaseCommand[];
   components: BaseMessageInteractiveComponent[];
   modals: Modal[];
@@ -159,6 +161,8 @@ export function createDiscordMonitorClient(params: {
       publicKey: "a",
       token: params.token,
       autoDeploy: false,
+      // frankclaw addition: deploy commands to devGuilds for instant autocomplete.
+      devGuilds: params.devGuilds,
       eventQueue: eventQueueOpts,
     },
     {
