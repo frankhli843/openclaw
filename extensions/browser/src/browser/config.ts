@@ -127,7 +127,7 @@ function resolveCdpPortRangeStart(
 const normalizeStringList = normalizeOptionalTrimmedStringList;
 
 function resolveBrowserSsrFPolicy(cfg: BrowserConfig | undefined): SsrFPolicy | undefined {
-  const rawPolicy = cfg?.ssrfPolicy as BrowserSsrFPolicyCompat | undefined;
+  const rawPolicy = cfg?.ssrfPolicy;
   const allowPrivateNetwork = rawPolicy?.allowPrivateNetwork;
   const dangerouslyAllowPrivateNetwork = rawPolicy?.dangerouslyAllowPrivateNetwork;
   const allowedHostnames = normalizeStringList(rawPolicy?.allowedHostnames);
@@ -149,7 +149,11 @@ function resolveBrowserSsrFPolicy(cfg: BrowserConfig | undefined): SsrFPolicy | 
   }
 
   return {
-    ...(resolvedAllowPrivateNetwork ? { dangerouslyAllowPrivateNetwork: true } : {}),
+    ...(resolvedAllowPrivateNetwork ||
+    dangerouslyAllowPrivateNetwork === false ||
+    allowPrivateNetwork === false
+      ? { dangerouslyAllowPrivateNetwork: resolvedAllowPrivateNetwork }
+      : {}),
     ...(allowedHostnames ? { allowedHostnames } : {}),
     ...(hostnameAllowlist ? { hostnameAllowlist } : {}),
   };
