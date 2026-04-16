@@ -4,6 +4,7 @@ import { defineConfig, type UserConfig } from "tsdown";
 import {
   collectBundledPluginBuildEntries,
   listBundledPluginRuntimeDependencies,
+  NON_PACKAGED_BUNDLED_PLUGIN_DIRS,
 } from "./scripts/lib/bundled-plugin-build-entries.mjs";
 import { buildPluginSdkEntrySources } from "./scripts/lib/plugin-sdk-entries.mjs";
 
@@ -92,6 +93,7 @@ function nodeBuildConfig(config: UserConfig): UserConfig {
 
 const bundledPluginBuildEntries = collectBundledPluginBuildEntries();
 const bundledPluginRuntimeDependencies = listBundledPluginRuntimeDependencies();
+const shouldBuildPrivateQaEntries = process.env.OPENCLAW_BUILD_PRIVATE_QA === "1";
 
 function buildBundledHookEntries(): Record<string, string> {
   const hooksRoot = path.join(process.cwd(), "src", "hooks", "bundled");
@@ -210,10 +212,8 @@ function buildCoreDistEntries(): Record<string, string> {
     "agents/auth-profiles.runtime": "src/agents/auth-profiles.runtime.ts",
     "agents/model-catalog.runtime": "src/agents/model-catalog.runtime.ts",
     "agents/models-config.runtime": "src/agents/models-config.runtime.ts",
-    "agents/pi-model-discovery-runtime": "src/agents/pi-model-discovery-runtime.ts",
-    // subagent-registry.ts uses importRuntimeModule with import.meta.url from
-    // the dist root, so this entry must also live at the dist root (no agents/ prefix).
     "subagent-registry.runtime": "src/agents/subagent-registry.runtime.ts",
+    "agents/pi-model-discovery-runtime": "src/agents/pi-model-discovery-runtime.ts",
     "commands/status.summary.runtime": "src/commands/status.summary.runtime.ts",
     "infra/boundary-file-read": "src/infra/boundary-file-read.ts",
     "plugins/provider-discovery.runtime": "src/plugins/provider-discovery.runtime.ts",
@@ -237,7 +237,9 @@ const stagedBundledPluginBuildEntries = bundledPluginBuildEntries.filter(({ pack
   shouldStageBundledPluginRuntimeDependencies(packageJson),
 );
 const rootBundledPluginBuildEntries = bundledPluginBuildEntries.filter(
-  ({ packageJson }) => !shouldStageBundledPluginRuntimeDependencies(packageJson),
+  ({ id, packageJson }) =>
+    !shouldStageBundledPluginRuntimeDependencies(packageJson) &&
+    (shouldBuildPrivateQaEntries || !NON_PACKAGED_BUNDLED_PLUGIN_DIRS.has(id)),
 );
 
 function buildUnifiedDistEntries(): Record<string, string> {
@@ -251,6 +253,12 @@ function buildUnifiedDistEntries(): Record<string, string> {
         source,
       ]),
     ),
+    ...(shouldBuildPrivateQaEntries
+      ? {
+          "plugin-sdk/qa-lab": "src/plugin-sdk/qa-lab.ts",
+          "plugin-sdk/qa-runtime": "src/plugin-sdk/qa-runtime.ts",
+        }
+      : {}),
     ...listBundledPluginEntrySources(rootBundledPluginBuildEntries),
     ...bundledHookEntries,
   };
