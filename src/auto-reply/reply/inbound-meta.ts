@@ -154,11 +154,20 @@ export function buildTrustedPayload(
 ): TrustedInboundPayload {
   const chatType = normalizeChatType(ctx.ChatType);
   const isDirect = !chatType || chatType === "direct";
+
+  // Keep system metadata strictly free of attacker-controlled strings (sender names, group subjects, etc.).
+  // Those belong in the user-role "untrusted context" blocks.
+  // Conversation ids, per-message identifiers, and dynamic flags are also excluded here:
+  // they change on turns/replies and would bust prefix-based prompt caches on providers that
+  // use stable system prefixes. They are included in the user-role conversation info block instead.
+
+  // Resolve channel identity: prefer explicit channel, then surface, then provider.
+  // For webchat/Hub Chat sessions (when Surface is 'webchat' or undefined with no real channel),
+  // omit the channel field entirely rather than falling back to an unrelated provider.
   const channelValue = resolveInboundChannel(ctx);
 
   return {
     schema: "openclaw.inbound_meta.v2",
-    chat_id: normalizePromptMetadataString(ctx.OriginatingTo),
     account_id: normalizePromptMetadataString(ctx.AccountId),
     channel: channelValue,
     provider: normalizePromptMetadataString(ctx.Provider),
@@ -269,7 +278,10 @@ export function buildInboundUserContextPrefix(
   const inboundHistory = Array.isArray(ctx.InboundHistory) ? ctx.InboundHistory : [];
   const boundedHistory = inboundHistory.slice(-MAX_UNTRUSTED_HISTORY_ENTRIES);
 
+  // Keep volatile conversation/message identifiers in the user-role block so the system
+  // prompt stays byte-stable across task-scoped sessions and reply turns.
   const conversationInfo = {
+    chat_id: shouldIncludeConversationInfo ? normalizeOptionalString(ctx.OriginatingTo) : undefined,
     message_id: shouldIncludeConversationInfo ? resolvedMessageId : undefined,
     reply_to_id: shouldIncludeConversationInfo
       ? normalizePromptMetadataString(ctx.ReplyToId)
