@@ -139,12 +139,12 @@ describe("task-registry maintenance issue #60299", () => {
       notifyPolicy: "done_only",
     });
 
-    const { mod, currentTasks } = await loadMaintenanceModule({
+    const { currentTasks } = createTaskRegistryMaintenanceHarness({
       tasks: [task],
       acpStoreReadFailed: true,
     });
 
-    expect(await mod.runTaskRegistryMaintenance()).toMatchObject({ reconciled: 1 });
+    expect(await runTaskRegistryMaintenance()).toMatchObject({ reconciled: 1 });
     expect(currentTasks.get(task.taskId)).toMatchObject({
       status: "lost",
       error: "backing session missing",
