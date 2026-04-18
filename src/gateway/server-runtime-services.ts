@@ -1,4 +1,5 @@
 import type { OpenClawConfig } from "../config/types.openclaw.js";
+import { isVitestRuntimeEnv } from "../infra/env.js";
 import { startHeartbeatRunner, type HeartbeatRunner } from "../infra/heartbeat-runner.js";
 import type { ChannelHealthMonitor } from "./channel-health-monitor.js";
 import { startChannelHealthMonitor } from "./channel-health-monitor.js";
@@ -79,7 +80,6 @@ function recoverPendingOutboundDeliveries(params: {
   }, deliveryRecoveryIntervalMs);
 }
 
-
 function registerGateNotifyDiscordRuntime(params: {
   cfg: OpenClawConfig;
   log: GatewayRuntimeServiceLogger;
@@ -97,9 +97,7 @@ function registerGateNotifyDiscordRuntime(params: {
       });
       params.log.info(`[gate-notify-discord] Registered → channel ${gateChannel}`);
     })
-    .catch((err) =>
-      params.log.error(`[gate-notify-discord] Registration failed: ${String(err)}`),
-    );
+    .catch((err) => params.log.error(`[gate-notify-discord] Registration failed: ${String(err)}`));
 }
 
 export function startGatewayRuntimeServices(params: {
@@ -122,7 +120,7 @@ export function startGatewayRuntimeServices(params: {
     heartbeatRunner: createNoopHeartbeatRunner(),
     channelHealthMonitor,
     stopModelPricingRefresh:
-      !params.minimalTestGateway && process.env.VITEST !== "1"
+      !params.minimalTestGateway && !isVitestRuntimeEnv()
         ? startGatewayModelPricingRefresh({ config: params.cfgAtStart })
         : () => {},
   };

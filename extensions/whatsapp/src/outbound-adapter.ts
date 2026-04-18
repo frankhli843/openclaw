@@ -16,8 +16,7 @@ import {
   WhatsAppDnrSuppressedError,
 } from "../../../src/infra/outbound/discord-dnr.js";
 import { WHATSAPP_LEGACY_OUTBOUND_SEND_DEP_KEYS } from "./outbound-send-deps.js";
-import { resolveWhatsAppOutboundTarget } from "./runtime-api.js";
-import { sendPollWhatsApp } from "./send.js";
+import { resolveWhatsAppOutboundTarget } from "./resolve-outbound-target.js";
 
 const dnrLog = createSubsystemLogger("whatsapp-dnr");
 
@@ -109,7 +108,9 @@ export const whatsappOutbound: ChannelOutboundAdapter = {
       });
     },
     sendPoll: async ({ cfg, to, poll, accountId }) =>
-      await sendPollWhatsApp(to, poll, {
+      await (
+        await import("./send.js")
+      ).sendPollWhatsApp(to, poll, {
         verbose: shouldLogVerbose(),
         accountId: accountId ?? undefined,
         cfg,
