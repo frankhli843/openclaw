@@ -561,6 +561,19 @@ describe("failover-error", () => {
     expect(isTimeoutError(err)).toBe(true);
   });
 
+  // frankclaw: "terminated" errors from lane/session aborts should be
+  // classified as timeouts so the fallback chain continues to cross-provider candidates.
+  it("treats bare 'terminated' error as timeout", () => {
+    expect(isTimeoutError(new Error("terminated"))).toBe(true);
+    expect(isTimeoutError(new Error("Terminated"))).toBe(true);
+    expect(isTimeoutError(new Error("TERMINATED"))).toBe(true);
+  });
+
+  it("does not treat partial 'terminated' strings as timeout", () => {
+    expect(isTimeoutError(new Error("connection terminated unexpectedly"))).toBe(false);
+    expect(isTimeoutError(new Error("process was terminated by signal"))).toBe(false);
+  });
+
   it("classifies abort-wrapped RESOURCE_EXHAUSTED as rate_limit", () => {
     const err = Object.assign(new Error("request aborted"), {
       name: "AbortError",

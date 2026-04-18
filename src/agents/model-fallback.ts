@@ -34,6 +34,12 @@ import {
 } from "./model-selection-resolve.js";
 import { isLikelyContextOverflowError } from "./pi-embedded-helpers/errors.js";
 import type { FailoverReason } from "./pi-embedded-helpers/types.js";
+// frankclaw: provider-level circuit breaker for cross-provider fallback
+import {
+  checkProviderBreaker,
+  recordProviderSuccess,
+  recordProviderTimeoutFailure,
+} from "./provider-circuit-breaker.frankclaw.js";
 
 const log = createSubsystemLogger("model-fallback");
 
@@ -669,6 +675,38 @@ export async function runWithModelFallback<T>(params: {
     const isPrimary = i === 0;
     const requestedModel =
       params.provider === candidate.provider && params.model === candidate.model;
+    // frankclaw: skip providers with tripped circuit breakers (sustained timeouts).
+    // This prevents the durable queue from backing up when a provider is down,
+    // allowing cross-provider fallback (e.g. OpenAI → Gemini) without restart.
+    if (hasFallbackCandidates) {
+      const breakerStatus = checkProviderBreaker(candidate.provider);
+      if (breakerStatus === "skip") {
+        const skipMsg = `Provider ${candidate.provider} circuit breaker tripped, skipping to next candidate`;
+        attempts.push({
+          provider: candidate.provider,
+          model: candidate.model,
+          error: skipMsg,
+          reason: "timeout",
+        });
+        logModelFallbackDecision({
+          decision: "skip_candidate",
+          runId: params.runId,
+          requestedProvider: params.provider,
+          requestedModel: params.model,
+          candidate,
+          attempt: i + 1,
+          total: candidates.length,
+          reason: "timeout",
+          error: skipMsg,
+          nextCandidate: candidates[i + 1],
+          isPrimary,
+          requestedModelMatched: requestedModel,
+          fallbackConfigured: hasFallbackCandidates,
+        });
+        continue;
+      }
+      // breakerStatus === "probe": allow this attempt through as a recovery probe
+    }
     let runOptions: ModelFallbackRunOptions | undefined;
     let attemptedDuringCooldown = false;
     let transientProbeProviderForAttempt: string | null = null;
@@ -790,6 +828,8 @@ export async function runWithModelFallback<T>(params: {
       options: runOptions,
     });
     if ("success" in attemptRun) {
+      // frankclaw: reset circuit breaker on success
+      recordProviderSuccess(candidate.provider);
       if (i > 0 || attempts.length > 0 || attemptedDuringCooldown) {
         logModelFallbackDecision({
           decision: "candidate_succeeded",
@@ -866,12 +906,17 @@ export async function runWithModelFallback<T>(params: {
         continue;
       }
 
-      // Even unrecognized errors should not abort the fallback loop when
-      // there are remaining candidates.  Only abort/context-overflow errors
-      // (handled above) are truly non-retryable.
+      // frankclaw: never abort the fallback loop on unrecognized errors.
+      // The original code threw on unknown errors at the last candidate,
+      // which prevented cross-provider fallback (e.g. OpenAI → Gemini)
+      // when the error type wasn't classified.  Always exhaust all
+      // candidates and let throwFallbackFailureSummary report the full
+      // picture.
       const isKnownFailover = isFailoverError(normalized);
-      if (!isKnownFailover && i === candidates.length - 1) {
-        throw err;
+
+      // frankclaw: feed timeout failures into the circuit breaker
+      if (isKnownFailover && normalized.reason === "timeout") {
+        recordProviderTimeoutFailure(candidate.provider);
       }
 
       lastError = isKnownFailover ? normalized : err;

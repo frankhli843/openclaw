@@ -8,6 +8,10 @@ import { isTimeoutErrorMessage } from "./pi-embedded-helpers/errors.js";
 import type { FailoverReason } from "./pi-embedded-helpers/types.js";
 
 const ABORT_TIMEOUT_RE = /request was aborted|request aborted/i;
+// frankclaw: recognize "terminated" (lane/session abort) as a timeout signal
+// so the fallback chain continues to cross-provider candidates (e.g. Gemini)
+// instead of short-circuiting when OpenAI times out.
+const TERMINATED_RE = /^terminated$/i;
 
 export class FailoverError extends Error {
   readonly reason: FailoverReason;
@@ -205,13 +209,18 @@ export function isTimeoutError(err: unknown): boolean {
   if (hasTimeoutHint(err)) {
     return true;
   }
+  // frankclaw: treat bare "terminated" errors (from lane/session aborts) as
+  // timeouts so the fallback chain continues to the next provider.
+  const message = getErrorMessage(err);
+  if (message && TERMINATED_RE.test(message)) {
+    return true;
+  }
   if (!err || typeof err !== "object") {
     return false;
   }
   if (readErrorName(err) !== "AbortError") {
     return false;
   }
-  const message = getErrorMessage(err);
   if (message && ABORT_TIMEOUT_RE.test(message)) {
     return true;
   }

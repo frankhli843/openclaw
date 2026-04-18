@@ -1404,6 +1404,77 @@
       ],
       "e2eTests": ["extensions/discord/src/monitor/skill-commands.frankclaw.provider.test.ts"],
       "addedDate": "2026-04-15"
+    },
+    {
+      "name": "Terminated error as timeout failover",
+      "description": "Classifies bare 'terminated' errors (from lane/session aborts) as timeout so the fallback chain continues to cross-provider candidates instead of short-circuiting",
+      "static": [
+        {
+          "file": "src/agents/failover-error.ts",
+          "pattern": "TERMINATED_RE",
+          "minCount": 1
+        }
+      ],
+      "tests": ["src/agents/failover-error.test.ts"],
+      "runtime": [],
+      "e2eTests": ["src/agents/provider-circuit-breaker.frankclaw.test.ts"],
+      "addedDate": "2026-04-18"
+    },
+    {
+      "name": "Provider circuit breaker for cross-provider fallback",
+      "description": "Process-level circuit breaker that tracks consecutive timeout failures per provider and skips tripped providers in the fallback chain, enabling self-healing cross-provider fallback (e.g. OpenAI → Gemini) without gateway restart",
+      "static": [
+        {
+          "file": "src/agents/provider-circuit-breaker.frankclaw.ts",
+          "pattern": "checkProviderBreaker",
+          "minCount": 1
+        },
+        {
+          "file": "src/agents/model-fallback.ts",
+          "pattern": "checkProviderBreaker",
+          "minCount": 1
+        },
+        {
+          "file": "src/agents/model-fallback.ts",
+          "pattern": "recordProviderTimeoutFailure",
+          "minCount": 1
+        },
+        {
+          "file": "src/agents/model-fallback.ts",
+          "pattern": "recordProviderSuccess",
+          "minCount": 1
+        }
+      ],
+      "tests": ["src/agents/provider-circuit-breaker.frankclaw.test.ts"],
+      "runtime": [
+        {
+          "logPattern": "Circuit breaker TRIPPED",
+          "onEvent": true,
+          "note": "Fires when a provider hits 3 consecutive timeouts"
+        },
+        {
+          "logPattern": "Circuit breaker RESET",
+          "onEvent": true,
+          "note": "Fires when a tripped provider responds successfully"
+        }
+      ],
+      "e2eTests": ["src/agents/provider-circuit-breaker.frankclaw.test.ts"],
+      "addedDate": "2026-04-18"
+    },
+    {
+      "name": "Fallback chain never aborts on unknown errors",
+      "description": "Removes the early throw on unrecognized errors at the last fallback candidate, ensuring all candidates (including cross-provider like Gemini) are always tried before giving up",
+      "static": [
+        {
+          "file": "src/agents/model-fallback.ts",
+          "pattern": "never abort the fallback loop on unrecognized errors",
+          "minCount": 1
+        }
+      ],
+      "tests": ["src/agents/model-fallback.test.ts"],
+      "runtime": [],
+      "e2eTests": ["src/agents/provider-circuit-breaker.frankclaw.test.ts"],
+      "addedDate": "2026-04-18"
     }
   ]
 }

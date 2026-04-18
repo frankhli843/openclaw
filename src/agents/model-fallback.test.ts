@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../config/config.js";
 import { resetLogger, setLoggerOverride } from "../logging/logger.js";
 import { createWarnLogCapture } from "../logging/test-helpers/warn-log-capture.js";
@@ -14,6 +14,8 @@ import type { AuthProfileStore } from "./auth-profiles/types.js";
 import { isAnthropicBillingError } from "./live-auth-keys.js";
 import { LiveSessionModelSwitchError } from "./live-model-switch-error.js";
 import { runWithImageModelFallback, runWithModelFallback } from "./model-fallback.js";
+// frankclaw: reset circuit breaker state between tests
+import { resetCircuitBreakerState } from "./provider-circuit-breaker.frankclaw.js";
 import { makeModelFallbackCfg } from "./test-helpers/model-fallback-config-fixture.js";
 
 vi.mock("../plugins/provider-runtime.js", () => ({
@@ -201,6 +203,11 @@ const MODEL_COOLDOWN_MESSAGE = "model_cooldown: All credentials for model gpt-5 
 const CONNECTION_ERROR_MESSAGE = "Connection error.";
 
 describe("runWithModelFallback", () => {
+  // frankclaw: circuit breaker state is process-global; reset between tests
+  afterEach(() => {
+    resetCircuitBreakerState();
+  });
+
   it("skips auth store bootstrap when no auth profile sources exist", async () => {
     const hasSourcesSpy = vi
       .spyOn(authProfileSourceCheckModule, "hasAnyAuthProfileStoreSource")
