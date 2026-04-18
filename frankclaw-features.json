@@ -1237,23 +1237,43 @@
       "category": "subagent-orchestration",
       "tests": ["src/agents/subagent-announce-rewake.frankclaw.test.ts"],
       "e2eTests": ["src/agents/subagent-announce-rewake.frankclaw.test.ts"],
-      "staticProbes": [
+      "static": [
         {
           "file": "src/agents/subagent-announce.ts",
           "pattern": "rewakeParentAfterAnnounce",
-          "min": 2
+          "minCount": 2
         },
         {
           "file": "src/agents/subagent-announce-rewake.frankclaw.ts",
           "pattern": "requestHeartbeatNow",
-          "min": 1
+          "minCount": 1
         },
         {
           "file": "src/agents/subagent-announce-rewake.frankclaw.ts",
           "pattern": "subagent-announce-retry",
-          "min": 1
+          "minCount": 1
         }
-      ]
+      ],
+      "runtime": []
+    },
+    {
+      "name": "Discord thread starter injection disabled",
+      "description": "Frankclaw disables upstream's Discord thread-starter context injection (message-handler.process.ts). Upstream fetches the parent-channel message that created a Discord thread and injects it as `[Thread starter - for context]` on every inbound turn. For long-running threads this becomes a stale anchor \u2014 e.g. a thread kicked off days ago with `start that F28B v4 training pass` kept anchoring the LLM on F28B+v4 even after 5 days of iteration had moved to v6/v10. Session history already carries recent state; the starter body just fought recency signals and misled the agent on ambiguous prompts. We leave `threadStarterBody` declared (undefined) so downstream template gates keep compiling, but we neither call Discord REST nor populate the field. The upstream `channelConfig.includeThreadStarter` knob is intentionally ignored \u2014 frankclaw policy is OFF, full stop. Root incident: 2026-04-18 Discord thread 1493276394732519577 (`F28B Integration v4 Metric Deltas`).",
+      "category": "discord-context",
+      "tests": [
+        "extensions/discord/src/monitor.tool-result.accepts-guild-messages-mentionpatterns-match.e2e.test.ts"
+      ],
+      "e2eTests": [
+        "extensions/discord/src/monitor.tool-result.accepts-guild-messages-mentionpatterns-match.e2e.test.ts"
+      ],
+      "static": [
+        {
+          "file": "extensions/discord/src/monitor/message-handler.process.ts",
+          "pattern": "frankclaw: thread-starter injection removed",
+          "minCount": 1
+        }
+      ],
+      "runtime": []
     }
   ],
   "workspaceChecks": [

@@ -77,7 +77,8 @@ import {
 } from "./message-utils.js";
 import { buildDirectLabel, buildGuildLabel, resolveReplyContext } from "./reply-context.js";
 import { deliverDiscordReply } from "./reply-delivery.js";
-import { resolveDiscordAutoThreadReplyPlan, resolveDiscordThreadStarter } from "./threading.js";
+// frankclaw: resolveDiscordThreadStarter import removed (thread-starter injection disabled)
+import { resolveDiscordAutoThreadReplyPlan } from "./threading.js";
 import {
   DISCORD_ATTACHMENT_IDLE_TIMEOUT_MS,
   DISCORD_ATTACHMENT_TOTAL_TIMEOUT_MS,
@@ -373,38 +374,26 @@ export async function processDiscordMessage(
     combinedBody = `${combinedBody}\n${forumContextLine}`;
   }
 
-  let threadStarterBody: string | undefined;
+  // frankclaw: thread-starter injection removed (2026-04-18, Frank directive).
+  //
+  // Upstream fetched the message that created the Discord thread (the
+  // parent-channel message for regular threads, the forum post body for
+  // forum threads) and injected it into every subsequent turn as
+  // `[Thread starter - for context]`. For long-running threads this became
+  // a stale anchor: a thread started days ago with "start that F28B v4
+  // training pass" kept anchoring the LLM on F28B+v4 even after 5 days of
+  // iteration had moved to v6/v10. Session history already carries recent
+  // state; the starter body just fought recency signals and mislead the
+  // agent on ambiguous prompts like "keep iterating".
+  //
+  // We leave `threadStarterBody` declared (undefined) so downstream
+  // template gates keep compiling, but we neither call Discord REST nor
+  // populate the field. The upstream `channelConfig.includeThreadStarter`
+  // knob is ignored here on purpose — frankclaw policy is OFF, full stop.
+  const threadStarterBody: string | undefined = undefined;
   let threadLabel: string | undefined;
   let parentSessionKey: string | undefined;
   if (threadChannel) {
-    const includeThreadStarter = channelConfig?.includeThreadStarter !== false;
-    if (includeThreadStarter) {
-      const starter = await resolveDiscordThreadStarter({
-        channel: threadChannel,
-        client,
-        parentId: threadParentId,
-        parentType: threadParentType,
-        resolveTimestampMs,
-      });
-      if (starter?.text) {
-        const starterVisibility = evaluateSupplementalContextVisibility({
-          mode: contextVisibilityMode,
-          kind: "thread",
-          senderAllowed: isSupplementalContextSenderAllowed({
-            id: starter.authorId,
-            name: starter.authorName ?? starter.author,
-            tag: starter.authorTag,
-            memberRoleIds: starter.memberRoleIds,
-          }),
-        });
-        if (starterVisibility.include) {
-          // Keep thread starter as raw text; metadata is provided out-of-band in the system prompt.
-          threadStarterBody = starter.text;
-        } else {
-          logVerbose(`discord: drop thread starter context (mode=${contextVisibilityMode})`);
-        }
-      }
-    }
     const parentName = threadParentName ?? "parent";
     threadLabel = threadName
       ? `Discord thread #${normalizeDiscordSlug(parentName)} › ${threadName}`

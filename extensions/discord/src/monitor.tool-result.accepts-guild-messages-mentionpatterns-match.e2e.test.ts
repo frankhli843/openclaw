@@ -95,7 +95,10 @@ describe("discord tool result dispatch", () => {
     expect(getCapturedCtx()?.WasMentioned).toBe(true);
   });
 
-  it("forks thread sessions and injects starter context", async () => {
+  // frankclaw: thread-starter injection is disabled (see message-handler.process.ts).
+  // These tests are inverted to lock the disabled behavior in place so upstream
+  // merges or config changes can't silently re-enable the stale anchor.
+  it("forks thread sessions but does NOT inject starter context (frankclaw)", async () => {
     const getCapturedCtx = captureNextDispatchCtx<{
       SessionKey?: string;
       ParentSessionKey?: string;
@@ -118,14 +121,15 @@ describe("discord tool result dispatch", () => {
     const capturedCtx = getCapturedCtx();
     expect(capturedCtx?.SessionKey).toBe("agent:main:discord:channel:t1");
     expect(capturedCtx?.ParentSessionKey).toBe("agent:main:discord:channel:p1");
-    expect(capturedCtx?.ThreadStarterBody).toContain("starter message");
+    expect(capturedCtx?.ThreadStarterBody).toBeUndefined();
     expect(capturedCtx?.ThreadLabel).toContain("Discord thread #general");
   });
 
-  it("skips thread starter context when disabled", async () => {
+  it("skips thread starter context even when channel opts in (frankclaw forced off)", async () => {
     const getCapturedCtx = captureNextDispatchCtx<{ ThreadStarterBody?: string }>();
+    // Channel explicitly asks for starter (includeThreadStarter: true); frankclaw ignores it.
     const cfg = createOpenGuildConfig({
-      p1: { allow: true, includeThreadStarter: false },
+      p1: { allow: true, includeThreadStarter: true },
     });
 
     const handler = await createHandler(cfg);
@@ -173,7 +177,8 @@ describe("discord tool result dispatch", () => {
     const capturedCtx = getCapturedCtx();
     expect(capturedCtx?.SessionKey).toBe("agent:main:discord:channel:t1");
     expect(capturedCtx?.ParentSessionKey).toBe("agent:main:discord:channel:forum-1");
-    expect(capturedCtx?.ThreadStarterBody).toContain("starter message");
+    // frankclaw: thread starter injection disabled, even for forum threads.
+    expect(capturedCtx?.ThreadStarterBody).toBeUndefined();
     expect(capturedCtx?.ThreadLabel).toContain("Discord thread #support");
   });
 
