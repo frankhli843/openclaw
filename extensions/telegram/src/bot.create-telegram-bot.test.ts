@@ -289,7 +289,7 @@ describe("createTelegramBot", () => {
 
     replySpy.mockImplementation(async (ctx: MsgContext, opts?: GetReplyOptions) => {
       await opts?.onReplyStart?.();
-      const body = String(ctx.Body ?? "");
+      const body = ctx.Body ?? "";
       startedBodies.push(body);
       if (body.includes("first message")) {
         await firstTurnGate;
@@ -399,7 +399,7 @@ describe("createTelegramBot", () => {
 
     replySpy.mockImplementation(async (ctx: MsgContext, opts?: GetReplyOptions) => {
       await opts?.onReplyStart?.();
-      const body = String(ctx.Body ?? "");
+      const body = ctx.Body ?? "";
       startedBodies.push(body);
       if (body.includes("first")) {
         await firstRunGate;
