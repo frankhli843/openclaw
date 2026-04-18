@@ -66,6 +66,11 @@ import {
   normalizeDeliveryContext,
   resolveConversationDeliveryTarget,
 } from "../utils/delivery-context.js";
+// frankclaw addition: redirect ACP spawn chatter from Discord channels to #logs
+import {
+  postAcpSpawnKickoffLog,
+  shouldRedirectAcpSpawnToLogs,
+} from "./acp-spawn-logs.frankclaw.js";
 import {
   type AcpSpawnParentRelayHandle,
   resolveAcpSpawnStreamLogPath,
@@ -1032,6 +1037,16 @@ export async function spawnAcpDirect(
     requestedMode: params.mode,
     threadRequested: requestThreadBinding,
   });
+  // frankclaw addition: suppress thread creation for Discord ACP run-mode spawns.
+  // The kickoff log is posted to #logs after the spawn succeeds (see below).
+  const acpSpawnRedirectedToLogs = shouldRedirectAcpSpawnToLogs({
+    channel: ctx.agentChannel,
+    spawnMode,
+    threadRequested: requestThreadBinding,
+  });
+  if (acpSpawnRedirectedToLogs) {
+    requestThreadBinding = false;
+  }
   if (spawnMode === "session" && !requestThreadBinding) {
     return createAcpSpawnFailure({
       status: "error",
@@ -1239,6 +1254,21 @@ export async function spawnAcpDirect(
       errorCode: "dispatch_failed",
       error: summarizeError(err),
       childSessionKey: sessionKey,
+    });
+  }
+
+  // frankclaw addition: post kickoff log to Discord #logs for redirected spawns.
+  if (acpSpawnRedirectedToLogs) {
+    void postAcpSpawnKickoffLog({
+      childSessionKey: sessionKey,
+      runId: childRunId,
+      agentId: targetAgentId,
+      label: params.label,
+      task: params.task,
+      originChannel: ctx.agentChannel,
+      originTo: ctx.agentTo,
+      originThreadId: ctx.agentThreadId,
+      originAccountId: ctx.agentAccountId,
     });
   }
 

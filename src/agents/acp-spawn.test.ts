@@ -579,6 +579,89 @@ describe("spawnAcpDirect", () => {
     expect(transcriptCalls[1]?.threadId).toBe("child-thread");
   });
 
+  // frankclaw addition: verify Discord ACP run-mode thread suppression
+  it("suppresses thread creation for Discord ACP run-mode spawns and posts to logs", async () => {
+    const result = await spawnAcpDirect(
+      {
+        task: "Fix the flaky CI pipeline",
+        agentId: "codex",
+        mode: "run",
+        thread: true,
+      },
+      {
+        agentSessionKey: "agent:main:main",
+        agentChannel: "discord",
+        agentAccountId: "default",
+        agentTo: "channel:parent-channel",
+        agentThreadId: "requester-thread",
+      },
+    );
+
+    const accepted = expectAcceptedSpawn(result);
+    expect(accepted.mode).toBe("run");
+
+    // Thread binding should NOT have been called (suppressed by frankclaw)
+    expect(hoisted.sessionBindingBindMock).not.toHaveBeenCalled();
+
+    // Agent dispatch should NOT have inline delivery (no thread to deliver to)
+    expectAgentGatewayCall({
+      deliver: false,
+      channel: undefined,
+      to: undefined,
+      threadId: undefined,
+    });
+
+    // A "send" call should have been made to Discord #logs channel
+    const sendCalls = hoisted.callGatewayMock.mock.calls
+      .map((call: unknown[]) => call[0] as { method?: string; params?: Record<string, unknown> })
+      .filter((request) => request.method === "send");
+    expect(sendCalls.length).toBeGreaterThanOrEqual(1);
+    const logsCall = sendCalls.find(
+      (call) => call.params?.channel === "discord" && call.params?.to === "1474420675933638847",
+    );
+    expect(logsCall).toBeDefined();
+    expect(logsCall?.params?.message).toContain("ACP worker spawned");
+    expect(logsCall?.params?.message).toContain("codex");
+  });
+
+  // frankclaw addition: verify session-mode threads on Discord are NOT suppressed
+  it("keeps thread creation for Discord ACP session-mode spawns", async () => {
+    const result = await spawnAcpDirect(
+      {
+        task: "Investigate flaky tests",
+        agentId: "codex",
+        mode: "session",
+        thread: true,
+      },
+      {
+        agentSessionKey: "agent:main:main",
+        agentChannel: "discord",
+        agentAccountId: "default",
+        agentTo: "channel:parent-channel",
+        agentThreadId: "requester-thread",
+      },
+    );
+
+    const accepted = expectAcceptedSpawn(result);
+    expect(accepted.mode).toBe("session");
+
+    // Thread binding SHOULD have been called (session mode needs the thread)
+    expect(hoisted.sessionBindingBindMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        targetKind: "session",
+        placement: "child",
+      }),
+    );
+
+    // No "send" to #logs for session-mode spawns
+    const sendCalls = hoisted.callGatewayMock.mock.calls
+      .map((call: unknown[]) => call[0] as { method?: string; params?: Record<string, unknown> })
+      .filter(
+        (request) => request.method === "send" && request.params?.to === "1474420675933638847",
+      );
+    expect(sendCalls).toHaveLength(0);
+  });
+
   it("spawns Matrix thread-bound ACP sessions from top-level room targets", async () => {
     enableMatrixAcpThreadBindings();
     hoisted.sessionBindingBindMock.mockImplementationOnce(
