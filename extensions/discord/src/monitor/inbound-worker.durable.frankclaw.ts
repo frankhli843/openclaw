@@ -417,16 +417,38 @@ export function createDurableDiscordInboundWorker(
       }
 
       if (!terminalStage) {
-        params.runtime.error?.(
-          danger(
-            `discord durable worker missing terminal inbound lifecycle state${suffix}: ` +
-              `before=[${formatDurableSessionProgressSnapshot(beforeProgress)}] ` +
-              `after=[${formatDurableSessionProgressSnapshot(afterProgress)}] ` +
-              `noopReason=${noopReason ?? "-"} finalReplyDelivered=${finalReplyDelivered ? "true" : "false"} ` +
-              `resolvedSessionKey=${resolvedSessionKey ?? "-"} createdThreadId=${createdThreadId ?? "-"}`,
-          ),
-        );
-        throw new Error(`discord durable worker missing terminal inbound lifecycle state${suffix}`);
+        // frankclaw: if the session is actively running with a transcript,
+        // the message was injected into session context and will be processed
+        // when the current LLM turn finishes. Treat this as success rather
+        // than throwing (which leads to dead-lettering after 3 retries).
+        const sessionIsActivelyRunning =
+          afterProgress.status === "running" &&
+          afterProgress.transcriptExists &&
+          afterProgress.transcriptSize > 0;
+        if (sessionIsActivelyRunning) {
+          terminalStage = "run_started";
+          await lifecycle.mark({
+            stage: terminalStage,
+            note: `session actively running (transcriptSize=${afterProgress.transcriptSize}), message injected into context`,
+            progress: afterProgress,
+          });
+          params.runtime.warn?.(
+            `discord durable worker: session actively running, message queued in context${suffix}`,
+          );
+        } else {
+          params.runtime.error?.(
+            danger(
+              `discord durable worker missing terminal inbound lifecycle state${suffix}: ` +
+                `before=[${formatDurableSessionProgressSnapshot(beforeProgress)}] ` +
+                `after=[${formatDurableSessionProgressSnapshot(afterProgress)}] ` +
+                `noopReason=${noopReason ?? "-"} finalReplyDelivered=${finalReplyDelivered ? "true" : "false"} ` +
+                `resolvedSessionKey=${resolvedSessionKey ?? "-"} createdThreadId=${createdThreadId ?? "-"}`,
+            ),
+          );
+          throw new Error(
+            `discord durable worker missing terminal inbound lifecycle state${suffix}`,
+          );
+        }
       }
 
       const persistedLifecycle = await lifecycle.load();
