@@ -1090,7 +1090,7 @@
     },
     {
       "name": "ACP manager registers subagent run for announce delivery",
-      "description": "The ACP manager now also registers a subagent run (registerSubagentRun) when creating a background task record. Previously, ACP workers spawned via the gateway agent method (not sessions_spawn) only created a task registry record. The announce/delivery flow reads the separate subagent registry, so without this registration, results from ACP workers were silently dropped — no announce was ever attempted.",
+      "description": "The ACP manager now also registers a subagent run (registerSubagentRun) when creating a background task record. Previously, ACP workers spawned via the gateway agent method (not sessions_spawn) only created a task registry record. The announce/delivery flow reads the separate subagent registry, so without this registration, results from ACP workers were silently dropped \u2014 no announce was ever attempted.",
       "static": [
         {
           "file": "src/acp/control-plane/manager.core.ts",
@@ -1230,6 +1230,30 @@
       "runtime": [],
       "e2eTests": ["test/scripts/verify-acp-roundtrip-node-resolution.frankclaw.test.ts"],
       "addedDate": "2026-04-15"
+    },
+    {
+      "name": "Subagent announce parent rewake",
+      "description": "After deliverSubagentAnnouncement on a completion, request a heartbeat wake on the parent session so the parent agent processes the announce as a turn (commit/push/PR/reply). On delivery failure, write a retry marker that openclaw-watchdog announce-retry drains and nudges via openclaw sessions send.",
+      "category": "subagent-orchestration",
+      "tests": ["src/agents/subagent-announce-rewake.frankclaw.test.ts"],
+      "e2eTests": ["src/agents/subagent-announce-rewake.frankclaw.test.ts"],
+      "staticProbes": [
+        {
+          "file": "src/agents/subagent-announce.ts",
+          "pattern": "rewakeParentAfterAnnounce",
+          "min": 2
+        },
+        {
+          "file": "src/agents/subagent-announce-rewake.frankclaw.ts",
+          "pattern": "requestHeartbeatNow",
+          "min": 1
+        },
+        {
+          "file": "src/agents/subagent-announce-rewake.frankclaw.ts",
+          "pattern": "subagent-announce-retry",
+          "min": 1
+        }
+      ]
     }
   ],
   "workspaceChecks": [

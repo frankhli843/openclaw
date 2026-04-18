@@ -35,6 +35,10 @@ import {
   type SubagentRunOutcome,
   waitForSubagentRunOutcome,
 } from "./subagent-announce-output.js";
+// frankclaw addition: rewake parent session after announce delivery so the
+// parent agent immediately processes the completion as a turn instead of
+// silently sitting until the next unrelated tick.
+import { rewakeParentAfterAnnounce } from "./subagent-announce-rewake.frankclaw.js";
 import {
   callGateway,
   isEmbeddedPiRunActive,
@@ -612,8 +616,33 @@ export async function runSubagentAnnounceFlow(params: {
         `Subagent completion direct announce failed for run ${params.childRunId}: ${delivery.error}`,
       );
     }
+    // frankclaw addition: wake the parent session so it processes the
+    // completion announce immediately. On delivery failure, queue a retry
+    // marker for the openclaw-watchdog to pick up.
+    rewakeParentAfterAnnounce({
+      parentSessionKey: targetRequesterSessionKey,
+      childSessionKey: params.childSessionKey,
+      childRunId: params.childRunId,
+      label: params.label,
+      delivered: delivery.delivered,
+      expectsCompletionMessage,
+      deliveryError: delivery.error,
+    });
   } catch (err) {
     defaultRuntime.error?.(`Subagent announce failed: ${String(err)}`);
+    // frankclaw addition: on hard exception in the announce path, queue a
+    // retry marker so the parent eventually gets nudged. We use the param
+    // session key here because targetRequesterSessionKey was declared inside
+    // the try-block scope and may not have been assigned before throwing.
+    rewakeParentAfterAnnounce({
+      parentSessionKey: params.requesterSessionKey,
+      childSessionKey: params.childSessionKey,
+      childRunId: params.childRunId,
+      label: params.label,
+      delivered: false,
+      expectsCompletionMessage,
+      deliveryError: String(err),
+    });
     // Best-effort follow-ups; ignore failures to avoid breaking the caller response.
   } finally {
     // Patch label after all writes complete
