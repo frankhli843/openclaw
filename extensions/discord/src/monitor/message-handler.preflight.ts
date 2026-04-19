@@ -383,12 +383,20 @@ export async function preflightDiscordMessage(
   const allowBotsMode =
     allowBotsSetting === "mentions" ? "mentions" : allowBotsSetting === true ? "all" : "off";
   if (params.botUserId && author.id === params.botUserId) {
-    // frankclaw addition: allow openclaw-watchdog recovery messages to fall
-    // through to the webhook relay below. Without this bypass, the watchdog's
-    // dead-letter recovery posts (which use the gateway's own bot account) get
-    // dropped here and never reach the relay that would rewrite their author.
-    const __fcRawText = message.content ?? "";
-    if (!__fcRawText.startsWith("[doramon you forgot to answer!]:")) {
+    // frankclaw addition: allow bot-authored self-nudge messages to fall
+    // through to the webhook relay below so the agent can process them.
+    // Accepts the canonical `[Doramon note to self]` prefix (any producer
+    // that wants an agent turn uses this) and the legacy
+    // `[doramon you forgot to answer!]:` prefix (deadletter-recover pre-
+    // unification). Without this bypass, watchdog / ACP completion / note-
+    // to-self posts (which use the gateway's own bot account) get dropped
+    // here and never reach the relay that would rewrite their author.
+    const __fcRawText = (message.content ?? "").replace(/^\s+/, "");
+    const __fcLower = __fcRawText.toLowerCase();
+    const __fcIsNoteToSelf =
+      __fcLower.startsWith("[doramon note to self]") ||
+      __fcLower.startsWith("[doramon you forgot to answer!]:");
+    if (!__fcIsNoteToSelf) {
       // Always ignore own messages to prevent self-reply loops
       return null;
     }

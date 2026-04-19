@@ -1,5 +1,9 @@
 import crypto from "node:crypto";
 import { createRequire } from "node:module";
+// frankclaw addition: wrap task terminal messages in [Doramon note to self]
+// so the inbound gate recognizes them as a self-nudge that should trigger
+// an agent turn instead of being dropped as a bot-self-reply.
+import { wrapAsNoteToSelf } from "../auto-reply/note-to-self.frankclaw.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { onAgentEvent } from "../infra/agent-events.js";
 import { formatErrorMessage } from "../infra/errors.js";
@@ -1049,7 +1053,9 @@ export async function maybeDeliverTaskTerminalUpdate(taskId: string): Promise<Ta
         lastEventAt: Date.now(),
       });
     }
-    const eventText = formatTaskTerminalMessage(latest);
+    // frankclaw: prepend [Doramon note to self] so the channel sees this as
+    // a self-nudge and the agent processes it (summarize, iterate if needed).
+    const eventText = wrapAsNoteToSelf(formatTaskTerminalMessage(latest));
     if (!canDeliverTaskToRequesterOrigin(latest)) {
       try {
         queueTaskSystemEvent(latest, eventText);

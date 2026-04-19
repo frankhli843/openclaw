@@ -24,6 +24,9 @@ import { normalizeOptionalString } from "../../shared/string-coerce.js";
 import { isReasoningTagProvider } from "../../utils/provider-utils.js";
 import { hasControlCommand } from "../command-detection.js";
 import { resolveEnvelopeFormatOptions } from "../envelope.js";
+// frankclaw addition: [Doramon note to self] prefix detection + behavior overlay
+// so bot-authored self-nudges get summarized + iterated on instead of silently dropped.
+import { isNoteToSelf, noteToSelfPromptOverlay } from "../note-to-self.frankclaw.js";
 // frankclaw addition: scoped prompt injections for specific channels/threads/groups.
 import { resolveScopedPromptForContext } from "../scoped-prompt.frankclaw.js";
 import type { MsgContext, TemplateContext } from "../templating.js";
@@ -380,9 +383,17 @@ export async function runPreparedReply(
     sessionKey,
     threadName: sessionCtx.ThreadLabel,
   });
+  // frankclaw addition: when the inbound body is a [Doramon note to self]
+  // self-nudge, inject the note-to-self behavior protocol so the agent
+  // summarizes + iterates rather than ignoring or echoing the prefix.
+  const noteToSelfBlock = isNoteToSelf(baseBodyFinal) ? noteToSelfPromptOverlay() : undefined;
   const baseBodyForPrompt = isBareSessionReset
-    ? [scopedPromptBlock, startupContextPrelude, baseBodyFinal].filter(Boolean).join("\n\n")
-    : [scopedPromptBlock, inboundUserContext, baseBodyFinal].filter(Boolean).join("\n\n");
+    ? [noteToSelfBlock, scopedPromptBlock, startupContextPrelude, baseBodyFinal]
+        .filter(Boolean)
+        .join("\n\n")
+    : [noteToSelfBlock, scopedPromptBlock, inboundUserContext, baseBodyFinal]
+        .filter(Boolean)
+        .join("\n\n");
   const hasUserBody = baseBodyFinal.trim().length > 0;
   const hasMediaAttachment = Boolean(
     sessionCtx.MediaPath || (sessionCtx.MediaPaths && sessionCtx.MediaPaths.length > 0),

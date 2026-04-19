@@ -1342,6 +1342,51 @@
         "src/auto-reply/outbound-scoped-prompt.frankclaw.test.ts"
       ],
       "runtime": []
+    },
+    {
+      "name": "Doramon note-to-self protocol",
+      "description": "Canonical `[Doramon note to self]` prefix (+ legacy `[doramon you forgot to answer!]:` back-compat) for bot-authored messages that should trigger an agent turn. Producers (task-registry Background task announces, deadletter-recover) wrap their output via `wrapAsNoteToSelf()`. The Discord inbound preflight lets these through the bot-self-drop gate. The reply pipeline injects `noteToSelfPromptOverlay()` when the prefix matches, enforcing the Frank directive: ALWAYS respond with a user-visible summary; iterate if actions remain; otherwise summarize what was completed. Never reply NO_REPLY to a note-to-self. Replaces the ad-hoc `[doramon you forgot to answer!]:` prefix used previously only by deadletter-recover.",
+      "category": "auto-reply-inbound",
+      "static": [
+        {
+          "file": "src/auto-reply/note-to-self.frankclaw.ts",
+          "pattern": "isNoteToSelf",
+          "minCount": 1
+        },
+        {
+          "file": "src/auto-reply/note-to-self.frankclaw.ts",
+          "pattern": "noteToSelfPromptOverlay",
+          "minCount": 1
+        },
+        {
+          "file": "src/auto-reply/note-to-self.frankclaw.ts",
+          "pattern": "wrapAsNoteToSelf",
+          "minCount": 1
+        },
+        {
+          "file": "src/auto-reply/reply/get-reply-run.ts",
+          "pattern": "noteToSelfPromptOverlay",
+          "minCount": 1
+        },
+        {
+          "file": "src/auto-reply/reply/get-reply-run.ts",
+          "pattern": "isNoteToSelf",
+          "minCount": 1
+        },
+        {
+          "file": "src/tasks/task-registry.ts",
+          "pattern": "wrapAsNoteToSelf",
+          "minCount": 1
+        },
+        {
+          "file": "extensions/discord/src/monitor/message-handler.preflight.ts",
+          "pattern": "doramon note to self",
+          "minCount": 1
+        }
+      ],
+      "tests": ["src/auto-reply/note-to-self.frankclaw.test.ts"],
+      "e2eTests": ["src/auto-reply/note-to-self.frankclaw.test.ts"],
+      "runtime": []
     }
   ],
   "workspaceChecks": [
@@ -1455,7 +1500,7 @@
     },
     {
       "name": "Provider circuit breaker for cross-provider fallback",
-      "description": "Process-level circuit breaker that tracks consecutive timeout failures per provider and skips tripped providers in the fallback chain, enabling self-healing cross-provider fallback (e.g. OpenAI → Gemini) without gateway restart",
+      "description": "Process-level circuit breaker that tracks consecutive timeout failures per provider and skips tripped providers in the fallback chain, enabling self-healing cross-provider fallback (e.g. OpenAI \u2192 Gemini) without gateway restart",
       "static": [
         {
           "file": "src/agents/provider-circuit-breaker.frankclaw.ts",
