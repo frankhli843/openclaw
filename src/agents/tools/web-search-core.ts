@@ -1028,7 +1028,7 @@ async function runGeminiSearch(params: {
         const resolved = await Promise.all(
           batch.map(async (citation) => {
             const resolvedUrl = await resolveCitationRedirectUrl(citation.url);
-            return { ...citation, url: resolvedUrl };
+            return Object.assign({}, citation, { url: resolvedUrl });
           }),
         );
         citations.push(...resolved);

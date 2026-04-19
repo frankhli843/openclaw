@@ -12,6 +12,13 @@ import type {
   DiscordReactOpts,
 } from "./send.types.js";
 
+// frankclaw: Discord rejects reactions in archived threads (error 50083).
+// We want ack/status reactions to be robust, so we best-effort unarchive and retry once.
+function looksLikeArchivedThreadError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return msg.includes("Thread is archived") || msg.includes("50083");
+}
+
 function createDiscordReactionRuntimeClient(opts: DiscordReactionRuntimeContext) {
   return createDiscordClient(opts, opts.cfg);
 }
@@ -37,10 +44,25 @@ export async function reactMessageDiscord(
     ? createDiscordReactionRuntimeClient(opts)
     : resolveDiscordReactionClient(opts);
   const encoded = normalizeReactionEmoji(emoji);
-  await request(
-    () => rest.put(Routes.channelMessageOwnReaction(channelId, messageId, encoded)),
-    "react",
-  );
+  try {
+    await request(
+      () => rest.put(Routes.channelMessageOwnReaction(channelId, messageId, encoded)),
+      "react",
+    );
+  } catch (err) {
+    if (looksLikeArchivedThreadError(err)) {
+      await request(
+        () => rest.patch(Routes.channel(channelId), { body: { archived: false } }),
+        "unarchive",
+      );
+      await request(
+        () => rest.put(Routes.channelMessageOwnReaction(channelId, messageId, encoded)),
+        "react",
+      );
+    } else {
+      throw err;
+    }
+  }
   return { ok: true };
 }
 

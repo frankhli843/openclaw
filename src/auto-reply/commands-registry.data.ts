@@ -30,12 +30,13 @@ let cachedNativeRegistryVersion = -1;
 
 function buildChatCommands(): ChatCommandDefinition[] {
   const commands: ChatCommandDefinition[] = [
-...buildBuiltinChatCommands().map((cmd) =>
+    ...buildBuiltinChatCommands().map((cmd) => {
       // frankclaw: add /doramon_stop alias to the stop command
-      cmd.key === "stop"
-        ? { ...cmd, textAliases: ["/stop", "/doramon_stop"] }
-        : cmd,
-    ),
+      if (cmd.key === "stop") {
+        Object.assign(cmd, { textAliases: ["/stop", "/doramon_stop"] });
+      }
+      return cmd;
+    }),
     ...listLoadedChannelPlugins()
       .filter(supportsNativeCommands)
       .map((plugin) => defineDockCommand(plugin)),

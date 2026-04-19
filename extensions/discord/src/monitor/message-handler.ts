@@ -8,6 +8,11 @@ import { resolveOpenProviderRuntimeGroupPolicy } from "openclaw/plugin-sdk/confi
 import { danger, logVerbose } from "openclaw/plugin-sdk/runtime-env";
 import { reactMessageDiscord } from "../send.reactions.js";
 import {
+  isDiscordGroupAllowedByPolicy,
+  resolveDiscordChannelConfig,
+  resolveDiscordGuildEntry,
+} from "./allow-list.js";
+import {
   buildDiscordInboundReplayKey,
   claimDiscordInboundReplay,
   commitDiscordInboundReplay,
@@ -284,6 +289,7 @@ export function createDiscordMessageHandler(
       // the user gets instant visual feedback that their message was received.
       const messageId = data.message?.id;
       const channelId = data.channel_id ?? data.message?.channel_id;
+      const guildId = data.guild_id;
       if (
         earlyAckEmoji &&
         channelId &&
@@ -291,9 +297,49 @@ export function createDiscordMessageHandler(
         ackReactionScope !== "off" &&
         ackReactionScope !== "none"
       ) {
+        // frankclaw: Avoid reacting in blocked guilds/channels.
+        const isGuildMessage = Boolean(guildId);
+        let earlyAckAllowed = true;
+        if (isGuildMessage) {
+          const guildInfo = resolveDiscordGuildEntry({
+            guildId,
+            guildEntries: params.guildEntries,
+          });
+          if (
+            groupPolicy === "allowlist" &&
+            params.guildEntries &&
+            Object.keys(params.guildEntries).length > 0 &&
+            !guildInfo
+          ) {
+            earlyAckAllowed = false;
+          } else {
+            const channelConfig = resolveDiscordChannelConfig({
+              guildInfo,
+              channelId,
+              channelSlug: "",
+            });
+            if (channelConfig?.enabled === false) {
+              earlyAckAllowed = false;
+            } else {
+              const channelAllowlistConfigured =
+                Boolean(guildInfo?.channels) && Object.keys(guildInfo?.channels ?? {}).length > 0;
+              earlyAckAllowed = isDiscordGroupAllowedByPolicy({
+                groupPolicy,
+                guildAllowlisted: Boolean(guildInfo),
+                channelAllowlistConfigured,
+                channelAllowed: channelConfig?.allowed !== false,
+              });
+            }
+          }
+        }
+
+        if (!earlyAckAllowed) {
+          return;
+        }
+
         void reactMessageDiscord(channelId, messageId, earlyAckEmoji, {
           rest: client.rest as never,
-        }).catch((err) => {
+        }).catch(async (err) => {
           logVerbose(`discord early ack reaction failed: ${String(err)}`);
         });
       }

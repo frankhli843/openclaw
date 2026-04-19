@@ -432,7 +432,7 @@ export function createDurableDiscordInboundWorker(
             note: `session actively running (transcriptSize=${afterProgress.transcriptSize}), message injected into context`,
             progress: afterProgress,
           });
-          params.runtime.warn?.(
+          params.runtime.log?.(
             `discord durable worker: session actively running, message queued in context${suffix}`,
           );
         } else {
