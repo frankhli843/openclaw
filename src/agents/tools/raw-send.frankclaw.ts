@@ -10,8 +10,11 @@
  * agent deciding to NO_REPLY or modifying the message.
  */
 
+// frankclaw: enforce destination scoped prompts for cross-session raw sends.
+import { checkMessageToolScopedPromptPreflight } from "../../auto-reply/outbound-scoped-prompt.frankclaw.js";
 import type { OpenClawConfig } from "../../config/config.js";
 import { runMessageAction, getToolResult } from "../../infra/outbound/message-action-runner.js";
+import { resolveAgentIdFromSessionKey } from "../../routing/session-key.js";
 import { type AnyAgentTool, jsonResult } from "./common.js";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -52,6 +55,25 @@ export function createRawSendTool(options: {
 
       if (!channel || !target || !message) {
         return jsonResult({ error: "channel, target, and message are all required" });
+      }
+
+      // frankclaw: cross-session scoped prompt preflight.
+      // raw_send bypasses the message tool, so enforce the same guard here.
+      if (options.agentSessionKey) {
+        const agentId = resolveAgentIdFromSessionKey(options.agentSessionKey) ?? "main";
+        const preflight = checkMessageToolScopedPromptPreflight({
+          currentSessionKey: options.agentSessionKey,
+          destinationChannel: channel,
+          destinationTarget: target,
+          agentId,
+        });
+        if (!preflight.proceed) {
+          return jsonResult({
+            status: "preflight",
+            scopedPrompts: preflight.scopedPromptXml,
+            instruction: preflight.instruction,
+          });
+        }
       }
 
       // Retry with backoff for transient "No active WhatsApp Web listener" errors.

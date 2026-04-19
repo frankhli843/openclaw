@@ -700,6 +700,38 @@ export function createMessageTool(options?: MessageToolOptions): AnyAgentTool {
         }
       }
 
+      // frankclaw: cross-session scoped prompt preflight. For outbound sends to
+      // a different session, block the first call and return destination scoped
+      // prompts so the model sees them before sending. Second call proceeds.
+      if (actionNeedsExplicitTarget(action) && options?.agentSessionKey) {
+        const destChannel =
+          normalizeMessageChannel(readStringParam(params, "channel")) ??
+          normalizeMessageChannel(options.currentChannelProvider);
+        const destTarget =
+          readStringParam(params, "target") ??
+          readStringParam(params, "to") ??
+          readStringParam(params, "channelId");
+        const threadId = readStringParam(params, "threadId") ?? readStringParam(params, "thread");
+        if (destChannel && destTarget) {
+          const { checkMessageToolScopedPromptPreflight } =
+            await import("../../auto-reply/outbound-scoped-prompt.frankclaw.js");
+          const preflight = checkMessageToolScopedPromptPreflight({
+            currentSessionKey: options.agentSessionKey,
+            destinationChannel: destChannel,
+            destinationTarget: destTarget,
+            agentId: resolvedAgentId ?? "main",
+            threadId: threadId ?? undefined,
+          });
+          if (!preflight.proceed) {
+            return jsonResult({
+              status: "preflight",
+              scopedPrompts: preflight.scopedPromptXml,
+              instruction: preflight.instruction,
+            });
+          }
+        }
+      }
+
       let cfg = options?.config;
       if (!cfg) {
         const loadedRaw = loadConfigForTool();

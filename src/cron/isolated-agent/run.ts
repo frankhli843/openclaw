@@ -442,6 +442,22 @@ async function prepareCronRunContext(params: {
   }
   commandBody = appendCronDeliveryInstruction({ commandBody, deliveryRequested });
 
+  // frankclaw: prepend scoped prompts for the DESTINATION session key so
+  // cross-channel cron jobs see per-channel/thread instructions.
+  if (deliveryRequested && resolvedDelivery.ok && resolvedDelivery.channel && resolvedDelivery.to) {
+    const { resolveScopedPromptForDestination } =
+      await import("../../auto-reply/outbound-scoped-prompt.frankclaw.js");
+    const destScopedPrompt = resolveScopedPromptForDestination({
+      channel: resolvedDelivery.channel,
+      to: resolvedDelivery.to,
+      agentId,
+      threadId: resolvedDelivery.threadId,
+    });
+    if (destScopedPrompt) {
+      commandBody = `${destScopedPrompt}\n\n${commandBody}`;
+    }
+  }
+
   const skillsSnapshot = await resolveCronSkillsSnapshot({
     workspaceDir,
     config: cfgWithAgentDefaults,

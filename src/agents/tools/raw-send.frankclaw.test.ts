@@ -1,4 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   runMessageAction: vi.fn(),
@@ -10,6 +13,7 @@ vi.mock("../../infra/outbound/message-action-runner.js", () => ({
   getToolResult: mocks.getToolResult,
 }));
 
+import { __resetPreflightSeenForTest } from "../../auto-reply/outbound-scoped-prompt.frankclaw.js";
 import { createRawSendTool } from "./raw-send.frankclaw.js";
 
 function extractJson(result: unknown): Record<string, unknown> {
@@ -26,9 +30,31 @@ function extractJson(result: unknown): Record<string, unknown> {
 }
 
 describe("createRawSendTool", () => {
+  let tmpWorkspace: string;
+  let prevWorkspace: string | undefined;
+
   beforeEach(() => {
+    tmpWorkspace = fs.mkdtempSync(path.join(os.tmpdir(), "raw-send-test-"));
+    prevWorkspace = process.env["OPENCLAW_WORKSPACE"];
+    process.env["OPENCLAW_WORKSPACE"] = tmpWorkspace;
+
+    __resetPreflightSeenForTest();
+
     mocks.runMessageAction.mockReset();
     mocks.getToolResult.mockReset();
+  });
+
+  afterEach(() => {
+    if (prevWorkspace === undefined) {
+      delete process.env["OPENCLAW_WORKSPACE"];
+    } else {
+      process.env["OPENCLAW_WORKSPACE"] = prevWorkspace;
+    }
+    try {
+      fs.rmSync(tmpWorkspace, { recursive: true, force: true });
+    } catch {
+      /* ignore */
+    }
   });
 
   it("registers with name raw_send", () => {
@@ -73,6 +99,55 @@ describe("createRawSendTool", () => {
     const parsed = extractJson(result);
     expect(parsed.ok).toBe(true);
     expect(parsed.delivered).toBe(true);
+  });
+
+  it("blocks first cross-session send when destination has scoped prompts, then proceeds", async () => {
+    // Write a scoped prompt that matches the destination.
+    const p = path.join(tmpWorkspace, "state", "channel-prompt-injections.json");
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    fs.writeFileSync(
+      p,
+      JSON.stringify(
+        {
+          schema: "channel-prompt-injections/v1",
+          entries: [
+            {
+              id: "wa-group",
+              match: { sessionKey: "agent:main:whatsapp:group:group@g.us" },
+              prompt: "WhatsApp group rule.",
+            },
+          ],
+        },
+        null,
+        2,
+      ),
+    );
+
+    mocks.runMessageAction.mockResolvedValue({});
+    mocks.getToolResult.mockReturnValue(null);
+
+    const tool = createRawSendTool({ cfg: {} as any, agentSessionKey: "sess1" });
+
+    // First call: should return preflight (no send).
+    const first = await tool.execute("call1", {
+      channel: "whatsapp",
+      target: "group@g.us",
+      message: "hello",
+    });
+    expect(mocks.runMessageAction).toHaveBeenCalledTimes(0);
+    const firstParsed = extractJson(first);
+    expect(firstParsed.status).toBe("preflight");
+    expect(String(firstParsed.scopedPrompts)).toContain("WhatsApp group rule");
+
+    // Second call: should proceed and send.
+    const second = await tool.execute("call2", {
+      channel: "whatsapp",
+      target: "group@g.us",
+      message: "hello",
+    });
+    expect(mocks.runMessageAction).toHaveBeenCalledTimes(1);
+    const secondParsed = extractJson(second);
+    expect(secondParsed.ok).toBe(true);
   });
 
   it("returns tool result from runMessageAction when available", async () => {
