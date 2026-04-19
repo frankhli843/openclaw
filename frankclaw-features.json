@@ -1282,7 +1282,7 @@
     },
     {
       "name": "Scoped prompt injections",
-      "description": "Per-channel/thread/group prompt injection registry. Operators register short XML-tagged instruction blocks that get prepended to every inbound turn matching a scope. Matchers: exact channel type, exact session key, session-key regex, or Discord thread-name regex. Registry lives at state/channel-prompt-injections.json (survives upstream merges). Managed via scripts/scoped-prompt.sh (list|add|rm|show|enable|disable|test) and the scoped-prompt-injections skill. Injection point is a single hook in src/auto-reply/reply/get-reply-run.ts that calls resolveScopedPromptForContext from src/auto-reply/scoped-prompt.frankclaw.ts. Empty/missing/malformed registry is a no-op so the injection never breaks prompt assembly.",
+      "description": "Per-channel/thread/group prompt injection registry. Operators register short XML-tagged instruction blocks that get prepended to every inbound turn matching a scope. Matchers: exact channel type, exact session key, session-key regex, or Discord thread-name regex. Registry lives at state/channel-prompt-injections.json (survives upstream merges). Managed via scripts/scoped-prompt.sh (list|add|rm|show|enable|disable|test) and the scoped-prompt-injections skill. Inbound injection is a single hook in src/auto-reply/reply/get-reply-run.ts calling resolveScopedPromptForContext from src/auto-reply/scoped-prompt.frankclaw.ts. Outbound enforcement for cross-channel delivery is implemented in src/auto-reply/outbound-scoped-prompt.frankclaw.ts and is applied to cron isolated delivery prompts plus message-tool/raw_send cross-session preflight.",
       "category": "auto-reply-context",
       "static": [
         {
@@ -1296,6 +1296,31 @@
           "minCount": 1
         },
         {
+          "file": "src/auto-reply/outbound-scoped-prompt.frankclaw.ts",
+          "pattern": "resolveScopedPromptForDestination",
+          "minCount": 1
+        },
+        {
+          "file": "src/auto-reply/outbound-scoped-prompt.frankclaw.ts",
+          "pattern": "checkMessageToolScopedPromptPreflight",
+          "minCount": 1
+        },
+        {
+          "file": "src/cron/isolated-agent/run.ts",
+          "pattern": "resolveScopedPromptForDestination",
+          "minCount": 1
+        },
+        {
+          "file": "src/agents/tools/message-tool.ts",
+          "pattern": "checkMessageToolScopedPromptPreflight",
+          "minCount": 1
+        },
+        {
+          "file": "src/agents/tools/raw-send.frankclaw.ts",
+          "pattern": "checkMessageToolScopedPromptPreflight",
+          "minCount": 1
+        },
+        {
           "file": "src/auto-reply/reply/get-reply-run.ts",
           "pattern": "resolveScopedPromptForContext",
           "minCount": 1
@@ -1306,8 +1331,16 @@
           "minCount": 1
         }
       ],
-      "tests": ["src/auto-reply/scoped-prompt.frankclaw.test.ts"],
-      "e2eTests": ["src/auto-reply/scoped-prompt.frankclaw.test.ts"],
+      "tests": [
+        "src/auto-reply/scoped-prompt.frankclaw.test.ts",
+        "src/auto-reply/outbound-scoped-prompt.frankclaw.test.ts",
+        "src/agents/tools/message-tool.test.ts",
+        "src/agents/tools/raw-send.frankclaw.test.ts"
+      ],
+      "e2eTests": [
+        "src/auto-reply/scoped-prompt.frankclaw.test.ts",
+        "src/auto-reply/outbound-scoped-prompt.frankclaw.test.ts"
+      ],
       "runtime": []
     }
   ],
