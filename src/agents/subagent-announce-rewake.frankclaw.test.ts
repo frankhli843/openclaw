@@ -8,7 +8,10 @@ vi.mock("../infra/heartbeat-wake.js", () => ({
   requestHeartbeatNow: (opts: unknown) => requestHeartbeatNow(opts),
 }));
 
-import { rewakeParentAfterAnnounce } from "./subagent-announce-rewake.frankclaw.js";
+import {
+  __resetRewakeDebounceForTest,
+  rewakeParentAfterAnnounce,
+} from "./subagent-announce-rewake.frankclaw.js";
 
 describe("rewakeParentAfterAnnounce", () => {
   let tmpWorkspace: string;
@@ -16,6 +19,7 @@ describe("rewakeParentAfterAnnounce", () => {
 
   beforeEach(() => {
     requestHeartbeatNow.mockReset();
+    __resetRewakeDebounceForTest();
     tmpWorkspace = fs.mkdtempSync(path.join(os.tmpdir(), "rewake-test-"));
     prevWorkspace = process.env["OPENCLAW_WORKSPACE"];
     process.env["OPENCLAW_WORKSPACE"] = tmpWorkspace;
@@ -98,5 +102,77 @@ describe("rewakeParentAfterAnnounce", () => {
     });
     const dir = path.join(tmpWorkspace, "state", "subagent-announce-retry");
     expect(fs.existsSync(dir)).toBe(false);
+  });
+
+  // Regression: 2026-04-19 Discord thread 1495460242920706168 saw the same
+  // "ACP deep local test sweep" paragraph posted three times within 3
+  // minutes because multiple ACP children completed on the same parent in
+  // quick succession and each one fired requestHeartbeatNow.
+  describe("per-parent wake debounce", () => {
+    it("skips subsequent wakes for the same parent within the debounce window", () => {
+      const parent = "agent:main:discord:channel:1495460242920706168";
+      for (let i = 0; i < 5; i++) {
+        rewakeParentAfterAnnounce({
+          parentSessionKey: parent,
+          childSessionKey: `agent:claude:acp:child-${i}`,
+          childRunId: `run-${i}`,
+          delivered: true,
+          expectsCompletionMessage: true,
+        });
+      }
+      // Only the first wake fires; the rest are debounced.
+      expect(requestHeartbeatNow).toHaveBeenCalledTimes(1);
+    });
+
+    it("debounce is per-parent — different parents each get one wake", () => {
+      rewakeParentAfterAnnounce({
+        parentSessionKey: "agent:main:discord:channel:AAA",
+        childSessionKey: "agent:claude:acp:a1",
+        childRunId: "run-a1",
+        delivered: true,
+        expectsCompletionMessage: true,
+      });
+      rewakeParentAfterAnnounce({
+        parentSessionKey: "agent:main:discord:channel:BBB",
+        childSessionKey: "agent:claude:acp:b1",
+        childRunId: "run-b1",
+        delivered: true,
+        expectsCompletionMessage: true,
+      });
+      expect(requestHeartbeatNow).toHaveBeenCalledTimes(2);
+    });
+
+    it("resetting the debounce allows a subsequent wake for the same parent", () => {
+      const parent = "agent:main:discord:channel:ccc";
+      rewakeParentAfterAnnounce({
+        parentSessionKey: parent,
+        childSessionKey: "agent:claude:acp:c1",
+        childRunId: "run-c1",
+        delivered: true,
+        expectsCompletionMessage: true,
+      });
+      expect(requestHeartbeatNow).toHaveBeenCalledTimes(1);
+
+      // Second call within window = no new wake.
+      rewakeParentAfterAnnounce({
+        parentSessionKey: parent,
+        childSessionKey: "agent:claude:acp:c2",
+        childRunId: "run-c2",
+        delivered: true,
+        expectsCompletionMessage: true,
+      });
+      expect(requestHeartbeatNow).toHaveBeenCalledTimes(1);
+
+      // After reset, a new wake goes through.
+      __resetRewakeDebounceForTest();
+      rewakeParentAfterAnnounce({
+        parentSessionKey: parent,
+        childSessionKey: "agent:claude:acp:c3",
+        childRunId: "run-c3",
+        delivered: true,
+        expectsCompletionMessage: true,
+      });
+      expect(requestHeartbeatNow).toHaveBeenCalledTimes(2);
+    });
   });
 });

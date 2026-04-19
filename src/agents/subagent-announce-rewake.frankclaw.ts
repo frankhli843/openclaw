@@ -58,11 +58,32 @@ export interface RewakeAfterAnnounceParams {
   reason?: string;
 }
 
+// Per-parent debounce registry: the last timestamp (ms) we woke each parent
+// session. Without this, multiple ACP children completing on the same parent
+// in quick succession (common: one /iterate spawns several sub-workers that
+// all finish within a minute) cause N back-to-back `requestHeartbeatNow`
+// calls, each producing a fresh turn that regenerates the same near-identical
+// response and posts it again. Root incident: 2026-04-19 Discord thread
+// 1495460242920706168 where the same "ACP deep local test sweep" paragraph
+// posted 3 times within 3 minutes.
+const REWAKE_DEBOUNCE_MS = 30_000;
+const lastWakeByParent = new Map<string, number>();
+
+export function __resetRewakeDebounceForTest(): void {
+  lastWakeByParent.clear();
+}
+
 /**
  * Wake the parent session after a subagent completion announce so the parent
  * agent immediately processes the announce as a turn (not "next time
  * something else triggers a tick"). For completion announces only — we do
  * not wake on mid-stream announces (those already have their own wake path).
+ *
+ * Debounced per parent: within REWAKE_DEBOUNCE_MS of the last wake for the
+ * same parent, additional completions skip the heartbeat. Those completions
+ * still get processed — they're delivered as inbound [Doramon note to self]
+ * messages and the note-to-self protocol tells the agent to iterate — but
+ * we don't forcibly poke the scheduler for each one.
  *
  * Safe to call from any caller; failures are logged but never thrown.
  */
@@ -76,12 +97,21 @@ export function rewakeParentAfterAnnounce(params: RewakeAfterAnnounceParams): vo
   }
 
   if (params.delivered) {
+    const now = Date.now();
+    const last = lastWakeByParent.get(parentKey) ?? 0;
+    if (now - last < REWAKE_DEBOUNCE_MS) {
+      log.info?.(
+        `rewake skipped (debounce ${Math.round((now - last) / 1000)}s < ${REWAKE_DEBOUNCE_MS / 1000}s): parent=${parentKey} child=${params.childSessionKey.slice(0, 60)} run=${params.childRunId ?? "-"}`,
+      );
+      return;
+    }
     try {
       requestHeartbeatNow(
         scopedHeartbeatWakeOptions(parentKey, {
           reason: params.reason ?? "subagent:announce:completed",
         }),
       );
+      lastWakeByParent.set(parentKey, now);
       log.info?.(
         `rewake parent after announce: parent=${parentKey} child=${params.childSessionKey.slice(0, 60)} run=${params.childRunId ?? "-"}`,
       );
