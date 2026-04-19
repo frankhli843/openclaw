@@ -1182,6 +1182,7 @@ export async function preflightDiscordMessage(
     messageChannelId,
     author,
     sender,
+    memberRoleIds,
     channelInfo,
     channelName,
     isGuildMessage,
