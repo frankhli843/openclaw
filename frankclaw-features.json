@@ -923,8 +923,9 @@
       "tests": ["src/agents/subagent-announce-delivery.silent-result.test.ts"],
       "runtime": [
         {
-          "pattern": "delivered via direct fallback \\(session-store-reply\\)",
-          "description": "Emitted when the fallback successfully delivered the real parent session reply instead of the sanitized trigger summary."
+          "logPattern": "delivered via direct fallback (session-store-reply)",
+          "note": "Emitted when the fallback successfully delivered the real parent session reply instead of the sanitized trigger summary.",
+          "onEvent": true
         }
       ],
       "e2eTests": ["test/frankclaw-features-e2e.test.ts"]
