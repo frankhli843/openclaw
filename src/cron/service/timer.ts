@@ -7,9 +7,10 @@ import {
   completeTaskRunByRunId,
   createRunningTaskRun,
   failTaskRunByRunId,
-} from "../../tasks/task-executor.js";
+} from "../../tasks/detached-task-runtime.js";
 import { clearCronJobActive, markCronJobActive } from "../active-jobs.js";
 import { resolveCronDeliveryPlan } from "../delivery-plan.js";
+import { createCronExecutionId } from "../run-id.js";
 import { sweepCronRunSessions } from "../session-reaper.js";
 import type {
   CronDeliveryStatus,
@@ -137,16 +138,12 @@ export function normalizeCronRunErrorText(err: unknown): string {
   return String(err);
 }
 
-function createCronTaskRunId(jobId: string, startedAt: number): string {
-  return `cron:${jobId}:${startedAt}`;
-}
-
 function tryCreateCronTaskRun(params: {
   state: CronServiceState;
   job: CronJob;
   startedAt: number;
 }): string | undefined {
-  const runId = createCronTaskRunId(params.job.id, params.startedAt);
+  const runId = createCronExecutionId(params.job.id, params.startedAt);
   try {
     createRunningTaskRun({
       runtime: "cron",
@@ -1255,6 +1252,7 @@ async function executeMainSessionCronJob(
           reason,
           agentId: job.agentId,
           sessionKey: targetMainSessionKey,
+          heartbeat: { target: "last" },
         });
         return { status: "ok", summary: text };
       }
@@ -1269,6 +1267,7 @@ async function executeMainSessionCronJob(
           reason,
           agentId: job.agentId,
           sessionKey: targetMainSessionKey,
+          heartbeat: { target: "last" },
         });
         return { status: "ok", summary: text };
       }
@@ -1291,6 +1290,7 @@ async function executeMainSessionCronJob(
     reason: `cron:${job.id}`,
     agentId: job.agentId,
     sessionKey: targetMainSessionKey,
+    heartbeat: { target: "last" },
   });
   return { status: "ok", summary: text };
 }
