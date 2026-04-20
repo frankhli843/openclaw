@@ -1,3 +1,4 @@
+import { isNoteToSelf } from "../../../../src/auto-reply/note-to-self.frankclaw.js";
 /**
  * Frankclaw extension for Discord preflight message handler.
  *
@@ -299,6 +300,21 @@ export function resolveWebhookRelay(params: {
       matched: true,
       ownerUserId: FRANK_USER_ID,
       rewrittenText: stripped,
+    };
+  }
+
+  // ── note-to-self relay ──
+  // frankclaw: bot-authored messages with the canonical [Doramon note to self]
+  // prefix should pass through as Frank's message WITHOUT rewriting the text,
+  // so the prefix reaches the LLM overlay.
+  if (isNoteToSelf(params.messageText)) {
+    logVerbose(
+      `discord: note-to-self relay matched bot=${params.authorId} → owner=${FRANK_USER_ID}`,
+    );
+    return {
+      matched: true,
+      ownerUserId: FRANK_USER_ID,
+      // rewrittenText intentionally omitted — preserve the prefix for the LLM overlay
     };
   }
 

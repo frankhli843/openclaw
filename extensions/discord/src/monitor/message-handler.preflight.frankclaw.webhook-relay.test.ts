@@ -51,4 +51,59 @@ describe("resolveWebhookRelay", () => {
 
     expect(result).toEqual({ matched: false });
   });
+
+  // ── note-to-self relay ──
+
+  it("matches bot-authored [Doramon note to self] and returns ownerUserId without rewrittenText", () => {
+    const result = resolveWebhookRelay({
+      authorId: "some-bot-999",
+      authorBot: true,
+      messageText: "[Doramon note to self] Background task done: briefing",
+    });
+
+    expect(result).toEqual({
+      matched: true,
+      ownerUserId: "257595674042826753",
+    });
+    // rewrittenText must be absent so the prefix reaches the LLM overlay
+    expect(result.rewrittenText).toBeUndefined();
+  });
+
+  it("matches lowercase note-to-self prefix", () => {
+    const result = resolveWebhookRelay({
+      authorId: "some-bot-999",
+      authorBot: true,
+      messageText: "[doramon note to self] some update",
+    });
+
+    expect(result).toEqual({
+      matched: true,
+      ownerUserId: "257595674042826753",
+    });
+    expect(result.rewrittenText).toBeUndefined();
+  });
+
+  it("matches note-to-self with leading whitespace", () => {
+    const result = resolveWebhookRelay({
+      authorId: "some-bot-999",
+      authorBot: true,
+      messageText: "   [Doramon note to self] trimmed",
+    });
+
+    expect(result).toEqual({
+      matched: true,
+      ownerUserId: "257595674042826753",
+    });
+    expect(result.rewrittenText).toBeUndefined();
+  });
+
+  it("does not match note-to-self from non-bot authors", () => {
+    const result = resolveWebhookRelay({
+      authorId: "human-user",
+      authorBot: false,
+      messageText: "[Doramon note to self] test",
+    });
+
+    expect(result).toEqual({ matched: false });
+  });
 });
