@@ -1554,6 +1554,43 @@
       "runtime": [],
       "e2eTests": ["src/agents/provider-circuit-breaker.frankclaw.test.ts"],
       "addedDate": "2026-04-18"
+    },
+    {
+      "name": "Doramon todo-loop driver rewake",
+      "description": "Workspace-side shell driver that claims pending doramon-todo-loop todos atomically and rewakes the origin session via 'openclaw system event --mode next-heartbeat' so the main agent picks up the todo on its next heartbeat turn under the audit-first contract from skills/doramon-todo-loop/SKILL.md. Replaces the Discord-note and cron-one-shot dispatch paths that were unreliable. Driver fires every 2 minutes via the openclaw-watchdog todo-loop-driver routine.",
+      "category": "todo-loop",
+      "static": [
+        {
+          "file": "skills/doramon-todo-loop/scripts/lib/driver.py",
+          "pattern": "system-event-rewake",
+          "minCount": 1
+        },
+        {
+          "file": "skills/doramon-todo-loop/scripts/lib/driver.py",
+          "pattern": "PENDING_TODO_REWAKE",
+          "minCount": 1
+        },
+        {
+          "file": "skills/openclaw-watchdog/scripts/lib/todo-loop-driver.sh",
+          "pattern": "heartbeat-hook.sh",
+          "minCount": 1
+        },
+        {
+          "file": "skills/openclaw-watchdog/scripts/check.sh",
+          "pattern": "todo-loop-driver",
+          "minCount": 1
+        }
+      ],
+      "tests": [],
+      "runtime": [
+        {
+          "logPattern": "\\[todo-loop-driver\\] tick",
+          "onEvent": true,
+          "note": "Fires every 2 minutes from openclaw-watchdog; presence confirms driver routine is wired."
+        }
+      ],
+      "e2eTests": [],
+      "addedDate": "2026-04-21"
     }
   ]
 }
