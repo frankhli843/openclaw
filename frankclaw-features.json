@@ -1591,6 +1591,32 @@
       ],
       "e2eTests": [],
       "addedDate": "2026-04-21"
+    },
+    {
+      "name": "Doramon todo-loop cron-tick dispatch",
+      "description": "Driver dispatches pending todos via 'openclaw cron run <tick-id>' — a proven-reliable primitive that enqueues an isolated agent turn through the gateway's cron scheduler. The tick cron job (see cron/doramon-todo-loop-tick.md) reads the pending queue, picks highest priority, and spawns a Claude Code ACP worker per the audit-first contract. Replaces earlier broken paths: Discord-note indirection, --at cron one-shots that never fired, and --mode now system events that enqueued but didn't drive turns.",
+      "category": "todo-loop",
+      "static": [
+        {
+          "file": "skills/doramon-todo-loop/scripts/lib/driver.py",
+          "pattern": "cron-tick",
+          "minCount": 1
+        },
+        {
+          "file": "skills/doramon-todo-loop/scripts/lib/driver.py",
+          "pattern": "tick-cron-id",
+          "minCount": 1
+        },
+        {
+          "file": "cron/doramon-todo-loop-tick.md",
+          "pattern": "doramon-todo-loop",
+          "minCount": 1
+        }
+      ],
+      "tests": [],
+      "runtime": [],
+      "e2eTests": [],
+      "addedDate": "2026-04-21"
     }
   ]
 }
