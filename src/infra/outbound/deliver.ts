@@ -1,4 +1,10 @@
 import { sendMediaWithLeadingCaption } from "openclaw/plugin-sdk/reply-payload";
+// frankclaw: defense-in-depth strip of internal runtime context from any text
+// reaching channel delivery, regardless of origin path.
+import {
+  hasInternalRuntimeContext,
+  stripInternalRuntimeContext,
+} from "../../agents/internal-runtime-context.js";
 import {
   chunkByParagraph,
   chunkMarkdownTextWithMode,
@@ -330,6 +336,20 @@ function normalizePayloadsForChannelDelivery(
   const normalizedPayloads: ReplyPayload[] = [];
   for (const payload of projectOutboundPayloadPlanForDelivery(plan)) {
     let sanitizedPayload = payload;
+    // frankclaw: defense-in-depth — strip internal runtime context markers
+    // (<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>, <<<BEGIN_UNTRUSTED_CHILD_RESULT>>>,
+    // etc.) from any text reaching channel delivery.  The normal LLM reply path
+    // already strips via normalizeReplyPayload → sanitizeUserFacingText, but the
+    // raw "method: send" gateway path and certain LLM echo edge cases can bypass
+    // that pipeline.  This is the last line of defense before text hits Discord /
+    // Telegram / WhatsApp.  Regression guard for 2026-04-21 internal-context leak.
+    if (sanitizedPayload.text && hasInternalRuntimeContext(sanitizedPayload.text)) {
+      const stripped = stripInternalRuntimeContext(sanitizedPayload.text).trim();
+      sanitizedPayload = {
+        ...sanitizedPayload,
+        text: stripped || "(internal context redacted)",
+      };
+    }
     if (handler.sanitizeText && sanitizedPayload.text) {
       if (!handler.shouldSkipPlainTextSanitization?.(sanitizedPayload)) {
         sanitizedPayload = {

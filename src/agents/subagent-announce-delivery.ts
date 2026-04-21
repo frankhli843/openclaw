@@ -720,33 +720,50 @@ async function sendSubagentAnnounceDirectly(params: {
           // fails, we fall through to the existing sanitized-trigger path so
           // Frank still sees something.
           //
-          // [frankclaw] Send a sanitized summary as the last-resort fallback,
-          // not the raw internal context block.  The previous code sent
-          // `params.triggerMessage` which is the full
-          // <<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>> payload — leaking session
-          // keys and raw child output to external channels and downstream
-          // ACP sessions.
+          // [frankclaw] Check whether the parent session produced a real
+          // user-facing reply during the method:"agent" call.  When
+          // deliver:true was set, the gateway already delivered that reply
+          // to the external channel.  Sending it again via the fallback
+          // method:"send" causes duplicate messages in the thread
+          // (2026-04-21 regression: same completion posted 2-3x in Discord
+          // because hasDeliverableCompletionFinalResult returned false for
+          // openai-codex/gpt-5.2 result shapes even when a real reply
+          // existed in the session store and had already been delivered).
+          //
+          // Only fall through to the method:"send" path when the session
+          // store truly has no user-facing reply, meaning the parent LLM
+          // produced NO_REPLY / silent and the user needs a summary stub.
           const sessionStoreReply = await readSessionStoreFallbackReply({
             sessionKey: canonicalRequesterSessionKey,
           });
-          const fallbackMessage =
-            sessionStoreReply ??
-            buildSanitizedFallbackMessage(params.triggerMessage, params.internalEvents);
-          const fallbackSource = sessionStoreReply ? "session-store-reply" : "sanitized-summary";
-          await subagentAnnounceDeliveryDeps.callGateway({
-            method: "send",
-            params: {
-              channel: deliveryTarget.channel,
-              accountId: deliveryTarget.accountId,
-              to: deliveryTarget.to,
-              threadId: deliveryTarget.threadId,
-              message: fallbackMessage,
-              idempotencyKey: `${params.directIdempotencyKey}:fallback`,
-            },
-          });
-          defaultRuntime.log(
-            `[info] Subagent completion announce for ${params.directIdempotencyKey}: delivered via direct fallback (${fallbackSource}) to ${deliveryTarget.channel}:${deliveryTarget.to}`,
-          );
+          if (sessionStoreReply) {
+            // Parent produced a real reply and deliver:true was set, so the
+            // gateway already delivered it.  Skip fallback to avoid duplicate.
+            defaultRuntime.log(
+              `[info] Subagent completion announce for ${params.directIdempotencyKey}: session store has reply and deliver was true — skipping fallback to avoid duplicate delivery`,
+            );
+          } else {
+            // Parent produced no user-facing reply.  Send sanitized summary
+            // so the user at least sees something about the completion.
+            const fallbackMessage = buildSanitizedFallbackMessage(
+              params.triggerMessage,
+              params.internalEvents,
+            );
+            await subagentAnnounceDeliveryDeps.callGateway({
+              method: "send",
+              params: {
+                channel: deliveryTarget.channel,
+                accountId: deliveryTarget.accountId,
+                to: deliveryTarget.to,
+                threadId: deliveryTarget.threadId,
+                message: fallbackMessage,
+                idempotencyKey: `${params.directIdempotencyKey}:fallback`,
+              },
+            });
+            defaultRuntime.log(
+              `[info] Subagent completion announce for ${params.directIdempotencyKey}: delivered via direct fallback (sanitized-summary) to ${deliveryTarget.channel}:${deliveryTarget.to}`,
+            );
+          }
         } catch (fallbackErr) {
           defaultRuntime.log(
             `[warn] Subagent completion announce for ${params.directIdempotencyKey}: direct fallback delivery also failed: ${summarizeDeliveryError(fallbackErr)} (treating as delivered to avoid retry loop)`,

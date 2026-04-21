@@ -136,17 +136,16 @@ describe("completion direct announce delivery gating", () => {
     });
   });
 
-  // Regression test for 2026-04-15 outage: when the parent session DID
-  // produce a full user-facing reply but `agentResult` from `method: "agent"`
-  // does not expose it in a shape the walker can detect (observed with
-  // openai-codex/gpt-5.2 return shape), the fallback should read
-  // `chat.history` via `readLatestAssistantReply` and deliver the real reply
-  // text instead of the sanitized "task done" stub.
-  it("prefers the parent session's stored assistant reply over the sanitized trigger summary", async () => {
-    // First call = agent dispatch (walker sees no reply in agentResult).
-    // Second call = fallback `send`.
+  // Regression test for 2026-04-21: when the parent session DID produce a
+  // real user-facing reply and deliver:true was set, the gateway already
+  // delivered the reply to the external channel.  The fallback must NOT
+  // re-send it via method:"send" — that caused duplicate messages in
+  // Discord threads (openai-codex/gpt-5.2 result shapes triggered this
+  // because hasDeliverableCompletionFinalResult returned false even when
+  // a real reply existed in the session store).
+  it("skips fallback when session store has a reply (dedup: parent already delivered it)", async () => {
+    // Only the agent dispatch call — no fallback send.
     callGateway.mockResolvedValueOnce({ status: "ok", runId: "run-xyz" });
-    callGateway.mockResolvedValueOnce({ ok: true, messageId: "test-msg-session-reply" });
     // Session store has the real reply that the walker missed.
     readLatestAssistantReply.mockResolvedValueOnce(
       "Yep, fixed. Added a re-entrancy guard to recoverPendingDeliveries and a FIFO replay test suite. Landed on main as commit fbc68a9a0c.",
@@ -183,23 +182,10 @@ describe("completion direct announce delivery gating", () => {
         sessionKey: "agent:main:discord:channel:1493924684969017457",
       }),
     );
-    expect(callGateway).toHaveBeenCalledTimes(2);
-    // The fallback send must carry the real session-store reply, NOT the
-    // sanitized trigger summary.  Before the fix, this field was
-    // "A background task completed." for any trigger that stripped to
-    // internal-context-only.
-    const sendCall = callGateway.mock.calls[1][0];
-    expect(sendCall).toMatchObject({
-      method: "send",
-      params: expect.objectContaining({
-        channel: "discord",
-        to: "channel:1493924684969017457",
-        idempotencyKey: "announce:test:session-store-reply:fallback",
-      }),
-    });
-    expect(sendCall.params.message).toContain("Yep, fixed");
-    expect(sendCall.params.message).toContain("fbc68a9a0c");
-    expect(sendCall.params.message).not.toContain("BEGIN_OPENCLAW_INTERNAL_CONTEXT");
+    // Only the method:"agent" call — no fallback method:"send" because the
+    // reply was already delivered by the gateway during the agent turn.
+    expect(callGateway).toHaveBeenCalledTimes(1);
+    expect(callGateway.mock.calls[0][0].method).toBe("agent");
   });
 
   it("falls through to sanitized summary when session store has no fresh reply", async () => {
