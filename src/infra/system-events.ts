@@ -196,14 +196,35 @@ export function hasSystemEvents(sessionKey: string) {
   return (getSessionQueue(sessionKey)?.queue.length ?? 0) > 0;
 }
 
+/**
+ * Resolve a merged delivery context from pending system events, used as the
+ * "turn source" for heartbeat routing.
+ *
+ * Non-exec events take priority: their delivery context is merged first and
+ * returned when present. Exec-completion events act as a **fallback** only
+ * when no non-exec events provide routing context.
+ *
+ * Rationale: exec events carry the delivery context of the channel where the
+ * command was *issued*, which may differ from the session's current channel.
+ * When mixed with other events (e.g. cron reminders), the exec context would
+ * hijack routing (e.g. redirecting a WhatsApp session's heartbeat to Discord).
+ * However, when exec events are the *only* pending events, their delivery
+ * context is the correct target for the completion prompt — falling back to
+ * the session's stored lastChannel would be worse (the WhatsApp incident).
+ */
 export function resolveSystemEventDeliveryContext(
   events: readonly SystemEvent[],
 ): DeliveryContext | undefined {
   let resolved: DeliveryContext | undefined;
+  let execFallback: DeliveryContext | undefined;
   for (const event of events) {
-    resolved = mergeDeliveryContext(event.deliveryContext, resolved);
+    if (event.contextKey?.startsWith("exec:")) {
+      execFallback = mergeDeliveryContext(event.deliveryContext, execFallback);
+    } else {
+      resolved = mergeDeliveryContext(event.deliveryContext, resolved);
+    }
   }
-  return resolved;
+  return resolved ?? execFallback;
 }
 
 export function resetSystemEventsForTest() {

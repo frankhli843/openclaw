@@ -152,6 +152,89 @@ describe("system events (session routing)", () => {
     });
   });
 
+  it("excludes exec-completion events from resolved delivery context", () => {
+    const key = "agent:main:test-exec-exclusion";
+    // A cron event with a delivery context that SHOULD be included
+    enqueueSystemEvent("Cron triggered", {
+      sessionKey: key,
+      contextKey: "cron:daily-briefing",
+      deliveryContext: {
+        channel: "telegram",
+        to: "7918451151",
+      },
+    });
+    // An exec-completion event with a Discord delivery context that should be EXCLUDED
+    enqueueSystemEvent("Exec completed (abc12345, code 0) :: done", {
+      sessionKey: key,
+      contextKey: "exec:run-abc12345",
+      deliveryContext: {
+        channel: "discord",
+        to: "1474343755153932394",
+      },
+    });
+
+    const events = peekSystemEventEntries(key);
+    expect(events).toHaveLength(2);
+
+    const resolved = resolveSystemEventDeliveryContext(events);
+    // The exec event's Discord context must NOT override the cron event's Telegram context
+    expect(resolved).toEqual({
+      channel: "telegram",
+      to: "7918451151",
+    });
+  });
+
+  it("non-exec events take priority over exec events in mixed queue", () => {
+    const key = "agent:main:test-exec-priority";
+    // Exec event enqueued first with Discord context
+    enqueueSystemEvent("Exec completed (abc12345, code 0) :: done", {
+      sessionKey: key,
+      contextKey: "exec:run-abc12345",
+      deliveryContext: {
+        channel: "discord",
+        to: "1474343755153932394",
+      },
+    });
+    // Non-exec event enqueued second with Telegram context
+    enqueueSystemEvent("Cron: daily check", {
+      sessionKey: key,
+      contextKey: "cron:daily",
+      deliveryContext: {
+        channel: "telegram",
+        to: "7918451151",
+      },
+    });
+
+    const events = peekSystemEventEntries(key);
+    const resolved = resolveSystemEventDeliveryContext(events);
+    // Non-exec event wins regardless of queue order
+    expect(resolved).toEqual({
+      channel: "telegram",
+      to: "7918451151",
+    });
+  });
+
+  it("falls back to exec delivery context when no non-exec events exist", () => {
+    const key = "agent:main:test-exec-only";
+    enqueueSystemEvent("Exec completed (abc12345, code 0)", {
+      sessionKey: key,
+      contextKey: "exec:run-abc12345",
+      deliveryContext: {
+        channel: "discord",
+        to: "1474343755153932394",
+      },
+    });
+
+    const events = peekSystemEventEntries(key);
+    const resolved = resolveSystemEventDeliveryContext(events);
+    // When only exec events exist, their delivery context IS the correct
+    // routing target — falling back to session lastChannel would misroute.
+    expect(resolved).toEqual({
+      channel: "discord",
+      to: "1474343755153932394",
+    });
+  });
+
   it("keeps only the newest 20 queued events", () => {
     const key = "agent:main:test-max-events";
     for (let index = 1; index <= 22; index += 1) {
