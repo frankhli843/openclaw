@@ -86,6 +86,8 @@ export function resolveHeartbeatDeliveryTarget(params: {
   entry?: SessionEntry;
   heartbeat?: AgentDefaultsConfig["heartbeat"];
   turnSource?: DeliveryContext;
+  /** When true, skip session.lastChannel fallback — use turnSource alone. */
+  isolatedSession?: boolean;
 }): OutboundTarget {
   const { cfg, entry } = params;
   const heartbeat = params.heartbeat ?? cfg.agents?.defaults?.heartbeat;
@@ -109,10 +111,30 @@ export function resolveHeartbeatDeliveryTarget(params: {
     });
   }
 
+  // For isolated heartbeats, use turnSource alone without falling back to
+  // session.lastChannel. The base session's lastChannel can be from a
+  // different channel than the one that triggered exec completion events,
+  // causing cross-channel misrouting.
   const resolvedTurnSource =
     target === "last"
-      ? mergeDeliveryContext(params.turnSource, deliveryContextFromSession(entry))
+      ? params.isolatedSession
+        ? params.turnSource
+        : mergeDeliveryContext(params.turnSource, deliveryContextFromSession(entry))
       : undefined;
+
+  // When isolated with target=last and no deliverable channel from turnSource,
+  // we cannot safely route — return "none" to avoid session.lastChannel misrouting.
+  if (
+    params.isolatedSession &&
+    target === "last" &&
+    (!resolvedTurnSource?.channel || !isDeliverableMessageChannel(resolvedTurnSource.channel))
+  ) {
+    return buildNoHeartbeatDeliveryTarget({
+      reason: "isolated-no-turn-source",
+      lastChannel: undefined,
+      lastAccountId: undefined,
+    });
+  }
 
   const resolvedTarget = resolveSessionDeliveryTarget({
     entry,

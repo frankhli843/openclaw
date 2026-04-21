@@ -777,11 +777,11 @@ export async function runHeartbeatOnce(opts: {
     cfg,
     entry,
     heartbeat,
-    // Isolated heartbeat runs drain system events from their dedicated
-    // `:heartbeat` session, not from the base session we peek during preflight.
-    // Reusing base-session turnSource routing here can pin later isolated runs
-    // to stale channels/threads because that base-session event context remains queued.
-    turnSource: useIsolatedSession ? undefined : preflight.turnSourceDeliveryContext,
+    // Always pass the resolved turnSource from system events (including exec
+    // completion context). The isolatedSession flag prevents falling back to
+    // session.lastChannel, which avoids cross-channel misrouting.
+    turnSource: preflight.turnSourceDeliveryContext,
+    isolatedSession: useIsolatedSession,
   });
   const heartbeatAccountId = heartbeat?.accountId?.trim();
   if (delivery.reason === "unknown-account") {

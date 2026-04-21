@@ -972,3 +972,91 @@ describe("resolveSessionDeliveryTarget — cross-channel reply guard (#24152)", 
     expect(resolved.to).toBe("+15550000000");
   });
 });
+
+describe("resolveHeartbeatDeliveryTarget — isolated session avoids session.lastChannel fallback", () => {
+  it("uses exec completion turnSource instead of session.lastChannel for isolated heartbeat", () => {
+    // Bug: isolated heartbeat discarded turnSource and fell back to
+    // session.lastChannel, causing cross-channel misrouting when only
+    // exec completion events provided delivery context.
+    const resolved = resolveHeartbeatDeliveryTarget({
+      cfg: {},
+      entry: {
+        sessionId: "sess-isolated-exec",
+        updatedAt: 1,
+        lastChannel: "whatsapp",
+        lastTo: "+15559999999",
+      },
+      heartbeat: { target: "last" },
+      turnSource: {
+        channel: "discord",
+        to: "channel:123456",
+      },
+      isolatedSession: true,
+    });
+
+    expect(resolved.channel).toBe("discord");
+    expect(resolved.to).toBe("channel:123456");
+  });
+
+  it("does not route via session.lastChannel when turnSource has no channel (isolated)", () => {
+    // When isolated and turnSource exists but has no channel, should NOT
+    // fall back to session.lastChannel.
+    const resolved = resolveHeartbeatDeliveryTarget({
+      cfg: {},
+      entry: {
+        sessionId: "sess-isolated-no-channel",
+        updatedAt: 1,
+        lastChannel: "whatsapp",
+        lastTo: "+15559999999",
+      },
+      heartbeat: { target: "last" },
+      turnSource: {
+        threadId: 42,
+      },
+      isolatedSession: true,
+    });
+
+    // Without a deliverable channel from turnSource, isolated heartbeat
+    // should not misroute to the base session's whatsapp.
+    expect(resolved.channel).toBe("none");
+    expect(resolved.reason).toBe("isolated-no-turn-source");
+  });
+
+  it("falls back to session.lastChannel for non-isolated heartbeat (existing behavior)", () => {
+    const resolved = resolveHeartbeatDeliveryTarget({
+      cfg: {},
+      entry: {
+        sessionId: "sess-non-isolated",
+        updatedAt: 1,
+        lastChannel: "telegram",
+        lastTo: "8587265585",
+      },
+      heartbeat: { target: "last" },
+      turnSource: undefined,
+      isolatedSession: false,
+    });
+
+    expect(resolved.channel).toBe("telegram");
+    expect(resolved.to).toBe("8587265585");
+  });
+
+  it("routes correctly when turnSource is undefined and session is isolated", () => {
+    // No turnSource and isolated: should NOT route via session.lastChannel.
+    const resolved = resolveHeartbeatDeliveryTarget({
+      cfg: {},
+      entry: {
+        sessionId: "sess-isolated-no-turn",
+        updatedAt: 1,
+        lastChannel: "whatsapp",
+        lastTo: "+15559999999",
+      },
+      heartbeat: { target: "last" },
+      turnSource: undefined,
+      isolatedSession: true,
+    });
+
+    // Isolated with no turnSource: should not misroute to whatsapp
+    expect(resolved.channel).toBe("none");
+    expect(resolved.reason).toBe("isolated-no-turn-source");
+  });
+});
