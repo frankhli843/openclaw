@@ -473,4 +473,64 @@ describe("subagent announce seam flow", () => {
       }),
     );
   });
+
+  it("short-circuits announce for completed cron session whose PI is inactive", async () => {
+    // Simulate: parent is a cron session, run not active, session entry exists,
+    // but the embedded PI is no longer running (cron completed).
+    subagentRegistryRuntimeMock.isSubagentSessionRunActive.mockReturnValue(false);
+    isEmbeddedPiRunActiveMock.mockReturnValue(false);
+
+    // Return a session entry with a valid sessionId for the cron session.
+    loadSessionStoreMock.mockImplementation(() => ({
+      "agent:main:cron:test-cron-123": { sessionId: "cron-session-abc", updatedAt: Date.now() },
+    }));
+
+    const didAnnounce = await runSubagentAnnounceFlow({
+      childSessionKey: "agent:claude:acp:child-123",
+      childRunId: "run-child-acp",
+      requesterSessionKey: "agent:main:cron:test-cron-123",
+      requesterDisplayKey: "cron",
+      task: "morning briefing",
+      timeoutMs: 10,
+      cleanup: "delete",
+      waitForCompletion: false,
+      startedAt: 10,
+      endedAt: 20,
+      roundOneReply: "briefing result",
+      expectsCompletionMessage: true,
+    });
+
+    // Should treat as delivered (true) without calling agent gateway.
+    expect(didAnnounce).toBe(true);
+    expect(agentSpy).not.toHaveBeenCalled();
+  });
+
+  it("still delivers announce to cron session whose PI is active", async () => {
+    // Simulate: parent cron session is still running (PI active).
+    subagentRegistryRuntimeMock.isSubagentSessionRunActive.mockReturnValue(false);
+    isEmbeddedPiRunActiveMock.mockReturnValue(true);
+
+    loadSessionStoreMock.mockImplementation(() => ({
+      "agent:main:cron:test-cron-456": { sessionId: "cron-session-def", updatedAt: Date.now() },
+    }));
+
+    const didAnnounce = await runSubagentAnnounceFlow({
+      childSessionKey: "agent:claude:acp:child-456",
+      childRunId: "run-child-acp-2",
+      requesterSessionKey: "agent:main:cron:test-cron-456",
+      requesterDisplayKey: "cron",
+      task: "morning briefing",
+      timeoutMs: 10,
+      cleanup: "delete",
+      waitForCompletion: false,
+      startedAt: 10,
+      endedAt: 20,
+      roundOneReply: "briefing result",
+      expectsCompletionMessage: true,
+    });
+
+    // Should attempt delivery (agent gateway called), and report true since mock returns ok.
+    expect(didAnnounce).toBe(true);
+    expect(agentSpy).toHaveBeenCalled();
+  });
 });

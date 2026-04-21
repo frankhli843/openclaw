@@ -535,6 +535,20 @@ export async function runSubagentAnnounceFlow(params: {
             normalizeDeliveryContext(fallback.requesterOrigin) ?? targetRequesterOrigin;
           requesterDepth = getSubagentDepthFromSessionStore(targetRequesterSessionKey);
           requesterIsSubagent = requesterIsInternalSession();
+          // frankclaw: when the parent is a completed cron session (embedded PI
+          // no longer active), the cron has already delivered its output.  Delivery
+          // attempts will always fail, producing futile retries that end in
+          // ANNOUNCE_GIVEUP.  Short-circuit so the cleanup treats this as delivered.
+        } else if (isCronSessionKey(targetRequesterSessionKey)) {
+          const cronSessionId =
+            (parentSessionEntry as { sessionId?: string })?.sessionId?.trim() ?? "";
+          if (cronSessionId && !isEmbeddedPiRunActive(cronSessionId)) {
+            defaultRuntime.log(
+              `[info] Subagent announce skipped for completed cron ${targetRequesterSessionKey}: ` +
+                `embedded PI no longer active, treating as delivered`,
+            );
+            return true;
+          }
         }
       }
     }
