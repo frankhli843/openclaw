@@ -544,4 +544,29 @@ describe("subagent announce timeout config", () => {
       "A longer partial summary that should stay silent.",
     );
   });
+
+  it("skips announce when cron parent session entry has been deleted (delete-after-run)", async () => {
+    // Simulate a delete-after-run cron session: the session store entry no
+    // longer exists, isSubagentSessionRunActive returns false (cron is not
+    // a child), and there is no fallback requester.  Without the fix this
+    // would return false and trigger futile retries ending in GIVEUP.
+    subagentSessionRunActive = false;
+    shouldIgnorePostCompletion = false;
+    fallbackRequesterResolution = null;
+    sessionStore = {
+      "agent:main:subagent:worker": { sessionId: "child-sid" },
+      // NOTE: no entry for the cron requester session key
+    };
+    requesterDepthResolver = () => 0; // cron depth is 0
+
+    const didAnnounce = await runAnnounceFlowForTest("run-cron-deleted-session", {
+      requesterSessionKey: "agent:main:cron:67b6dcc3-d0ee-4be8-b5be-bc8180a6c37e",
+      requesterDisplayKey: "agent:main:cron:67b6dcc3-d0ee-4be8-b5be-bc8180a6c37e",
+    });
+
+    // Should return true (treated as delivered) instead of false (failed)
+    expect(didAnnounce).toBe(true);
+    // Should NOT have attempted direct delivery via callGateway agent method
+    expect(findFinalDirectAgentCall()).toBeUndefined();
+  });
 });

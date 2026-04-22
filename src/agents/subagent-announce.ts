@@ -525,6 +525,17 @@ export async function runSubagentAnnounceFlow(params: {
         const parentSessionAlive = hasUsableSessionEntry(parentSessionEntry);
 
         if (!parentSessionAlive) {
+          // frankclaw: when the parent cron session entry has been deleted
+          // (e.g. delete-after-run isolated cron), the cron has already
+          // delivered its output and no requester fallback exists.  Skip
+          // the announce to avoid futile retries ending in ANNOUNCE_GIVEUP.
+          if (isCronSessionKey(targetRequesterSessionKey)) {
+            defaultRuntime.log(
+              `[info] Subagent announce skipped for completed cron ${targetRequesterSessionKey}: ` +
+                `session entry deleted, treating as delivered`,
+            );
+            return true;
+          }
           const fallback = resolveRequesterForChildSession(targetRequesterSessionKey);
           if (!fallback?.requesterSessionKey) {
             shouldDeleteChildSession = false;
