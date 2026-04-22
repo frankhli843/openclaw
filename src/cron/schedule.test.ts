@@ -215,4 +215,37 @@ describe("coerceFiniteScheduleNumber", () => {
     expect(coerceFiniteScheduleNumber(null)).toBeUndefined();
     expect(coerceFiniteScheduleNumber(undefined)).toBeUndefined();
   });
+
+  // frankclaw: past-due at-jobs should fire immediately, not be skipped
+  describe("at schedule past-due firing", () => {
+    it("returns nowMs for past-due at-job so it fires on next tick", () => {
+      const pastAt = Date.parse("2026-01-01T00:00:00.000Z");
+      const nowMs = Date.parse("2026-04-22T10:00:00.000Z");
+      const next = computeNextRunAtMs(
+        { kind: "at", at: new Date(pastAt).toISOString() } as { kind: "at"; at: string },
+        nowMs,
+      );
+      expect(next).toBe(nowMs);
+    });
+
+    it("returns atMs for future at-job (unchanged behavior)", () => {
+      const futureAt = Date.parse("2026-12-01T00:00:00.000Z");
+      const nowMs = Date.parse("2026-04-22T10:00:00.000Z");
+      const next = computeNextRunAtMs(
+        { kind: "at", at: new Date(futureAt).toISOString() } as { kind: "at"; at: string },
+        nowMs,
+      );
+      expect(next).toBe(futureAt);
+    });
+
+    it("returns nowMs for at-job that just passed (within same second)", () => {
+      const nowMs = Date.parse("2026-04-22T10:00:01.000Z");
+      const atMs = nowMs - 500; // 500ms ago
+      const next = computeNextRunAtMs(
+        { kind: "at", at: new Date(atMs).toISOString() } as { kind: "at"; at: string },
+        nowMs,
+      );
+      expect(next).toBe(nowMs);
+    });
+  });
 });

@@ -79,7 +79,10 @@ export function computeNextRunAtMs(schedule: CronSchedule, nowMs: number): numbe
     if (atMs === null) {
       return undefined;
     }
-    return atMs > nowMs ? atMs : undefined;
+    // frankclaw: past-due at-jobs return nowMs so the scheduler fires them
+    // immediately on the next tick instead of skipping them forever.
+    // The scheduler's own dedup (lastRunAtMs check) prevents re-firing.
+    return atMs > nowMs ? atMs : nowMs;
   }
 
   if (schedule.kind === "every") {
