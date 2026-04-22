@@ -740,7 +740,7 @@ async function sendSubagentAnnounceDirectly(params: {
             // Parent produced a real reply and deliver:true was set, so the
             // gateway already delivered it.  Skip fallback to avoid duplicate.
             defaultRuntime.log(
-              `[info] Subagent completion announce for ${params.directIdempotencyKey}: session store has reply and deliver was true — skipping fallback to avoid duplicate delivery`,
+              `[info] Subagent completion announce for ${params.directIdempotencyKey}: session-store-reply dedup, session store has reply and deliver was true, skipping fallback to avoid duplicate delivery`,
             );
           } else {
             // Parent produced no user-facing reply.  Send sanitized summary
