@@ -559,8 +559,7 @@ async function inspectManualRunPreflight(
 }
 
 // frankclaw: upstream function, kept as dead code to avoid merge conflicts
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-async function inspectManualRunDisposition(
+async function _inspectManualRunDisposition(
   state: CronServiceState,
   id: string,
   mode?: "due" | "force",

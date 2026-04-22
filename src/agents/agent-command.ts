@@ -37,6 +37,11 @@ import {
 } from "./agent-scope.js";
 import { clearSessionAuthProfileOverride } from "./auth-profiles/session-override.js";
 import { ensureAuthProfileStore } from "./auth-profiles/store.js";
+// frankclaw: early transcript markers for ACP turns (fix 0-byte enqueue-drop detection)
+import {
+  markAcpTurnStarted,
+  markAcpTurnFailed,
+} from "./command/acp-transcript-lifecycle.frankclaw.js";
 import {
   persistSessionEntry as persistSessionEntryBase,
   prependInternalEventContext,
@@ -451,6 +456,17 @@ async function agentCommandInternal(
       });
       attemptExecutionRuntime.emitAcpLifecycleStart({ runId, startedAt });
 
+      // frankclaw: write session header so transcript is non-empty during the turn
+      const acpStartSessionFile = await markAcpTurnStarted({
+        sessionId,
+        sessionKey,
+        sessionEntry,
+        sessionStore,
+        storePath,
+        sessionAgentId,
+        cwd: workspaceDir,
+      });
+
       const visibleTextAccumulator = attemptExecutionRuntime.createAcpVisibleTextAccumulator();
       let stopReason: string | undefined;
       try {
@@ -506,6 +522,12 @@ async function agentCommandInternal(
           error,
           fallbackCode: "ACP_TURN_FAILED",
           fallbackMessage: "ACP turn failed before completion.",
+        });
+        // frankclaw: write failure marker so transcript shows the turn started but failed
+        await markAcpTurnFailed({
+          sessionFile: acpStartSessionFile,
+          error: acpError.message,
+          runId,
         });
         attemptExecutionRuntime.emitAcpLifecycleError({
           runId,
