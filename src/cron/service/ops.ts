@@ -558,6 +558,8 @@ async function inspectManualRunPreflight(
   });
 }
 
+// frankclaw: upstream function, kept as dead code to avoid merge conflicts
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function inspectManualRunDisposition(
   state: CronServiceState,
   id: string,
@@ -722,23 +724,24 @@ export async function run(state: CronServiceState, id: string, mode?: "due" | "f
 }
 
 export async function enqueueRun(state: CronServiceState, id: string, mode?: "due" | "force") {
-  const disposition = await inspectManualRunDisposition(state, id, mode);
-  if (!disposition.ok || !("runnable" in disposition && disposition.runnable)) {
-    return disposition;
+  // Reserve the execution slot atomically BEFORE enqueuing into the command
+  // lane.  This closes a TOCTOU race where the old flow checked disposition
+  // outside the lane, returned { enqueued: true }, but the actual run()
+  // inside the lane could find the job already-running (started by a timer
+  // tick or another manual run in the gap) and silently skip.  By reserving
+  // the slot here (setting runningAtMs under lock), { enqueued: true }
+  // guarantees the execution will proceed.
+  // frankclaw: fix enqueue-drop TOCTOU race
+  const prepared = await prepareManualRun(state, id, mode);
+  if (!prepared.ok || !prepared.ran) {
+    return prepared;
   }
 
   const runId = `manual:${id}:${state.deps.nowMs()}:${nextManualRunId++}`;
   void enqueueCommandInLane(
     CommandLane.Cron,
     async () => {
-      const result = await run(state, id, mode);
-      if (result.ok && "ran" in result && !result.ran) {
-        state.deps.log.info(
-          { jobId: id, runId, reason: result.reason },
-          "cron: queued manual run skipped before execution",
-        );
-      }
-      return result;
+      await finishPreparedManualRun(state, prepared, mode);
     },
     {
       warnAfterMs: 5_000,
@@ -749,11 +752,32 @@ export async function enqueueRun(state: CronServiceState, id: string, mode?: "du
         );
       },
     },
-  ).catch((err) => {
+  ).catch(async (err) => {
     state.deps.log.error(
       { jobId: id, runId, err: String(err) },
       "cron: queued manual run background execution failed",
     );
+    // The job slot was reserved in prepareManualRun (runningAtMs set and
+    // persisted).  If the lane rejects (gateway draining, lane cleared) or
+    // finishPreparedManualRun throws outside its own catch, clear the marker
+    // so the job doesn't get permanently stuck in "running" state.
+    try {
+      await locked(state, async () => {
+        await ensureLoaded(state, { skipRecompute: true });
+        const job = state.store?.jobs.find((entry) => entry.id === id);
+        if (job && job.state.runningAtMs === prepared.startedAt) {
+          job.state.runningAtMs = undefined;
+          job.state.lastStatus = "error";
+          job.state.lastError = `enqueue-drop: lane rejected after slot reservation (${String(err)})`;
+          await persist(state);
+        }
+      });
+    } catch (cleanupErr) {
+      state.deps.log.error(
+        { jobId: id, err: String(cleanupErr) },
+        "cron: failed to clear runningAtMs after enqueue failure",
+      );
+    }
   });
   return { ok: true, enqueued: true, runId } as const;
 }

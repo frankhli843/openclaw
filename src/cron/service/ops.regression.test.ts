@@ -368,19 +368,19 @@ describe("cron service ops regressions", () => {
     clearCommandLane(CommandLane.Cron);
   });
 
-  it("logs unexpected queued manual run background failures once", async () => {
+  it("surfaces prepareManualRun failures immediately instead of silently dropping", async () => {
+    // With the TOCTOU fix, prepareManualRun runs before the lane enqueue.
+    // A persist failure is now surfaced immediately as an exception instead
+    // of returning { enqueued: true } and logging the error asynchronously.
     vi.useRealTimers();
     clearCommandLane(CommandLane.Cron);
     setCommandLaneConcurrency(CommandLane.Cron, 1);
 
     const dueAt = Date.parse("2026-02-06T10:05:03.000Z");
     const job = createDueIsolatedJob({ id: "queued-failure", nowMs: dueAt, nextRunAtMs: dueAt });
-    const errorLogged = createDeferred<void>();
     const log = {
       ...noopLogger,
-      error: vi.fn<(payload: unknown, message?: string) => void>(() => {
-        errorLogged.resolve();
-      }),
+      error: vi.fn<(payload: unknown, message?: string) => void>(),
     };
     const badStore = `${opsRegressionFixtures.makeStorePath().storePath}.dir`;
     await fs.mkdir(badStore, { recursive: true });
@@ -391,14 +391,61 @@ describe("cron service ops regressions", () => {
       jobs: [job],
     });
 
-    const result = await enqueueRun(state, job.id, "force");
-    expect(result).toEqual({ ok: true, enqueued: true, runId: expect.any(String) });
+    await expect(enqueueRun(state, job.id, "force")).rejects.toThrow();
 
-    await errorLogged.promise;
-    expect(log.error).toHaveBeenCalledTimes(1);
-    expect(log.error.mock.calls[0]?.[1]).toBe(
-      "cron: queued manual run background execution failed",
+    clearCommandLane(CommandLane.Cron);
+  });
+
+  it("enqueueRun rejects with already-running when a timer tick owns the job (TOCTOU fix)", async () => {
+    // Regression test for the enqueue-drop bug: previously enqueueRun checked
+    // disposition outside the cron lane and returned { enqueued: true }, but
+    // the actual run() inside the lane could find the job already-running
+    // (started by a timer tick in the gap) and silently skip.  The fix moves
+    // prepareManualRun before the lane enqueue, so the caller gets an
+    // accurate rejection instead of a false { enqueued: true }.
+    vi.useRealTimers();
+    clearCommandLane(CommandLane.Cron);
+    setCommandLaneConcurrency(CommandLane.Cron, 1);
+
+    const store = opsRegressionFixtures.makeStorePath();
+    const dueAt = Date.now() - 1;
+    const job = createIsolatedRegressionJob({
+      id: "toctou-overlap",
+      name: "toctou-overlap",
+      scheduledAt: dueAt,
+      schedule: { kind: "at", at: new Date(dueAt).toISOString() },
+      payload: { kind: "agentTurn", message: "toctou test" },
+      state: { nextRunAtMs: dueAt },
+    });
+    await writeCronJobs(store.storePath, [job]);
+
+    const runIsolatedAgentJob = vi.fn(
+      async () =>
+        await new Promise<{ status: "ok" | "error" | "skipped"; summary?: string; error?: string }>(
+          () => {
+            // Never resolves — simulates a long-running timer-triggered job
+          },
+        ),
     );
+
+    const state = createCronServiceState({
+      cronEnabled: true,
+      storePath: store.storePath,
+      log: noopLogger,
+      enqueueSystemEvent: vi.fn(),
+      requestHeartbeatNow: vi.fn(),
+      runIsolatedAgentJob,
+    });
+
+    // Start a timer tick that will claim the job (set runningAtMs)
+    const _timerPromise = onTimer(state);
+    // Wait for the job to actually start
+    await vi.waitFor(() => expect(runIsolatedAgentJob).toHaveBeenCalledTimes(1));
+
+    // Now try to manually enqueue the same job — should be rejected, not
+    // silently enqueued-then-dropped.
+    const manualResult = await enqueueRun(state, job.id, "force");
+    expect(manualResult).toMatchObject({ ok: true, ran: false, reason: "already-running" });
 
     clearCommandLane(CommandLane.Cron);
   });
