@@ -101,7 +101,6 @@ export * from "../infra/net/undici-global-dispatcher.js";
 export * from "../infra/net/ssrf.js";
 export * from "../infra/outbound/identity.js";
 export * from "../infra/outbound/discord-dnr.js";
-export * from "../infra/outbound/dnr-bypass.frankclaw.js";
 export * from "../infra/outbound/delivery-queue.js";
 export * from "../infra/outbound/sanitize-text.js";
 export * from "../infra/parse-finite-number.js";
