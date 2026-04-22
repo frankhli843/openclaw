@@ -2,6 +2,7 @@ import {
   enforceWhatsAppDnrWindow,
   WhatsAppDnrSuppressedError,
 } from "../../../../../src/infra/outbound/discord-dnr.js";
+import { runWithDnrBypass } from "../../../../../src/infra/outbound/dnr-bypass.frankclaw.js";
 import { getPrimaryIdentityId, getSelfIdentity, getSenderIdentity } from "../../identity.js";
 import {
   resolveWhatsAppCommandAuthorized,
@@ -355,28 +356,32 @@ export async function processMessage(params: {
     return deliverWebReply(deliverParams);
   };
 
-  return dispatchWhatsAppBufferedReply({
-    cfg: params.cfg,
-    connectionId: params.connectionId,
-    context: ctxPayload,
-    conversationId,
-    deliverReply: frankclaw_deliverReply,
-    groupHistories: params.groupHistories,
-    groupHistoryKey: params.groupHistoryKey,
-    maxMediaBytes: params.maxMediaBytes,
-    maxMediaTextChunkLimit: params.maxMediaTextChunkLimit,
-    msg: params.msg,
-    onModelSelected,
-    rememberSentText: params.rememberSentText,
-    replyLogger: params.replyLogger,
-    replyPipeline: {
-      ...replyPipeline,
-      responsePrefix,
-    },
-    replyResolver: params.replyResolver,
-    route: params.route,
-    shouldClearGroupHistory,
-  });
+  // frankclaw: wrap dispatch in DNR bypass so replies to user-initiated
+  // messages are never suppressed by quiet hours (direct-action exception).
+  return runWithDnrBypass(() =>
+    dispatchWhatsAppBufferedReply({
+      cfg: params.cfg,
+      connectionId: params.connectionId,
+      context: ctxPayload,
+      conversationId,
+      deliverReply: frankclaw_deliverReply,
+      groupHistories: params.groupHistories,
+      groupHistoryKey: params.groupHistoryKey,
+      maxMediaBytes: params.maxMediaBytes,
+      maxMediaTextChunkLimit: params.maxMediaTextChunkLimit,
+      msg: params.msg,
+      onModelSelected,
+      rememberSentText: params.rememberSentText,
+      replyLogger: params.replyLogger,
+      replyPipeline: {
+        ...replyPipeline,
+        responsePrefix,
+      },
+      replyResolver: params.replyResolver,
+      route: params.route,
+      shouldClearGroupHistory,
+    }),
+  );
 }
 
 export const __testing = {

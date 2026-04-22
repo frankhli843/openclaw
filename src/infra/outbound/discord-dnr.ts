@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { isDnrBypassActive } from "./dnr-bypass.frankclaw.js";
 
 type DiscordDnrContext = {
   channel: string;
@@ -400,6 +401,10 @@ export class DiscordDnrSuppressedError extends Error {
 }
 
 export function enforceDiscordDnrWindow(ctx: DiscordDnrContext, nowMs = Date.now()): void {
+  // frankclaw: skip DNR enforcement when processing a user-initiated message
+  if (isDnrBypassActive()) {
+    return;
+  }
   const effective = resolveEffectiveRule(ctx, nowMs);
   if (!effective.active) {
     return;
@@ -593,6 +598,10 @@ export class WhatsAppDnrSuppressedError extends Error {
  * the target group is within a configured quiet window.
  */
 export function enforceWhatsAppDnrWindow(groupId: string, nowMs = Date.now()): void {
+  // frankclaw: skip DNR enforcement when processing a user-initiated message
+  if (isDnrBypassActive()) {
+    return;
+  }
   const effective = resolveWhatsAppEffectiveRule({ channel: "whatsapp", groupId }, nowMs);
   if (!effective.active) {
     return;

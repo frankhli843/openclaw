@@ -28,6 +28,7 @@ import { recordInboundSession } from "openclaw/plugin-sdk/conversation-runtime";
 import {
   enforceDiscordDnrWindow,
   DiscordDnrSuppressedError,
+  runWithDnrBypass,
 } from "openclaw/plugin-sdk/infra-runtime";
 import { getAgentScopedMediaLocalRoots } from "openclaw/plugin-sdk/media-runtime";
 import { resolveChunkMode } from "openclaw/plugin-sdk/reply-chunking";
@@ -894,67 +895,73 @@ export async function processDiscordMessage(
       dispatchAborted = true;
       return;
     }
-    dispatchResult = await dispatchInboundMessage({
-      ctx: ctxPayload,
-      cfg,
-      dispatcher,
-      replyOptions: {
-        ...replyOptions,
-        abortSignal,
-        skillFilter: channelConfig?.skills,
-        disableBlockStreaming:
-          disableBlockStreamingForDraft ??
-          (typeof resolvedBlockStreamingEnabled === "boolean"
-            ? !resolvedBlockStreamingEnabled
-            : undefined),
-        onPartialReply: draftStream ? (payload) => updateDraftFromPartial(payload.text) : undefined,
-        onAssistantMessageStart: draftStream
-          ? () => {
-              if (shouldSplitPreviewMessages && hasStreamedMessage) {
-                logVerbose("discord: calling forceNewMessage() for draft stream");
-                draftStream.forceNewMessage();
+    // frankclaw: wrap dispatch in DNR bypass so replies to user-initiated
+    // messages are never suppressed by quiet hours (direct-action exception).
+    dispatchResult = await runWithDnrBypass(() =>
+      dispatchInboundMessage({
+        ctx: ctxPayload,
+        cfg,
+        dispatcher,
+        replyOptions: {
+          ...replyOptions,
+          abortSignal,
+          skillFilter: channelConfig?.skills,
+          disableBlockStreaming:
+            disableBlockStreamingForDraft ??
+            (typeof resolvedBlockStreamingEnabled === "boolean"
+              ? !resolvedBlockStreamingEnabled
+              : undefined),
+          onPartialReply: draftStream
+            ? (payload) => updateDraftFromPartial(payload.text)
+            : undefined,
+          onAssistantMessageStart: draftStream
+            ? () => {
+                if (shouldSplitPreviewMessages && hasStreamedMessage) {
+                  logVerbose("discord: calling forceNewMessage() for draft stream");
+                  draftStream.forceNewMessage();
+                }
+                lastPartialText = "";
+                draftText = "";
+                draftChunker?.reset();
               }
-              lastPartialText = "";
-              draftText = "";
-              draftChunker?.reset();
-            }
-          : undefined,
-        onReasoningEnd: draftStream
-          ? () => {
-              if (shouldSplitPreviewMessages && hasStreamedMessage) {
-                logVerbose("discord: calling forceNewMessage() for draft stream");
-                draftStream.forceNewMessage();
+            : undefined,
+          onReasoningEnd: draftStream
+            ? () => {
+                if (shouldSplitPreviewMessages && hasStreamedMessage) {
+                  logVerbose("discord: calling forceNewMessage() for draft stream");
+                  draftStream.forceNewMessage();
+                }
+                lastPartialText = "";
+                draftText = "";
+                draftChunker?.reset();
               }
-              lastPartialText = "";
-              draftText = "";
-              draftChunker?.reset();
+            : undefined,
+          onModelSelected,
+          onReasoningStream: async () => {
+            await statusReactions.setThinking();
+          },
+          onToolStart: async (payload) => {
+            if (isProcessAborted(abortSignal)) {
+              return;
             }
-          : undefined,
-        onModelSelected,
-        onReasoningStream: async () => {
-          await statusReactions.setThinking();
+            await statusReactions.setTool(payload.name);
+          },
+          onCompactionStart: async () => {
+            if (isProcessAborted(abortSignal)) {
+              return;
+            }
+            await statusReactions.setCompacting();
+          },
+          onCompactionEnd: async () => {
+            if (isProcessAborted(abortSignal)) {
+              return;
+            }
+            statusReactions.cancelPending();
+            await statusReactions.setThinking();
+          },
         },
-        onToolStart: async (payload) => {
-          if (isProcessAborted(abortSignal)) {
-            return;
-          }
-          await statusReactions.setTool(payload.name);
-        },
-        onCompactionStart: async () => {
-          if (isProcessAborted(abortSignal)) {
-            return;
-          }
-          await statusReactions.setCompacting();
-        },
-        onCompactionEnd: async () => {
-          if (isProcessAborted(abortSignal)) {
-            return;
-          }
-          statusReactions.cancelPending();
-          await statusReactions.setThinking();
-        },
-      },
-    });
+      }),
+    );
     if (isProcessAborted(abortSignal)) {
       dispatchAborted = true;
       return;
