@@ -220,6 +220,21 @@ describe("discord DNR policy", () => {
       enforceDiscordDnrWindow({ channel: "discord", to: "channel:123" }, anyTs),
     ).not.toThrow();
   });
+
+  it("quiet hours suppress unconditionally (no bypass for user-initiated messages)", () => {
+    // Regression: quiet-hours DNR queueing is intentional for sleep hygiene.
+    // There must be no bypass mechanism that allows user-initiated messages
+    // to skip DNR enforcement during quiet hours.
+    const eveningTs = Date.parse("2026-03-06T01:30:00.000Z"); // 20:30 ET, inside window
+
+    // DNR must throw during quiet hours regardless of call context
+    expect(() =>
+      enforceDiscordDnrWindow({ channel: "discord", to: "channel:1479083833830801520" }, eveningTs),
+    ).toThrow(DiscordDnrSuppressedError);
+
+    // Verify no dnr-bypass module exists (must not be re-introduced)
+    expect(() => require("./dnr-bypass.frankclaw.js")).toThrow();
+  });
 });
 
 describe("whatsapp DNR policy", () => {
@@ -453,5 +468,30 @@ describe("whatsapp DNR policy", () => {
     expect(isDiscordDnrTarget({ channel: "discord", to: "channel:123" })).toBe(false);
     // WhatsApp policy works independently via channel-dnr-policies.json
     expect(isWhatsAppDnrTarget("any@g.us")).toBe(true);
+  });
+
+  it("quiet hours suppress unconditionally for WhatsApp (no bypass)", () => {
+    // Regression: quiet-hours DNR queueing is intentional for sleep hygiene.
+    // WhatsApp quiet hours must enforce even during user-initiated message handling.
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "wa-dnr-"));
+    setupWhatsAppPolicy(tmp, {
+      version: 1,
+      whatsapp: {
+        recurring: [
+          {
+            id: "casual-mon",
+            channel: "whatsapp",
+            groupId: "120363421390336301@g.us",
+            enabled: true,
+            window: { timeZone: "America/Toronto", start: "17:00", end: "08:30" },
+          },
+        ],
+      },
+    });
+
+    const eveningTs = Date.parse("2026-03-06T01:30:00.000Z"); // 20:30 ET, inside window
+    expect(() => enforceWhatsAppDnrWindow("120363421390336301@g.us", eveningTs)).toThrow(
+      WhatsAppDnrSuppressedError,
+    );
   });
 });
