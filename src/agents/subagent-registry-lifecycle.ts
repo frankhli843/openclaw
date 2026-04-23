@@ -9,6 +9,8 @@ import {
   setDetachedTaskDeliveryStatusByRunId,
 } from "../tasks/detached-task-runtime.js";
 import { normalizeDeliveryContext } from "../utils/delivery-context.js";
+// frankclaw: last-resort fallback delivery when all announce retries are exhausted
+import { attemptGiveUpFallbackDelivery } from "./subagent-announce-giveup-fallback.frankclaw.js";
 import { withSubagentOutcomeTiming } from "./subagent-announce-output.js";
 import {
   captureSubagentCompletionReply,
@@ -287,7 +289,11 @@ export function createSubagentRegistryLifecycleController(params: {
       await safeRemoveAttachmentsDir(giveUpParams.entry);
     }
     const completionReason = resolveCleanupCompletionReason(giveUpParams.entry);
-    logAnnounceGiveUp(giveUpParams.entry, giveUpParams.reason);
+    // frankclaw: attempt last-resort direct delivery before giving up
+    const fallbackResult = await attemptGiveUpFallbackDelivery(giveUpParams.entry);
+    if (!fallbackResult.recovered) {
+      logAnnounceGiveUp(giveUpParams.entry, giveUpParams.reason);
+    }
     // Retry-limit / expiry give-up should not leave cleanup stuck behind the
     // best-effort ended hook. Mark the run cleaned first, then fire the hook.
     completeCleanupBookkeeping({
@@ -467,7 +473,11 @@ export function createSubagentRegistryLifecycleController(params: {
         await safeRemoveAttachmentsDir(entry);
       }
       const completionReason = resolveCleanupCompletionReason(entry);
-      logAnnounceGiveUp(entry, deferredDecision.reason);
+      // frankclaw: attempt last-resort direct delivery before giving up
+      const primaryFallbackResult = await attemptGiveUpFallbackDelivery(entry);
+      if (!primaryFallbackResult.recovered) {
+        logAnnounceGiveUp(entry, deferredDecision.reason);
+      }
       // Giving up on announce delivery is terminal for cleanup even if the
       // best-effort hook is still resolving.
       completeCleanupBookkeeping({

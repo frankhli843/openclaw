@@ -71,6 +71,11 @@ import {
   postAcpSpawnKickoffLog,
   shouldRedirectAcpSpawnToLogs,
 } from "./acp-spawn-logs.frankclaw.js";
+// frankclaw: early transcript marker so ACP transcripts are non-zero before dispatch
+import {
+  writeAcpDispatchFailureMarker,
+  writeAcpSpawnMarker,
+} from "./acp-spawn-marker.frankclaw.js";
 import {
   type AcpSpawnParentRelayHandle,
   resolveAcpSpawnStreamLogPath,
@@ -1167,6 +1172,22 @@ export async function spawnAcpDirect(
       emitStartNotice: false,
     });
   }
+  // frankclaw: write early spawn marker so transcript is non-zero before async dispatch
+  {
+    const markerStorePath = resolveStorePath(cfg.session?.store, { agentId: targetAgentId });
+    const markerStore = loadSessionStore(markerStorePath);
+    const markerEntry = markerStore[sessionKey];
+    await writeAcpSpawnMarker({
+      sessionId: markerEntry?.sessionId ?? sessionKey,
+      sessionKey,
+      sessionEntry: markerEntry,
+      sessionStore: markerStore,
+      storePath: markerStorePath,
+      agentId: targetAgentId,
+      label: params.label,
+    });
+  }
+
   try {
     const response = await callGateway({
       method: "agent",
@@ -1188,6 +1209,13 @@ export async function spawnAcpDirect(
       childRunId = responseRunId;
     }
   } catch (err) {
+    // frankclaw: write dispatch failure marker for diagnostics
+    await writeAcpDispatchFailureMarker({
+      sessionKey,
+      agentId: targetAgentId,
+      runId: childIdem,
+      error: summarizeError(err),
+    });
     parentRelay?.dispose();
     await cleanupFailedAcpSpawn({
       cfg,

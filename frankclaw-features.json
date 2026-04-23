@@ -1411,7 +1411,7 @@
       ],
       "tests": ["src/infra/outbound/discord-dnr.test.ts"],
       "runtime": [],
-      "e2eTests": [],
+      "e2eTests": ["test/frankclaw-features-e2e.test.ts"],
       "addedDate": "2026-04-22"
     }
   ],
