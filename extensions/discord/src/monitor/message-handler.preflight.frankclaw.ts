@@ -194,8 +194,9 @@ export function resolveSessionExistsFallback(params: {
     const suffix = `:discord:channel:${params.channelId}`;
     for (const key of Object.keys(store)) {
       if (key.endsWith(suffix)) {
+        const sessionStatus = store[key]?.status;
         logVerbose(
-          `discord: thread session fallback hit for channel ${params.channelId} (key=${key})`,
+          `discord: thread session fallback hit for channel ${params.channelId} (key=${key}, status=${sessionStatus ?? "active"})`,
         );
         return true;
       }

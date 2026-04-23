@@ -461,6 +461,16 @@ export async function initSessionState(params: {
     typeof entry?.updatedAt === "number" &&
     Number.isFinite(entry.updatedAt);
 
+  // frankclaw: sessions with terminal lifecycle status (done, failed, killed, timeout)
+  // must start a new session. Without this, thread/topic sessions that completed their
+  // subagent run would be "reused" (same sessionId, stale CLI binding) and new messages
+  // would be silently dropped.
+  const TERMINAL_SESSION_STATUSES = new Set(["done", "failed", "killed", "timeout"]);
+  const isTerminalSession = Boolean(entry?.status && TERMINAL_SESSION_STATUSES.has(entry.status));
+  if (isTerminalSession && !isNewSession) {
+    isNewSession = true;
+  }
+
   if (!isNewSession && freshEntry && canReuseExistingEntry) {
     sessionId = entry.sessionId;
     systemSent = entry.systemSent ?? false;
@@ -481,10 +491,10 @@ export async function initSessionState(params: {
     isNewSession = true;
     systemSent = false;
     abortedLastRun = false;
-    // When a reset trigger (/new, /reset) starts a new session, carry over
-    // user-set behavior overrides (verbose, thinking, reasoning, ttsAuto)
-    // so the user doesn't have to re-enable them every time.
-    if (resetTriggered && entry) {
+    // When a reset trigger (/new, /reset) or terminal session (done/failed/killed/timeout)
+    // starts a new session, carry over user-set behavior overrides (verbose, thinking,
+    // reasoning, ttsAuto) so the user doesn't have to re-enable them every time.
+    if ((resetTriggered || isTerminalSession) && entry) {
       persistedThinking = entry.thinkingLevel;
       persistedVerbose = entry.verboseLevel;
       persistedTrace = entry.traceLevel;
@@ -626,6 +636,13 @@ export async function initSessionState(params: {
     lastTo,
     lastAccountId,
     lastThreadId,
+    // frankclaw: clear lifecycle fields when creating a new session from a terminal one.
+    // Without this, the spread at `{ ...sessionStore[sessionKey], ...sessionEntry }` would
+    // carry forward the old status/startedAt/endedAt/runtimeMs, making every subsequent
+    // message also appear terminal.
+    ...(isTerminalSession
+      ? { status: undefined, startedAt: undefined, endedAt: undefined, runtimeMs: undefined }
+      : {}),
   };
   const metaPatch = deriveSessionMetaPatch({
     ctx: sessionCtxForState,

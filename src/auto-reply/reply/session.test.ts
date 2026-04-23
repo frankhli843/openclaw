@@ -1332,6 +1332,98 @@ describe("initSessionState reset policy", () => {
     expect(result.sessionId).toBe(existingSessionId);
   });
 
+  // frankclaw: terminal session status forces a new session
+  it("creates a new session when existing entry has terminal status (done)", async () => {
+    vi.setSystemTime(new Date(2026, 0, 18, 5, 0, 0));
+    const root = await makeCaseDir("openclaw-terminal-session-done-");
+    const storePath = path.join(root, "sessions.json");
+    const sessionKey = "agent:main:discord:channel:thread123";
+    const existingSessionId = "terminal-done-session";
+
+    await writeSessionStoreFast(storePath, {
+      [sessionKey]: {
+        sessionId: existingSessionId,
+        updatedAt: new Date(2026, 0, 18, 4, 30, 0).getTime(),
+        status: "done",
+        startedAt: new Date(2026, 0, 18, 4, 0, 0).getTime(),
+        endedAt: new Date(2026, 0, 18, 4, 30, 0).getTime(),
+        runtimeMs: 1800000,
+        systemSent: true,
+        modelOverride: "gpt-5.2",
+      },
+    });
+
+    const cfg = { session: { store: storePath } } as OpenClawConfig;
+    const result = await initSessionState({
+      ctx: { Body: "hello again", SessionKey: sessionKey },
+      cfg,
+      commandAuthorized: true,
+    });
+
+    expect(result.isNewSession).toBe(true);
+    expect(result.sessionId).not.toBe(existingSessionId);
+    // Lifecycle fields should be cleared in the new entry
+    expect(result.sessionEntry.status).toBeUndefined();
+    expect(result.sessionEntry.startedAt).toBeUndefined();
+    expect(result.sessionEntry.endedAt).toBeUndefined();
+    expect(result.sessionEntry.runtimeMs).toBeUndefined();
+    // User-facing settings should carry over
+    expect(result.sessionEntry.modelOverride).toBe("gpt-5.2");
+  });
+
+  it("creates a new session when existing entry has terminal status (failed)", async () => {
+    vi.setSystemTime(new Date(2026, 0, 18, 5, 0, 0));
+    const root = await makeCaseDir("openclaw-terminal-session-failed-");
+    const storePath = path.join(root, "sessions.json");
+    const sessionKey = "agent:main:discord:channel:thread456";
+    const existingSessionId = "terminal-failed-session";
+
+    await writeSessionStoreFast(storePath, {
+      [sessionKey]: {
+        sessionId: existingSessionId,
+        updatedAt: new Date(2026, 0, 18, 4, 30, 0).getTime(),
+        status: "failed",
+      },
+    });
+
+    const cfg = { session: { store: storePath } } as OpenClawConfig;
+    const result = await initSessionState({
+      ctx: { Body: "retry", SessionKey: sessionKey },
+      cfg,
+      commandAuthorized: true,
+    });
+
+    expect(result.isNewSession).toBe(true);
+    expect(result.sessionId).not.toBe(existingSessionId);
+    expect(result.sessionEntry.status).toBeUndefined();
+  });
+
+  it("reuses session when status is running (not terminal)", async () => {
+    vi.setSystemTime(new Date(2026, 0, 18, 5, 0, 0));
+    const root = await makeCaseDir("openclaw-running-session-");
+    const storePath = path.join(root, "sessions.json");
+    const sessionKey = "agent:main:discord:channel:thread789";
+    const existingSessionId = "running-session";
+
+    await writeSessionStoreFast(storePath, {
+      [sessionKey]: {
+        sessionId: existingSessionId,
+        updatedAt: new Date(2026, 0, 18, 4, 30, 0).getTime(),
+        status: "running",
+      },
+    });
+
+    const cfg = { session: { store: storePath } } as OpenClawConfig;
+    const result = await initSessionState({
+      ctx: { Body: "followup", SessionKey: sessionKey },
+      cfg,
+      commandAuthorized: true,
+    });
+
+    expect(result.isNewSession).toBe(false);
+    expect(result.sessionId).toBe(existingSessionId);
+  });
+
   it("defaults to daily resets when only resetByType is configured", async () => {
     vi.setSystemTime(new Date(2026, 0, 18, 5, 0, 0));
     const root = await makeCaseDir("openclaw-reset-type-default-");
