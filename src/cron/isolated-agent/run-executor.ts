@@ -352,11 +352,11 @@ export async function executeCronRun(params: {
   // Fixes the 2026-04-23 knowledge-agent failure where the parent cron
   // session died after batch 1 because it never got a second turn.
   if (!params.isAborted()) {
-    const checkInterim = (result: {
-      meta?: { error?: unknown; finalAssistantVisibleText?: string };
-      didSendViaMessagingTool?: boolean;
-      payloads?: Array<{ text?: string; isError?: boolean }>;
-    }) => {
+    const checkInterim = (rawResult: unknown): boolean => {
+      const result = rawResult as CronPromptRunResult;
+      if (!result) {
+        return false;
+      }
       const payloads = result.payloads ?? [];
       const { deliveryPayloadHasStructuredContent, outputText } = resolveCronPayloadOutcome({
         payloads,

@@ -67,13 +67,8 @@ export interface OrchestrationContext {
   sessionFilePath: string | undefined;
   isAborted: () => boolean;
   runPrompt: (prompt: string) => Promise<void>;
-  getRunResult: () => {
-    runResult?: {
-      meta?: { error?: unknown; finalAssistantVisibleText?: string };
-      didSendViaMessagingTool?: boolean;
-      payloads?: Array<{ text?: string; isError?: boolean }>;
-    };
-  };
+  /** Returns the current run result. The runResult shape is opaque to this module. */
+  getRunResult: () => { runResult?: unknown };
 }
 
 /**
@@ -90,9 +85,8 @@ export interface OrchestrationContext {
  */
 export async function runOrchestrationLoop(
   ctx: OrchestrationContext,
-  checkInterim: (
-    runResult: NonNullable<ReturnType<OrchestrationContext["getRunResult"]>["runResult"]>,
-  ) => boolean,
+  /** Returns true if the run result looks like an interim orchestration ack. */
+  checkInterim: (runResult: unknown) => boolean,
 ): Promise<number> {
   const registry = await loadRegistryRuntime();
   const followup = await loadFollowupRuntime();
