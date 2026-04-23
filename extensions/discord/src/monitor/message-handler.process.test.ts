@@ -1,6 +1,6 @@
 import { DEFAULT_EMOJIS } from "openclaw/plugin-sdk/channel-feedback";
 import type { ReplyPayload } from "openclaw/plugin-sdk/reply-dispatch-runtime";
-import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const sendMocks = vi.hoisted(() => ({
   reactMessageDiscord: vi.fn<
@@ -971,5 +971,94 @@ describe("processDiscordMessage DNR bed reaction", () => {
     >;
     const bedReaction = reactCalls.find((call) => call[2] === "\uD83D\uDECF\uFE0F");
     expect(bedReaction).toBeUndefined();
+  });
+});
+
+describe("processDiscordMessage DNR preview suppression", () => {
+  function enableDnr() {
+    vi.spyOn(infraRuntimeModule, "enforceDiscordDnrWindow").mockImplementation(() => {
+      throw new infraRuntimeModule.DiscordDnrSuppressedError(Date.now() + 3600_000);
+    });
+  }
+
+  function disableDnr() {
+    vi.spyOn(infraRuntimeModule, "enforceDiscordDnrWindow").mockImplementation(() => {});
+  }
+
+  afterEach(() => {
+    disableDnr();
+  });
+
+  it("skips preview edit finalization and uses standard delivery during DNR", async () => {
+    enableDnr();
+    deliverDiscordReply.mockResolvedValue({ dnrSuppressed: true });
+
+    const draftStream = createMockDraftStreamForTest();
+
+    dispatchInboundMessage.mockImplementationOnce(async (params?: DispatchInboundParams) => {
+      await params?.dispatcher.sendFinalReply({ text: "Hello\nWorld" });
+      return { queuedFinal: true, counts: { final: 1, tool: 0, block: 0 } };
+    });
+
+    const ctx = await createBaseContext({
+      discordConfig: { streamMode: "partial", maxLinesPerMessage: 5 },
+    });
+
+    await processDiscordMessage(ctx as any);
+
+    // Preview edit should NOT have been called
+    expect(editMessageDiscord).not.toHaveBeenCalled();
+    // Draft stream should have been stopped and cleared
+    expect(draftStream.stop).toHaveBeenCalled();
+    expect(draftStream.clear).toHaveBeenCalled();
+    // Standard delivery should have been attempted (falls through to deliverDiscordReply)
+    expect(deliverDiscordReply).toHaveBeenCalled();
+  });
+
+  it("suppresses draft stream partial updates during DNR", async () => {
+    enableDnr();
+
+    const draftStream = createMockDraftStreamForTest();
+
+    dispatchInboundMessage.mockImplementationOnce(async (params?: DispatchInboundParams) => {
+      await params?.replyOptions?.onPartialReply?.({ text: "Hello" });
+      await params?.replyOptions?.onPartialReply?.({ text: "Hello World" });
+      return createNoQueuedDispatchResult();
+    });
+
+    const ctx = await createBaseContext({
+      discordConfig: { streamMode: "partial" },
+    });
+
+    await processDiscordMessage(ctx as any);
+
+    // Draft stream should NOT have received any updates
+    expect(draftStream.update).not.toHaveBeenCalled();
+  });
+
+  it("reacts with bed emoji when preview path is suppressed by DNR", async () => {
+    enableDnr();
+    deliverDiscordReply.mockResolvedValue({ dnrSuppressed: true });
+
+    createMockDraftStreamForTest();
+
+    dispatchInboundMessage.mockImplementationOnce(async (params?: DispatchInboundParams) => {
+      await params?.dispatcher.sendFinalReply({ text: "Hello\nWorld" });
+      return { queuedFinal: true, counts: { final: 1, tool: 0, block: 0 } };
+    });
+
+    const ctx = await createBaseContext({
+      discordConfig: { streamMode: "partial", maxLinesPerMessage: 5 },
+    });
+
+    await processDiscordMessage(ctx as any);
+
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    const reactCalls = sendMocks.reactMessageDiscord.mock.calls as Array<
+      [string, string, string, unknown]
+    >;
+    const bedReactions = reactCalls.filter((call) => call[2] === "🛏️");
+    expect(bedReactions.length).toBeGreaterThanOrEqual(1);
   });
 });

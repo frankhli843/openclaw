@@ -618,6 +618,21 @@ export async function processDiscordMessage(
   let hasStreamedMessage = false;
   let finalizedViaPreviewMessage = false;
 
+  // [frankclaw] Helper: check if DNR quiet window is active for the
+  // delivery channel. Used to gate draft preview sends/edits and
+  // preview-finalization edits so they don't leak during quiet hours.
+  const isDnrWindowActive = (): boolean => {
+    try {
+      enforceDiscordDnrWindow({ channel: "discord", to: deliverTarget });
+      return false;
+    } catch (err) {
+      if (err instanceof DiscordDnrSuppressedError) {
+        return true;
+      }
+      throw err;
+    }
+  };
+
   const resolvePreviewFinalText = (text?: string) => {
     if (typeof text !== "string") {
       return undefined;
@@ -654,6 +669,10 @@ export async function processDiscordMessage(
 
   const updateDraftFromPartial = (text?: string) => {
     if (!draftStream || !text) {
+      return;
+    }
+    // [frankclaw] DNR enforcement: do not send/edit preview messages during quiet hours.
+    if (isDnrWindowActive()) {
       return;
     }
     // Strip reasoning/thinking tags that may leak through the stream.
@@ -753,68 +772,45 @@ export async function processDiscordMessage(
           return;
         }
         if (draftStream && isFinal) {
-          await flushDraft();
-          const reply = resolveSendableOutboundReplyParts(payload);
-          const hasMedia = reply.hasMedia;
-          const finalText = payload.text;
-          const previewFinalText = resolvePreviewFinalText(finalText);
-          const hasExplicitReplyDirective =
-            Boolean(payload.replyToTag || payload.replyToCurrent) ||
-            (typeof finalText === "string" && /\[\[\s*reply_to(?:_current|\s*:)/i.test(finalText));
-          const previewMessageId = draftStream.messageId();
-
-          // Try to finalize via preview edit (text-only, fits in 2000 chars, not an error)
-          const canFinalizeViaPreviewEdit =
-            !finalizedViaPreviewMessage &&
-            !hasMedia &&
-            typeof previewFinalText === "string" &&
-            typeof previewMessageId === "string" &&
-            !hasExplicitReplyDirective &&
-            !payload.isError;
-
-          if (canFinalizeViaPreviewEdit) {
+          // [frankclaw] DNR enforcement: during quiet hours, skip preview
+          // streaming edits and fall through to deliverDiscordReply which
+          // properly queues the reply for the next open window.
+          if (isDnrWindowActive()) {
             await draftStream.stop();
-            if (isProcessAborted(abortSignal)) {
-              return;
+            if (!finalizedViaPreviewMessage) {
+              await draftStream.clear();
             }
-            try {
-              notifyFinalReplyStart();
-              await editMessageDiscord(
-                deliverChannelId,
-                previewMessageId,
-                { content: previewFinalText },
-                { rest: deliveryRest },
-              );
-              finalizedViaPreviewMessage = true;
-              replyReference.markSent();
-              observer?.onFinalReplyDelivered?.();
-              return;
-            } catch (err) {
-              logVerbose(
-                `discord: preview final edit failed; falling back to standard send (${String(err)})`,
-              );
-            }
-          }
+          } else {
+            await flushDraft();
+            const reply = resolveSendableOutboundReplyParts(payload);
+            const hasMedia = reply.hasMedia;
+            const finalText = payload.text;
+            const previewFinalText = resolvePreviewFinalText(finalText);
+            const hasExplicitReplyDirective =
+              Boolean(payload.replyToTag || payload.replyToCurrent) ||
+              (typeof finalText === "string" &&
+                /\[\[\s*reply_to(?:_current|\s*:)/i.test(finalText));
+            const previewMessageId = draftStream.messageId();
 
-          // Check if stop() flushed a message we can edit
-          if (!finalizedViaPreviewMessage) {
-            await draftStream.stop();
-            if (isProcessAborted(abortSignal)) {
-              return;
-            }
-            const messageIdAfterStop = draftStream.messageId();
-            if (
-              typeof messageIdAfterStop === "string" &&
-              typeof previewFinalText === "string" &&
+            // Try to finalize via preview edit (text-only, fits in 2000 chars, not an error)
+            const canFinalizeViaPreviewEdit =
+              !finalizedViaPreviewMessage &&
               !hasMedia &&
+              typeof previewFinalText === "string" &&
+              typeof previewMessageId === "string" &&
               !hasExplicitReplyDirective &&
-              !payload.isError
-            ) {
+              !payload.isError;
+
+            if (canFinalizeViaPreviewEdit) {
+              await draftStream.stop();
+              if (isProcessAborted(abortSignal)) {
+                return;
+              }
               try {
                 notifyFinalReplyStart();
                 await editMessageDiscord(
                   deliverChannelId,
-                  messageIdAfterStop,
+                  previewMessageId,
                   { content: previewFinalText },
                   { rest: deliveryRest },
                 );
@@ -824,16 +820,50 @@ export async function processDiscordMessage(
                 return;
               } catch (err) {
                 logVerbose(
-                  `discord: post-stop preview edit failed; falling back to standard send (${String(err)})`,
+                  `discord: preview final edit failed; falling back to standard send (${String(err)})`,
                 );
               }
             }
-          }
 
-          // Clear the preview and fall through to standard delivery
-          if (!finalizedViaPreviewMessage) {
-            await draftStream.clear();
-          }
+            // Check if stop() flushed a message we can edit
+            if (!finalizedViaPreviewMessage) {
+              await draftStream.stop();
+              if (isProcessAborted(abortSignal)) {
+                return;
+              }
+              const messageIdAfterStop = draftStream.messageId();
+              if (
+                typeof messageIdAfterStop === "string" &&
+                typeof previewFinalText === "string" &&
+                !hasMedia &&
+                !hasExplicitReplyDirective &&
+                !payload.isError
+              ) {
+                try {
+                  notifyFinalReplyStart();
+                  await editMessageDiscord(
+                    deliverChannelId,
+                    messageIdAfterStop,
+                    { content: previewFinalText },
+                    { rest: deliveryRest },
+                  );
+                  finalizedViaPreviewMessage = true;
+                  replyReference.markSent();
+                  observer?.onFinalReplyDelivered?.();
+                  return;
+                } catch (err) {
+                  logVerbose(
+                    `discord: post-stop preview edit failed; falling back to standard send (${String(err)})`,
+                  );
+                }
+              }
+            }
+
+            // Clear the preview and fall through to standard delivery
+            if (!finalizedViaPreviewMessage) {
+              await draftStream.clear();
+            }
+          } // end else !isDnrWindowActive
         }
         if (isProcessAborted(abortSignal)) {
           return;
