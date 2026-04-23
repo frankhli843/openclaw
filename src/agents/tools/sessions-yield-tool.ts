@@ -23,7 +23,15 @@ export function createSessionsYieldTool(opts?: {
         return jsonResult({ status: "error", error: "No session context" });
       }
       if (!opts?.onYield) {
-        return jsonResult({ status: "error", error: "Yield not supported in this context" });
+        // frankclaw: actionable error for cron context where onYield is not wired
+        return jsonResult({
+          status: "error",
+          error:
+            "sessions_yield is not supported in cron sessions. " +
+            "Use sessions_spawn to start workers, then poll for their result files " +
+            "(e.g. check if the expected output file exists). " +
+            "The cron orchestrator will automatically feed descendant output back to you.",
+        });
       }
       await opts.onYield(message);
       return jsonResult({ status: "yielded", message });

@@ -23,15 +23,23 @@ import type {
   PersistCronSessionEntry,
 } from "./run-session-state.js";
 import { syncCronSessionLiveSelection } from "./run-session-state.js";
+// frankclaw: multi-turn orchestration for cron sessions that spawn ACP workers
+import type { OrchestrationContext } from "./run-subagent-orchestration.frankclaw.js";
 import { isLikelyInterimCronMessage } from "./subagent-followup-hints.js";
+
+let cronOrchestrationRuntimePromise:
+  | Promise<typeof import("./run-subagent-orchestration.frankclaw.js")>
+  | undefined;
+
+async function loadCronOrchestrationRuntime() {
+  cronOrchestrationRuntimePromise ??= import("./run-subagent-orchestration.frankclaw.js");
+  return await cronOrchestrationRuntimePromise;
+}
 
 type AgentTurnPayload = Extract<CronJob["payload"], { kind: "agentTurn" }> | null;
 type CronPromptRunResult = Awaited<ReturnType<typeof runCliAgent>>;
 type CronEmbeddedRuntime = typeof import("./run-embedded.runtime.js");
-type CronSubagentRegistryRuntime = typeof import("./run-subagent-registry.runtime.js");
-
 let cronEmbeddedRuntimePromise: Promise<CronEmbeddedRuntime> | undefined;
-let cronSubagentRegistryRuntimePromise: Promise<CronSubagentRegistryRuntime> | undefined;
 
 function resolveCurrentChannelTarget(params: {
   channel?: string;
@@ -50,11 +58,6 @@ function resolveCurrentChannelTarget(params: {
 async function loadCronEmbeddedRuntime() {
   cronEmbeddedRuntimePromise ??= import("./run-embedded.runtime.js");
   return await cronEmbeddedRuntimePromise;
-}
-
-async function loadCronSubagentRegistryRuntime() {
-  cronSubagentRegistryRuntimePromise ??= import("./run-subagent-registry.runtime.js");
-  return await cronSubagentRegistryRuntimePromise;
 }
 
 export type CronExecutionResult = {
@@ -343,48 +346,52 @@ export async function executeCronRun(params: {
     throw new Error("cron isolated run returned no result");
   }
 
+  // frankclaw: multi-turn orchestration loop. Replaces the single-shot
+  // interim retry with a loop that waits for spawned descendants, feeds
+  // their output back to the model, and lets it spawn the next batch.
+  // Fixes the 2026-04-23 knowledge-agent failure where the parent cron
+  // session died after batch 1 because it never got a second turn.
   if (!params.isAborted()) {
-    const interimPayloads = runResult.payloads ?? [];
-    const {
-      deliveryPayloadHasStructuredContent: interimPayloadHasStructuredContent,
-      outputText: interimOutputText,
-    } = resolveCronPayloadOutcome({
-      payloads: interimPayloads,
-      runLevelError: runResult.meta?.error,
-      finalAssistantVisibleText: runResult.meta?.finalAssistantVisibleText,
-      preferFinalAssistantVisibleText: params.resolvedDelivery.channel === "telegram",
-    });
-    const interimText = interimOutputText?.trim() ?? "";
-    const shouldRetryInterimAck =
-      !runResult.meta?.error &&
-      !runResult.didSendViaMessagingTool &&
-      !interimPayloadHasStructuredContent &&
-      !interimPayloads.some((payload) => payload?.isError === true) &&
-      isLikelyInterimCronMessage(interimText);
-
-    let hasFreshDescendants = false;
-    let hasActiveDescendants = false;
-    if (shouldRetryInterimAck) {
-      const { countActiveDescendantRuns, listDescendantRunsForRequester } =
-        await loadCronSubagentRegistryRuntime();
-      hasFreshDescendants = listDescendantRunsForRequester(params.agentSessionKey).some((entry) => {
-        const descendantStartedAt =
-          typeof entry.startedAt === "number" ? entry.startedAt : entry.createdAt;
-        return typeof descendantStartedAt === "number" && descendantStartedAt >= runStartedAt;
+    const checkInterim = (result: {
+      meta?: { error?: unknown; finalAssistantVisibleText?: string };
+      didSendViaMessagingTool?: boolean;
+      payloads?: Array<{ text?: string; isError?: boolean }>;
+    }) => {
+      const payloads = result.payloads ?? [];
+      const { deliveryPayloadHasStructuredContent, outputText } = resolveCronPayloadOutcome({
+        payloads,
+        runLevelError: result.meta?.error,
+        finalAssistantVisibleText: result.meta?.finalAssistantVisibleText,
+        preferFinalAssistantVisibleText: params.resolvedDelivery.channel === "telegram",
       });
-      hasActiveDescendants = countActiveDescendantRuns(params.agentSessionKey) > 0;
-    }
+      return (
+        !result.meta?.error &&
+        !result.didSendViaMessagingTool &&
+        !deliveryPayloadHasStructuredContent &&
+        !payloads.some((payload) => payload?.isError === true) &&
+        isLikelyInterimCronMessage(outputText?.trim() ?? "")
+      );
+    };
 
-    if (shouldRetryInterimAck && !hasFreshDescendants && !hasActiveDescendants) {
-      const continuationPrompt = [
-        "Your previous response was only an acknowledgement and did not complete this cron task.",
-        "Complete the original task now.",
-        "Do not send a status update like 'on it'.",
-        "Use tools when needed, including sessions_spawn for parallel subtasks, wait for spawned subagents to finish, then return only the final summary.",
-      ].join(" ");
-      await executor.runPrompt(continuationPrompt);
-      ({ runResult, fallbackProvider, fallbackModel, runEndedAt } = executor.getState());
-    }
+    const sessionFile =
+      params.cronSession.sessionEntry.sessionFile?.trim() ||
+      resolveSessionTranscriptPath(params.cronSession.sessionEntry.sessionId, params.agentId);
+
+    const orchestration = await loadCronOrchestrationRuntime();
+    const orchestrationCtx: OrchestrationContext = {
+      agentSessionKey: params.agentSessionKey,
+      runStartedAt,
+      timeoutMs: params.timeoutMs,
+      sessionFilePath: sessionFile,
+      isAborted: params.isAborted,
+      runPrompt: (prompt: string) => executor.runPrompt(prompt),
+      getRunResult: () => {
+        const state = executor.getState();
+        return { runResult: state.runResult };
+      },
+    };
+    await orchestration.runOrchestrationLoop(orchestrationCtx, checkInterim);
+    ({ runResult, fallbackProvider, fallbackModel, runEndedAt } = executor.getState());
   }
 
   if (!runResult) {
