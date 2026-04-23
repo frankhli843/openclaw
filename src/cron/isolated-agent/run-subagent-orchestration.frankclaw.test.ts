@@ -10,6 +10,7 @@ const waitForDescendantSubagentSummaryMock = vi.fn().mockResolvedValue(undefined
 const readDescendantSubagentFallbackReplyMock = vi.fn().mockResolvedValue(undefined);
 const countActiveDescendantRunsMock = vi.fn().mockReturnValue(0);
 const listDescendantRunsForRequesterMock = vi.fn().mockReturnValue([]);
+const findTaskByRunIdMock = vi.fn().mockReturnValue(undefined);
 
 vi.mock("./subagent-followup.runtime.js", () => ({
   waitForDescendantSubagentSummary: (...args: unknown[]) =>
@@ -22,6 +23,10 @@ vi.mock("./run-subagent-registry.runtime.js", () => ({
   countActiveDescendantRuns: (...args: unknown[]) => countActiveDescendantRunsMock(...args),
   listDescendantRunsForRequester: (...args: unknown[]) =>
     listDescendantRunsForRequesterMock(...args),
+}));
+
+vi.mock("./run-task-registry.runtime.js", () => ({
+  findTaskByRunId: (...args: unknown[]) => findTaskByRunIdMock(...args),
 }));
 
 vi.mock("../../logging/subsystem.js", () => ({
@@ -47,6 +52,7 @@ describe("runOrchestrationLoop", () => {
     vi.clearAllMocks();
     countActiveDescendantRunsMock.mockReturnValue(0);
     listDescendantRunsForRequesterMock.mockReturnValue([]);
+    findTaskByRunIdMock.mockReturnValue(undefined);
   });
 
   afterEach(() => {
@@ -256,5 +262,138 @@ describe("runOrchestrationLoop", () => {
     expect((ctx.runPrompt as ReturnType<typeof vi.fn>).mock.calls[0][0]).toContain(
       "produced no readable output",
     );
+  });
+
+  it("detects blocked descendant (progress checkpoint) and warns parent to retry", async () => {
+    // Regression test for 2026-04-23 heartbeat incident: ACP worker returned
+    // HEARTBEAT_OK without running tools, was marked terminalOutcome="blocked",
+    // but the orchestrator accepted the output as valid and stopped.
+    const runStartedAt = Date.now() - 10_000;
+    let turn = 0;
+
+    const ctx = makeCtx({
+      runStartedAt,
+      getRunResult: () => ({
+        runResult: {
+          payloads: [{ text: turn === 0 ? "On it" : "Spawned a new worker to retry." }],
+          meta: {},
+        },
+      }),
+    });
+
+    const childRunId = "run-blocked-heartbeat";
+    const childLabel = "heartbeat-1776947387-f96acd";
+
+    // Descendant completed but blocked at progress checkpoint
+    countActiveDescendantRunsMock
+      .mockReturnValueOnce(1) // first check: 1 active
+      .mockReturnValueOnce(0) // after wait: drained
+      .mockReturnValueOnce(0); // next iter
+
+    listDescendantRunsForRequesterMock.mockReturnValue([
+      {
+        runId: childRunId,
+        label: childLabel,
+        startedAt: runStartedAt + 1000,
+        createdAt: runStartedAt + 1000,
+        endedAt: runStartedAt + 5000,
+        childSessionKey: "agent:claude:acp:test-blocked",
+      },
+    ]);
+
+    // Worker returned HEARTBEAT_OK text but was blocked
+    readDescendantSubagentFallbackReplyMock.mockResolvedValueOnce("HEARTBEAT_OK");
+
+    // Task registry shows this run was blocked at a progress checkpoint
+    findTaskByRunIdMock.mockImplementation((runId: string) => {
+      if (runId === childRunId) {
+        return {
+          taskId: "task-blocked-test",
+          runId: childRunId,
+          status: "succeeded",
+          terminalOutcome: "blocked",
+          terminalSummary: "ACP run stopped at a progress checkpoint instead of a terminal result.",
+        };
+      }
+      return undefined;
+    });
+
+    const checkInterim = vi
+      .fn()
+      .mockReturnValueOnce(true) // interim (parent ack)
+      .mockReturnValueOnce(false); // after retry: substantive
+
+    (ctx.runPrompt as ReturnType<typeof vi.fn>).mockImplementation(() => {
+      turn++;
+      return Promise.resolve();
+    });
+
+    const turns = await runOrchestrationLoop(ctx, checkInterim);
+    expect(turns).toBe(1);
+    expect(ctx.runPrompt).toHaveBeenCalledTimes(1);
+
+    // The continuation prompt should warn about blocked worker, not just pass output through
+    const prompt = (ctx.runPrompt as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+    expect(prompt).toContain("WARNING");
+    expect(prompt).toContain("progress checkpoint");
+    expect(prompt).toContain("did NOT complete the task");
+    expect(prompt).toContain(childLabel);
+    expect(prompt).toContain("spawn a new worker to retry");
+    // Should NOT say "completed" — the worker was blocked
+    expect(prompt).not.toContain("Your spawned background worker completed. Here is its output:");
+  });
+
+  it("does not warn for non-blocked descendants", async () => {
+    // When the task registry shows succeeded (no blocked outcome), the
+    // continuation prompt should be the normal "completed" message.
+    const runStartedAt = Date.now() - 10_000;
+    const ctx = makeCtx({ runStartedAt });
+
+    const childRunId = "run-ok-heartbeat";
+
+    countActiveDescendantRunsMock
+      .mockReturnValueOnce(1)
+      .mockReturnValueOnce(0)
+      .mockReturnValueOnce(0);
+
+    listDescendantRunsForRequesterMock.mockReturnValue([
+      {
+        runId: childRunId,
+        label: "heartbeat-ok-label",
+        startedAt: runStartedAt + 1000,
+        createdAt: runStartedAt + 1000,
+        endedAt: runStartedAt + 5000,
+        childSessionKey: "agent:claude:acp:test-ok",
+      },
+    ]);
+
+    readDescendantSubagentFallbackReplyMock.mockResolvedValueOnce(
+      "HEARTBEAT_OK. All checks passed.",
+    );
+
+    // Task registry shows normal successful completion (no blocked)
+    findTaskByRunIdMock.mockImplementation((runId: string) => {
+      if (runId === childRunId) {
+        return {
+          taskId: "task-ok-test",
+          runId: childRunId,
+          status: "succeeded",
+          terminalOutcome: undefined, // NOT blocked
+        };
+      }
+      return undefined;
+    });
+
+    const checkInterim = vi
+      .fn()
+      .mockReturnValueOnce(true) // interim
+      .mockReturnValueOnce(false); // after feeding back
+
+    const turns = await runOrchestrationLoop(ctx, checkInterim);
+    expect(turns).toBe(1);
+
+    const prompt = (ctx.runPrompt as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+    expect(prompt).toContain("Your spawned background worker completed. Here is its output:");
+    expect(prompt).not.toContain("WARNING");
   });
 });

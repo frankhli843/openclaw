@@ -26,9 +26,11 @@ const JSONL_KEEPALIVE_INTERVAL_MS = 60_000; // 1 minute
 
 type SubagentFollowupRuntime = typeof import("./subagent-followup.runtime.js");
 type SubagentRegistryRuntime = typeof import("./run-subagent-registry.runtime.js");
+type TaskRegistryRuntime = typeof import("./run-task-registry.runtime.js");
 
 let followupRuntimePromise: Promise<SubagentFollowupRuntime> | undefined;
 let registryRuntimePromise: Promise<SubagentRegistryRuntime> | undefined;
+let taskRegistryRuntimePromise: Promise<TaskRegistryRuntime> | undefined;
 
 async function loadFollowupRuntime(): Promise<SubagentFollowupRuntime> {
   followupRuntimePromise ??= import("./subagent-followup.runtime.js");
@@ -38,6 +40,11 @@ async function loadFollowupRuntime(): Promise<SubagentFollowupRuntime> {
 async function loadRegistryRuntime(): Promise<SubagentRegistryRuntime> {
   registryRuntimePromise ??= import("./run-subagent-registry.runtime.js");
   return await registryRuntimePromise;
+}
+
+async function loadTaskRegistryRuntime(): Promise<TaskRegistryRuntime> {
+  taskRegistryRuntimePromise ??= import("./run-task-registry.runtime.js");
+  return await taskRegistryRuntimePromise;
 }
 
 /**
@@ -153,6 +160,16 @@ export async function runOrchestrationLoop(
         runStartedAt: ctx.runStartedAt,
       });
 
+      // frankclaw: check if any completed descendant was blocked at a progress
+      // checkpoint (terminalOutcome === "blocked").  If so, the worker did NOT
+      // actually complete its task — it stopped after acknowledging the prompt
+      // without running tools.  The parent model must know so it can respawn.
+      const blockedDescendantLabels = await resolveBlockedDescendantLabels({
+        registry,
+        sessionKey: ctx.agentSessionKey,
+        runStartedAt: ctx.runStartedAt,
+      });
+
       // Check if there are still active descendants (children may have spawned more)
       const stillActive = registry.countActiveDescendantRuns(ctx.agentSessionKey);
       if (stillActive > 0) {
@@ -162,24 +179,45 @@ export async function runOrchestrationLoop(
       }
 
       // Feed descendant output back to the model
-      const continuationPrompt = descendantReply
-        ? [
-            "Your spawned background worker completed. Here is its output:",
-            "",
-            descendantReply.length > 8000
-              ? descendantReply.slice(0, 8000) + "\n\n[... truncated]"
-              : descendantReply,
-            "",
-            "Continue with the next step of your original task.",
-            "If there are more batches or phases to run, spawn the next worker now.",
-            "If all work is done, provide the final summary.",
-          ].join("\n")
-        : [
-            "Your spawned background worker completed but produced no readable output.",
-            "Check the result file if one was expected, then continue with the next step.",
-            "If there are more batches to run, spawn the next worker.",
-            "If all work is done, provide the final summary.",
-          ].join(" ");
+      let continuationPrompt: string;
+      if (blockedDescendantLabels.length > 0) {
+        // frankclaw: descendant was blocked at progress checkpoint — tell the
+        // parent model explicitly so it respawns instead of accepting the output.
+        const labels = blockedDescendantLabels.join(", ");
+        log.info?.(
+          `orchestration: ${blockedDescendantLabels.length} descendant(s) blocked at progress checkpoint: ${labels}`,
+        );
+        continuationPrompt = [
+          `WARNING: Your spawned background worker (${labels}) stopped at a progress checkpoint and did NOT complete the task.`,
+          "The worker acknowledged the prompt but did not execute any tools or produce a real result.",
+          "",
+          descendantReply
+            ? `Worker output (incomplete): ${descendantReply.length > 4000 ? descendantReply.slice(0, 4000) + "\n[... truncated]" : descendantReply}`
+            : "The worker produced no readable output.",
+          "",
+          "You MUST spawn a new worker to retry this task.",
+          "Do not accept the incomplete output as a valid result.",
+        ].join("\n");
+      } else if (descendantReply) {
+        continuationPrompt = [
+          "Your spawned background worker completed. Here is its output:",
+          "",
+          descendantReply.length > 8000
+            ? descendantReply.slice(0, 8000) + "\n\n[... truncated]"
+            : descendantReply,
+          "",
+          "Continue with the next step of your original task.",
+          "If there are more batches or phases to run, spawn the next worker now.",
+          "If all work is done, provide the final summary.",
+        ].join("\n");
+      } else {
+        continuationPrompt = [
+          "Your spawned background worker completed but produced no readable output.",
+          "Check the result file if one was expected, then continue with the next step.",
+          "If there are more batches to run, spawn the next worker.",
+          "If all work is done, provide the final summary.",
+        ].join(" ");
+      }
 
       log.info?.(
         `orchestration turn ${followupCount + 1}: feeding descendant output (${descendantReply?.length ?? 0} chars) back to model`,
@@ -198,4 +236,43 @@ export async function runOrchestrationLoop(
   }
 
   return followupCount;
+}
+
+/**
+ * frankclaw: check the task registry for descendant runs that completed with
+ * terminalOutcome === "blocked" (progress checkpoint).  Returns labels/runIds
+ * of blocked descendants so the continuation prompt can warn the parent.
+ */
+async function resolveBlockedDescendantLabels(params: {
+  registry: SubagentRegistryRuntime;
+  sessionKey: string;
+  runStartedAt: number;
+}): Promise<string[]> {
+  const descendants = params.registry
+    .listDescendantRunsForRequester(params.sessionKey)
+    .filter((entry) => {
+      const ended = entry.endedAt;
+      return typeof ended === "number" && ended >= params.runStartedAt;
+    });
+  if (descendants.length === 0) {
+    return [];
+  }
+
+  let taskRegistry: TaskRegistryRuntime;
+  try {
+    taskRegistry = await loadTaskRegistryRuntime();
+  } catch {
+    // Task registry unavailable — cannot detect blocked outcomes; proceed
+    // without the check rather than breaking the orchestration loop.
+    return [];
+  }
+
+  const blocked: string[] = [];
+  for (const entry of descendants) {
+    const task = taskRegistry.findTaskByRunId(entry.runId);
+    if (task?.terminalOutcome === "blocked") {
+      blocked.push(entry.label || entry.runId);
+    }
+  }
+  return blocked;
 }
