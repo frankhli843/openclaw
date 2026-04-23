@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { isDirectActionContext } from "./direct-action-context.frankclaw.js";
 
 type DiscordDnrContext = {
   channel: string;
@@ -389,6 +390,52 @@ export function resolveNextDiscordDnrReleaseMs(
   return resolveNextReleaseMs(nowMs, window);
 }
 
+// frankclaw: audit log for direct-action DNR bypasses.
+const directActionBypassLog: Array<{
+  channel: string;
+  target: string;
+  bypassedAtMs: number;
+  wouldResumeAtMs: number;
+}> = [];
+
+function logDirectActionBypass(
+  channel: string,
+  target: string,
+  nowMs: number,
+  nextEligibleAtMs: number,
+): void {
+  const entry = {
+    channel,
+    target,
+    bypassedAtMs: nowMs,
+    wouldResumeAtMs: nextEligibleAtMs,
+  };
+  directActionBypassLog.push(entry);
+  // Keep log bounded (last 100 entries).
+  if (directActionBypassLog.length > 100) {
+    directActionBypassLog.shift();
+  }
+  // Also write to stderr for gateway journal visibility.
+  const ts = new Date(nowMs).toISOString();
+  const resumeTs = new Date(nextEligibleAtMs).toISOString();
+  process.stderr.write(
+    `[direct-action-bypass] channel=${channel} target=${target} at=${ts} dnr_resumes=${resumeTs}\n`,
+  );
+}
+
+/**
+ * Read the direct-action bypass audit log. Useful for runtime probes
+ * and diagnostics.
+ */
+export function getDirectActionBypassLog(): ReadonlyArray<{
+  channel: string;
+  target: string;
+  bypassedAtMs: number;
+  wouldResumeAtMs: number;
+}> {
+  return directActionBypassLog;
+}
+
 export class DiscordDnrSuppressedError extends Error {
   readonly nextEligibleAtMs: number;
 
@@ -402,6 +449,13 @@ export class DiscordDnrSuppressedError extends Error {
 export function enforceDiscordDnrWindow(ctx: DiscordDnrContext, nowMs = Date.now()): void {
   const effective = resolveEffectiveRule(ctx, nowMs);
   if (!effective.active) {
+    return;
+  }
+  // frankclaw: direct-action bypass. When an agent is fulfilling an explicit
+  // user request (e.g. "post this to the thread"), the send is wrapped in
+  // runWithDirectAction(). We log each bypass for audit but do not suppress.
+  if (isDirectActionContext()) {
+    logDirectActionBypass("discord", ctx.to, nowMs, effective.nextEligibleAtMs);
     return;
   }
   throw new DiscordDnrSuppressedError(effective.nextEligibleAtMs);
@@ -595,6 +649,11 @@ export class WhatsAppDnrSuppressedError extends Error {
 export function enforceWhatsAppDnrWindow(groupId: string, nowMs = Date.now()): void {
   const effective = resolveWhatsAppEffectiveRule({ channel: "whatsapp", groupId }, nowMs);
   if (!effective.active) {
+    return;
+  }
+  // frankclaw: direct-action bypass (same as Discord, see enforceDiscordDnrWindow).
+  if (isDirectActionContext()) {
+    logDirectActionBypass("whatsapp", groupId, nowMs, effective.nextEligibleAtMs);
     return;
   }
   throw new WhatsAppDnrSuppressedError(effective.nextEligibleAtMs);

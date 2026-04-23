@@ -15,6 +15,7 @@ import { resolveMessageSecretScope } from "../../cli/message-secret-scope.js";
 import { loadConfig } from "../../config/config.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { GATEWAY_CLIENT_IDS, GATEWAY_CLIENT_MODES } from "../../gateway/protocol/client-info.js";
+import { runWithDirectAction } from "../../infra/outbound/direct-action-context.frankclaw.js";
 import { getToolResult, runMessageAction } from "../../infra/outbound/message-action-runner.js";
 import { POLL_CREATION_PARAM_DEFS, SHARED_POLL_CREATION_PARAM_NAMES } from "../../poll-params.js";
 import { normalizeAccountId } from "../../routing/session-key.js";
@@ -114,6 +115,12 @@ function buildSendSchema(options: { includeInteractive: boolean }) {
     threadId: Type.Optional(Type.String()),
     asVoice: Type.Optional(Type.Boolean()),
     silent: Type.Optional(Type.Boolean()),
+    directAction: Type.Optional(
+      Type.Boolean({
+        description:
+          "Set true ONLY when fulfilling an explicit user request during quiet hours (e.g. 'post this link', 'send the report'). Bypasses DNR suppression for this send. Do NOT use for proactive or unsolicited messages.",
+      }),
+    ),
     quoteText: Type.Optional(
       Type.String({ description: "Quote text for Telegram reply_parameters" }),
     ),
@@ -802,21 +809,27 @@ export function createMessageTool(options?: MessageToolOptions): AnyAgentTool {
             }
           : undefined;
 
-      const result = await runMessageActionForTool({
-        cfg,
-        action,
-        params,
-        defaultAccountId: accountId ?? undefined,
-        requesterSenderId: options?.requesterSenderId,
-        senderIsOwner: options?.senderIsOwner,
-        gateway,
-        toolContext,
-        sessionKey: options?.agentSessionKey,
-        sessionId: options?.sessionId,
-        agentId: resolvedAgentId,
-        sandboxRoot: options?.sandboxRoot,
-        abortSignal: signal,
-      });
+      // frankclaw: direct-action bypass. When the agent sets directAction=true,
+      // wrap the entire send pipeline in a direct-action context so DNR
+      // enforcement allows the message through (with audit logging).
+      const isDirectAction = params.directAction === true;
+      const runAction = () =>
+        runMessageActionForTool({
+          cfg,
+          action,
+          params,
+          defaultAccountId: accountId ?? undefined,
+          requesterSenderId: options?.requesterSenderId,
+          senderIsOwner: options?.senderIsOwner,
+          gateway,
+          toolContext,
+          sessionKey: options?.agentSessionKey,
+          sessionId: options?.sessionId,
+          agentId: resolvedAgentId,
+          sandboxRoot: options?.sandboxRoot,
+          abortSignal: signal,
+        });
+      const result = isDirectAction ? await runWithDirectAction(runAction) : await runAction();
 
       const toolResult = getToolResult(result);
       if (toolResult) {

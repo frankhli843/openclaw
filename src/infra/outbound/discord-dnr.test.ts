@@ -2,11 +2,13 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { runWithDirectAction } from "./direct-action-context.frankclaw.js";
 import {
   __resetDiscordDnrPolicyCacheForTests,
   DiscordDnrSuppressedError,
   enforceDiscordDnrWindow,
   enforceWhatsAppDnrWindow,
+  getDirectActionBypassLog,
   inspectDiscordDnrWindow,
   isDiscordDnrTarget,
   isWhatsAppDnrTarget,
@@ -234,6 +236,51 @@ describe("discord DNR policy", () => {
 
     // Verify no dnr-bypass module exists (must not be re-introduced)
     expect(() => require("./dnr-bypass.frankclaw.js")).toThrow();
+  });
+
+  it("direct-action context bypasses Discord DNR during quiet hours", async () => {
+    // Inside quiet window: 20:30 ET
+    const eveningTs = Date.parse("2026-03-06T01:30:00.000Z");
+
+    // Without direct-action context: still throws
+    expect(() =>
+      enforceDiscordDnrWindow({ channel: "discord", to: "channel:1479083833830801520" }, eveningTs),
+    ).toThrow(DiscordDnrSuppressedError);
+
+    // With direct-action context: does NOT throw
+    const logBefore = getDirectActionBypassLog().length;
+    await runWithDirectAction(() => {
+      expect(() =>
+        enforceDiscordDnrWindow(
+          { channel: "discord", to: "channel:1479083833830801520" },
+          eveningTs,
+        ),
+      ).not.toThrow();
+    });
+
+    // Bypass was logged
+    const logAfter = getDirectActionBypassLog();
+    expect(logAfter.length).toBeGreaterThan(logBefore);
+    const lastEntry = logAfter[logAfter.length - 1];
+    expect(lastEntry?.channel).toBe("discord");
+    expect(lastEntry?.target).toBe("channel:1479083833830801520");
+    expect(lastEntry?.bypassedAtMs).toBe(eveningTs);
+  });
+
+  it("direct-action context does not affect calls outside the context", async () => {
+    const eveningTs = Date.parse("2026-03-06T01:30:00.000Z");
+
+    // Verify the context is scoped: a call AFTER runWithDirectAction completes
+    // should still be suppressed.
+    await runWithDirectAction(() => {
+      // Inside: OK
+      enforceDiscordDnrWindow({ channel: "discord", to: "channel:1479083833830801520" }, eveningTs);
+    });
+
+    // Outside: still throws
+    expect(() =>
+      enforceDiscordDnrWindow({ channel: "discord", to: "channel:1479083833830801520" }, eveningTs),
+    ).toThrow(DiscordDnrSuppressedError);
   });
 });
 
@@ -493,5 +540,43 @@ describe("whatsapp DNR policy", () => {
     expect(() => enforceWhatsAppDnrWindow("120363421390336301@g.us", eveningTs)).toThrow(
       WhatsAppDnrSuppressedError,
     );
+  });
+
+  it("direct-action context bypasses WhatsApp DNR during quiet hours", async () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "wa-dnr-"));
+    setupWhatsAppPolicy(tmp, {
+      version: 1,
+      whatsapp: {
+        recurring: [
+          {
+            id: "casual-mon",
+            channel: "whatsapp",
+            groupId: "120363421390336301@g.us",
+            enabled: true,
+            window: { timeZone: "America/Toronto", start: "17:00", end: "08:30" },
+          },
+        ],
+      },
+    });
+
+    const eveningTs = Date.parse("2026-03-06T01:30:00.000Z"); // 20:30 ET, inside window
+
+    // Without direct-action context: still throws
+    expect(() => enforceWhatsAppDnrWindow("120363421390336301@g.us", eveningTs)).toThrow(
+      WhatsAppDnrSuppressedError,
+    );
+
+    // With direct-action context: does NOT throw
+    const logBefore = getDirectActionBypassLog().length;
+    await runWithDirectAction(() => {
+      expect(() => enforceWhatsAppDnrWindow("120363421390336301@g.us", eveningTs)).not.toThrow();
+    });
+
+    // Bypass was logged
+    const logAfter = getDirectActionBypassLog();
+    expect(logAfter.length).toBeGreaterThan(logBefore);
+    const lastEntry = logAfter[logAfter.length - 1];
+    expect(lastEntry?.channel).toBe("whatsapp");
+    expect(lastEntry?.target).toBe("120363421390336301@g.us");
   });
 });

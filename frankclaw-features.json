@@ -1388,6 +1388,31 @@
       "tests": ["src/auto-reply/note-to-self.frankclaw.test.ts"],
       "e2eTests": ["src/auto-reply/note-to-self.frankclaw.test.ts"],
       "runtime": []
+    },
+    {
+      "name": "Direct-action DNR bypass",
+      "description": "Allows agent sends marked directAction=true to bypass quiet hours DNR enforcement (for fulfilling explicit user requests during quiet hours). Uses AsyncLocalStorage context, logs every bypass.",
+      "static": [
+        {
+          "file": "src/infra/outbound/direct-action-context.frankclaw.ts",
+          "pattern": "runWithDirectAction",
+          "minCount": 1
+        },
+        {
+          "file": "src/infra/outbound/discord-dnr.ts",
+          "pattern": "isDirectActionContext",
+          "minCount": 2
+        },
+        {
+          "file": "src/agents/tools/message-tool.ts",
+          "pattern": "runWithDirectAction",
+          "minCount": 1
+        }
+      ],
+      "tests": ["src/infra/outbound/discord-dnr.test.ts"],
+      "runtime": [],
+      "e2eTests": [],
+      "addedDate": "2026-04-22"
     }
   ],
   "workspaceChecks": [
