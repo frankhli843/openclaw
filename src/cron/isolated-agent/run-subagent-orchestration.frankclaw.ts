@@ -98,6 +98,11 @@ export async function runOrchestrationLoop(
   const registry = await loadRegistryRuntime();
   const followup = await loadFollowupRuntime();
   let followupCount = 0;
+  // frankclaw: track consecutive blocked attempts for auto-fallback.
+  // After the first blocked retry asks the model to respawn, subsequent
+  // blocks switch to a direct-execution fallback prompt that tells the
+  // model to do the work itself without spawning more ACP workers.
+  let consecutiveBlockedCount = 0;
 
   const stopKeepalive = startJsonlKeepalive(ctx.sessionFilePath);
   try {
@@ -181,24 +186,45 @@ export async function runOrchestrationLoop(
       // Feed descendant output back to the model
       let continuationPrompt: string;
       if (blockedDescendantLabels.length > 0) {
-        // frankclaw: descendant was blocked at progress checkpoint — tell the
-        // parent model explicitly so it respawns instead of accepting the output.
+        consecutiveBlockedCount++;
         const labels = blockedDescendantLabels.join(", ");
         log.info?.(
-          `orchestration: ${blockedDescendantLabels.length} descendant(s) blocked at progress checkpoint: ${labels}`,
+          `orchestration: ${blockedDescendantLabels.length} descendant(s) blocked at progress checkpoint: ${labels} (consecutive=${consecutiveBlockedCount})`,
         );
-        continuationPrompt = [
-          `WARNING: Your spawned background worker (${labels}) stopped at a progress checkpoint and did NOT complete the task.`,
-          "The worker acknowledged the prompt but did not execute any tools or produce a real result.",
-          "",
-          descendantReply
-            ? `Worker output (incomplete): ${descendantReply.length > 4000 ? descendantReply.slice(0, 4000) + "\n[... truncated]" : descendantReply}`
-            : "The worker produced no readable output.",
-          "",
-          "You MUST spawn a new worker to retry this task.",
-          "Do not accept the incomplete output as a valid result.",
-        ].join("\n");
+
+        if (consecutiveBlockedCount >= 2) {
+          // frankclaw: auto-fallback — spawned workers keep checkpoint-stopping.
+          // Tell the model to execute the task directly using its own tools
+          // instead of spawning yet another ACP worker.
+          log.info?.(
+            `orchestration: auto-fallback to direct execution after ${consecutiveBlockedCount} consecutive blocked attempts`,
+          );
+          continuationPrompt = [
+            `CRITICAL: Your spawned background workers have failed ${consecutiveBlockedCount} consecutive times (${labels}).`,
+            "Each worker stopped at a progress checkpoint without executing any tools.",
+            "",
+            "DO NOT spawn another background worker. The ACP worker pattern is not working for this task.",
+            "You MUST execute the task DIRECTLY in this session using your own tools (exec, file read/write, etc.).",
+            "Run the required commands yourself. Do not delegate. Do not narrate what you would do.",
+            "Execute the actual commands and return the real results.",
+          ].join("\n");
+        } else {
+          // First blocked attempt — tell the model to retry with a new worker.
+          continuationPrompt = [
+            `WARNING: Your spawned background worker (${labels}) stopped at a progress checkpoint and did NOT complete the task.`,
+            "The worker acknowledged the prompt but did not execute any tools or produce a real result.",
+            "",
+            descendantReply
+              ? `Worker output (incomplete): ${descendantReply.length > 4000 ? descendantReply.slice(0, 4000) + "\n[... truncated]" : descendantReply}`
+              : "The worker produced no readable output.",
+            "",
+            "You MUST spawn a new worker to retry this task.",
+            "Do not accept the incomplete output as a valid result.",
+          ].join("\n");
+        }
       } else if (descendantReply) {
+        // Reset consecutive blocked count on success
+        consecutiveBlockedCount = 0;
         continuationPrompt = [
           "Your spawned background worker completed. Here is its output:",
           "",
@@ -211,6 +237,7 @@ export async function runOrchestrationLoop(
           "If all work is done, provide the final summary.",
         ].join("\n");
       } else {
+        consecutiveBlockedCount = 0;
         continuationPrompt = [
           "Your spawned background worker completed but produced no readable output.",
           "Check the result file if one was expected, then continue with the next step.",

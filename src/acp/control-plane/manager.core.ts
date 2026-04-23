@@ -120,11 +120,33 @@ function resolveBackgroundTaskFailureStatus(error: AcpRuntimeError): "failed" | 
   return /\btimed out\b/i.test(error.message) ? "timed_out" : "failed";
 }
 
-export function resolveBackgroundTaskTerminalResult(progressSummary: string): {
+export function resolveBackgroundTaskTerminalResult(
+  progressSummary: string,
+  // frankclaw: optional tool call count for zero-tool-call detection.
+  // When an ACP worker completes with text output but zero tool calls,
+  // it almost certainly narrated what it "would do" without executing.
+  options?: { toolCallCount?: number },
+): {
   terminalOutcome?: "blocked";
   terminalSummary?: string;
 } {
   const normalized = normalizeText(progressSummary)?.replace(/\s+/g, " ").trim();
+  // frankclaw: zero-tool-call detection — if the worker produced text output
+  // but never called a single tool, it stopped at a progress checkpoint.
+  // This catches cases the regex patterns below miss (e.g. "HEARTBEAT_OK"
+  // without any preceding tool execution).
+  if (
+    typeof options?.toolCallCount === "number" &&
+    options.toolCallCount === 0 &&
+    normalized &&
+    normalized.length > 0
+  ) {
+    return {
+      terminalOutcome: "blocked",
+      terminalSummary:
+        "ACP run completed with zero tool calls (narrated output without executing).",
+    };
+  }
   if (!normalized) {
     return {};
   }
@@ -796,6 +818,8 @@ export class AcpSessionManager {
             activeTurnStarted = true;
 
             let streamError: AcpRuntimeError | null = null;
+            // frankclaw: track tool call count for zero-tool-call checkpoint detection
+            let taskToolCallCount = 0;
             const combinedSignal =
               input.signal && typeof AbortSignal.any === "function"
                 ? AbortSignal.any([input.signal, internalAbortController.signal])
@@ -820,6 +844,10 @@ export class AcpSessionManager {
                   );
                 } else if (event.type === "text_delta" || event.type === "tool_call") {
                   sawTurnOutput = true;
+                  // frankclaw: count tool calls for checkpoint detection
+                  if (event.type === "tool_call") {
+                    taskToolCallCount++;
+                  }
                   if (event.type === "text_delta" && event.stream !== "thought" && event.text) {
                     taskProgressSummary = appendBackgroundTaskProgressSummary(
                       taskProgressSummary,
@@ -872,7 +900,10 @@ export class AcpSessionManager {
               startedAt: turnStartedAt,
             });
             if (taskContext) {
-              const terminalResult = resolveBackgroundTaskTerminalResult(taskProgressSummary);
+              // frankclaw: pass toolCallCount for zero-tool-call checkpoint detection
+              const terminalResult = resolveBackgroundTaskTerminalResult(taskProgressSummary, {
+                toolCallCount: taskToolCallCount,
+              });
               this.markBackgroundTaskTerminal(taskContext.runId, {
                 sessionKey,
                 status: "succeeded",

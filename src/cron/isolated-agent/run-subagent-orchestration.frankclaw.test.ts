@@ -343,6 +343,123 @@ describe("runOrchestrationLoop", () => {
     expect(prompt).not.toContain("Your spawned background worker completed. Here is its output:");
   });
 
+  it("switches to direct-execution fallback after 2 consecutive blocked attempts", async () => {
+    // frankclaw: when ACP workers checkpoint-stop repeatedly, the orchestration
+    // should stop telling the model to spawn new workers and instead instruct
+    // it to execute the task directly.
+    const runStartedAt = Date.now() - 10_000;
+    let turn = 0;
+
+    const ctx = makeCtx({
+      runStartedAt,
+      getRunResult: () => ({
+        runResult: {
+          payloads: [
+            {
+              text:
+                turn === 0
+                  ? "On it"
+                  : turn === 1
+                    ? "Spawned retry worker"
+                    : "Final check result: all OK",
+            },
+          ],
+          meta: {},
+        },
+      }),
+    });
+
+    const childRunId1 = "run-blocked-1";
+    const childRunId2 = "run-blocked-2";
+    const childLabel1 = "heartbeat-blocked-1";
+    const childLabel2 = "heartbeat-blocked-2";
+
+    // Two rounds of descendants, both blocked.
+    // Note: listDescendantRunsForRequesterMock is called both in the main loop
+    // AND inside resolveBlockedDescendantLabels, so we need values for all calls.
+    const child1Entry = {
+      runId: childRunId1,
+      label: childLabel1,
+      startedAt: runStartedAt + 1000,
+      createdAt: runStartedAt + 1000,
+      endedAt: runStartedAt + 5000,
+    };
+    const child2Entry = {
+      runId: childRunId2,
+      label: childLabel2,
+      startedAt: runStartedAt + 6000,
+      createdAt: runStartedAt + 6000,
+      endedAt: runStartedAt + 10000,
+    };
+
+    countActiveDescendantRunsMock
+      // Round 1: blocked descendant
+      .mockReturnValueOnce(1) // main loop: active check
+      .mockReturnValueOnce(0) // main loop: stillActive after wait
+      // Round 2: another blocked descendant
+      .mockReturnValueOnce(1) // main loop: active check
+      .mockReturnValueOnce(0) // main loop: stillActive after wait
+      // Round 3: no descendants (model executed directly)
+      .mockReturnValueOnce(0);
+
+    listDescendantRunsForRequesterMock
+      // Round 1: main loop freshDescendants check
+      .mockReturnValueOnce([child1Entry])
+      // Round 1: resolveBlockedDescendantLabels check
+      .mockReturnValueOnce([child1Entry])
+      // Round 2: main loop freshDescendants check
+      .mockReturnValueOnce([child2Entry])
+      // Round 2: resolveBlockedDescendantLabels check
+      .mockReturnValueOnce([child2Entry])
+      // Round 3: main loop freshDescendants check (no more)
+      .mockReturnValueOnce([]);
+
+    readDescendantSubagentFallbackReplyMock
+      .mockResolvedValueOnce("HEARTBEAT_OK")
+      .mockResolvedValueOnce("HEARTBEAT_OK");
+
+    // Both runs blocked
+    findTaskByRunIdMock.mockImplementation((runId: string) => {
+      if (runId === childRunId1 || runId === childRunId2) {
+        return {
+          taskId: `task-${runId}`,
+          runId,
+          status: "succeeded",
+          terminalOutcome: "blocked",
+          terminalSummary: "ACP run completed with zero tool calls.",
+        };
+      }
+      return undefined;
+    });
+
+    const checkInterim = vi
+      .fn()
+      .mockReturnValueOnce(true) // round 1: interim
+      .mockReturnValueOnce(true) // round 2: still interim (spawned another)
+      .mockReturnValueOnce(false); // round 3: direct execution worked
+
+    (ctx.runPrompt as ReturnType<typeof vi.fn>).mockImplementation(() => {
+      turn++;
+      return Promise.resolve();
+    });
+
+    const turns = await runOrchestrationLoop(ctx, checkInterim);
+    expect(turns).toBe(2);
+    expect(ctx.runPrompt).toHaveBeenCalledTimes(2);
+
+    // First prompt: warning to retry with new worker
+    const prompt1 = (ctx.runPrompt as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+    expect(prompt1).toContain("WARNING");
+    expect(prompt1).toContain("spawn a new worker to retry");
+
+    // Second prompt: auto-fallback to direct execution
+    const prompt2 = (ctx.runPrompt as ReturnType<typeof vi.fn>).mock.calls[1][0] as string;
+    expect(prompt2).toContain("CRITICAL");
+    expect(prompt2).toContain("DO NOT spawn another background worker");
+    expect(prompt2).toContain("DIRECTLY in this session");
+    expect(prompt2).toContain("failed 2 consecutive times");
+  });
+
   it("does not warn for non-blocked descendants", async () => {
     // When the task registry shows succeeded (no blocked outcome), the
     // continuation prompt should be the normal "completed" message.
