@@ -364,12 +364,18 @@ export async function executeCronRun(params: {
         finalAssistantVisibleText: result.meta?.finalAssistantVisibleText,
         preferFinalAssistantVisibleText: params.resolvedDelivery.channel === "telegram",
       });
+      const text = outputText?.trim() ?? "";
+      // frankclaw: empty text (e.g. from sessions_yield producing only tool
+      // calls with no visible text) is not substantive output. Treat it as
+      // interim so the orchestration loop waits for descendants rather than
+      // concluding that the model finished.
+      const isEmptyOrInterim = !text || isLikelyInterimCronMessage(text);
       return (
         !result.meta?.error &&
         !result.didSendViaMessagingTool &&
         !deliveryPayloadHasStructuredContent &&
         !payloads.some((payload) => payload?.isError === true) &&
-        isLikelyInterimCronMessage(outputText?.trim() ?? "")
+        isEmptyOrInterim
       );
     };
 
