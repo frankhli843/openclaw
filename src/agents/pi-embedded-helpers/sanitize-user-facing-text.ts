@@ -425,5 +425,9 @@ export function sanitizeUserFacingText(text: unknown, opts?: { errorContext?: bo
   }
 
   const withoutLeadingEmptyLines = stripped.replace(/^(?:[ \t]*\r?\n)+/, "");
-  return collapseConsecutiveDuplicateBlocks(withoutLeadingEmptyLines);
+  const deduped = collapseConsecutiveDuplicateBlocks(withoutLeadingEmptyLines);
+  // frankclaw: normalize excessive blank lines to exactly one blank line
+  // (\n\n), preserving paragraph boundaries without excessive spacing.
+  // Matches sanitizeForPlainText behavior (infra/outbound/sanitize-text.ts).
+  return deduped.replace(/\n{3,}/g, "\n\n");
 }
