@@ -74,12 +74,20 @@ describe("runCronIsolatedAgentTurn — interim ack retry", () => {
     await runTurnAndExpectOk(1, 1);
   });
 
-  it("does not retry when descendants were spawned in this run even if they already settled", async () => {
+  // frankclaw: with the multi-turn orchestration loop, when descendants are
+  // spawned and settle, the model gets a follow-up turn to process their output
+  // and continue with the next batch (fixes 2026-04-23 knowledge-agent failure).
+  it("retries after descendants settle so the model can continue orchestration", async () => {
     usePayloadTextExtraction();
-    runEmbeddedPiAgentMock.mockResolvedValueOnce({
-      payloads: [{ text: "On it, I spawned a subagent and it will auto-announce when done." }],
-      meta: { agentMeta: { usage: { input: 10, output: 20 } } },
-    });
+    runEmbeddedPiAgentMock
+      .mockResolvedValueOnce({
+        payloads: [{ text: "On it, I spawned a subagent and it will auto-announce when done." }],
+        meta: { agentMeta: { usage: { input: 10, output: 20 } } },
+      })
+      .mockResolvedValueOnce({
+        payloads: [{ text: "All batches complete. Final summary here." }],
+        meta: { agentMeta: { usage: { input: 10, output: 20 } } },
+      });
     listDescendantRunsForRequesterMock.mockReturnValue([
       {
         startedAt: Date.now() + 60_000,
@@ -88,6 +96,6 @@ describe("runCronIsolatedAgentTurn — interim ack retry", () => {
     countActiveDescendantRunsMock.mockReturnValue(0);
 
     mockRunCronFallbackPassthrough();
-    await runTurnAndExpectOk(1, 1);
+    await runTurnAndExpectOk(2, 2);
   });
 });
