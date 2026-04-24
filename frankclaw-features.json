@@ -741,7 +741,7 @@
       ],
       "tests": [
         "extensions/whatsapp/src/auto-reply/monitor/group-gating.frankclaw.test.ts",
-        "extensions/whatsapp/src/monitor-inbox.append-upsert.test.ts"
+        "extensions/whatsapp/src/monitor-inbox.behavior.test.ts"
       ],
       "runtime": [
         {
