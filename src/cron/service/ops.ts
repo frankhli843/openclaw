@@ -723,9 +723,48 @@ export async function enqueueRun(state: CronServiceState, id: string, mode?: "du
   }
 
   const runId = `manual:${id}:${state.deps.nowMs()}:${nextManualRunId++}`;
+  // frankclaw: track whether the lane task has started executing.  If it
+  // sits in the queue longer than ENQUEUE_LANE_TIMEOUT_MS the reservation
+  // is released so the job doesn't get permanently stuck in "running" state
+  // with no session file (ghost session / enqueue-drop).
+  const ENQUEUE_LANE_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+  let laneTaskStarted = false;
+  const laneTimeoutHandle = setTimeout(async () => {
+    if (laneTaskStarted) {
+      return;
+    }
+    state.deps.log.error(
+      { jobId: id, runId, timeoutMs: ENQUEUE_LANE_TIMEOUT_MS },
+      "cron: enqueue lane timeout — clearing runningAtMs to prevent ghost session",
+    );
+    try {
+      await locked(state, async () => {
+        await ensureLoaded(state, { skipRecompute: true });
+        const job = state.store?.jobs.find((entry) => entry.id === id);
+        if (job && job.state.runningAtMs === prepared.startedAt) {
+          job.state.runningAtMs = undefined;
+          job.state.lastStatus = "error";
+          job.state.lastError = `enqueue-drop: lane wait exceeded ${ENQUEUE_LANE_TIMEOUT_MS}ms without starting execution`;
+          await persist(state);
+        }
+      });
+    } catch (cleanupErr) {
+      state.deps.log.error(
+        { jobId: id, err: String(cleanupErr) },
+        "cron: failed to clear runningAtMs after enqueue lane timeout",
+      );
+    }
+  }, ENQUEUE_LANE_TIMEOUT_MS);
+  // Prevent the timeout from keeping the process alive during shutdown.
+  if (typeof laneTimeoutHandle === "object" && "unref" in laneTimeoutHandle) {
+    laneTimeoutHandle.unref();
+  }
+
   void enqueueCommandInLane(
     CommandLane.Cron,
     async () => {
+      laneTaskStarted = true;
+      clearTimeout(laneTimeoutHandle);
       await finishPreparedManualRun(state, prepared, mode);
     },
     {
@@ -738,6 +777,7 @@ export async function enqueueRun(state: CronServiceState, id: string, mode?: "du
       },
     },
   ).catch(async (err) => {
+    clearTimeout(laneTimeoutHandle);
     state.deps.log.error(
       { jobId: id, runId, err: String(err) },
       "cron: queued manual run background execution failed",
