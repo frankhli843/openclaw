@@ -197,6 +197,7 @@ export function createRunningCronServiceState(params: {
     runIsolatedAgentJob: vi.fn().mockResolvedValue({ status: "ok", summary: "ok" }),
   });
   state.running = true;
+  state.activeTicks = 1;
   state.store = {
     version: 1,
     jobs: params.jobs,
@@ -240,6 +241,7 @@ export function createMockCronStateForJobs(params: {
   return {
     store: { version: 1, jobs: params.jobs },
     running: false,
+    activeTicks: 0,
     timer: null,
     storeLoadedAtMs: nowMs,
     storeFileMtimeMs: null,

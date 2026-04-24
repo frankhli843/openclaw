@@ -72,11 +72,29 @@ describe("cron service timer regressions", () => {
     const timeoutSpy = vi.spyOn(globalThis, "setTimeout");
     const store = timerRegressionFixtures.makeStorePath();
     const now = Date.parse("2026-02-06T10:05:00.000Z");
+    // frankclaw: use recurring job so armTimer re-arms after execution.
+    const jobs: CronJob[] = [
+      {
+        id: "recurring-due",
+        name: "recurring-due",
+        enabled: true,
+        deleteAfterRun: false,
+        createdAtMs: now,
+        updatedAtMs: now,
+        schedule: { kind: "every", everyMs: 5 * 60_000, anchorMs: now - 5 * 60_000 },
+        sessionTarget: "isolated",
+        wakeMode: "next-heartbeat",
+        payload: { kind: "agentTurn", message: "recurring-due" },
+        delivery: { mode: "none" },
+        state: { nextRunAtMs: now - 1 },
+      },
+    ];
+    await writeCronJobs(store.storePath, jobs);
     const state = createRunningCronServiceState({
       storePath: store.storePath,
       log: noopLogger,
       nowMs: () => now,
-      jobs: [createDueIsolatedJob({ id: "due", nowMs: now, nextRunAtMs: now - 1 })],
+      jobs,
     });
 
     await onTimer(state);
@@ -88,6 +106,7 @@ describe("cron service timer regressions", () => {
       .filter((d): d is number => typeof d === "number");
     expect(delays).toContain(60_000);
     timeoutSpy.mockRestore();
+    if (state.timer) clearTimeout(state.timer);
   });
 
   it("#24355: one-shot job retries then succeeds", async () => {

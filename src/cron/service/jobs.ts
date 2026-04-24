@@ -34,8 +34,14 @@ import {
   normalizeRequiredName,
 } from "./normalize.js";
 import type { CronServiceState } from "./state.js";
+import { resolveCronJobTimeoutMs } from "./timeout-policy.js";
 
+// frankclaw: legacy fallback kept for jobs where no timeout can be resolved.
 const STUCK_RUN_MS = 2 * 60 * 60 * 1000;
+// frankclaw: grace period added on top of job timeout for stuck detection.
+const STUCK_RUN_GRACE_MS = 5 * 60 * 1000;
+// frankclaw: minimum stuck threshold so short jobs don't clear too aggressively.
+const STUCK_RUN_MIN_MS = 15 * 60 * 1000;
 const STAGGER_OFFSET_CACHE_MAX = 4096;
 const staggerOffsetCache = new Map<string, number>();
 export const DEFAULT_ERROR_BACKOFF_SCHEDULE_MS = [
@@ -353,6 +359,15 @@ export function recordScheduleComputeError(params: {
   return true;
 }
 
+// frankclaw: per-job stuck threshold based on configured timeout.
+export function resolveStuckRunMs(job: CronJob): number {
+  const jobTimeoutMs = resolveCronJobTimeoutMs(job);
+  if (typeof jobTimeoutMs === "number" && jobTimeoutMs > 0) {
+    return Math.max(jobTimeoutMs + STUCK_RUN_GRACE_MS, STUCK_RUN_MIN_MS);
+  }
+  return STUCK_RUN_MS;
+}
+
 function normalizeJobTickState(params: { state: CronServiceState; job: CronJob; nowMs: number }): {
   changed: boolean;
   skip: boolean;
@@ -397,9 +412,10 @@ function normalizeJobTickState(params: { state: CronServiceState; job: CronJob; 
   }
 
   const runningAt = job.state.runningAtMs;
-  if (typeof runningAt === "number" && nowMs - runningAt > STUCK_RUN_MS) {
+  const stuckMs = resolveStuckRunMs(job);
+  if (typeof runningAt === "number" && nowMs - runningAt > stuckMs) {
     state.deps.log.warn(
-      { jobId: job.id, runningAtMs: runningAt },
+      { jobId: job.id, runningAtMs: runningAt, stuckThresholdMs: stuckMs },
       "cron: clearing stuck running marker",
     );
     job.state.runningAtMs = undefined;

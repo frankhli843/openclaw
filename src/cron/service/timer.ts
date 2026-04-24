@@ -713,21 +713,14 @@ function armRunningRecheckTimer(state: CronServiceState) {
 }
 
 export async function onTimer(state: CronServiceState) {
-  if (state.running) {
-    // Re-arm the timer so the scheduler keeps ticking even when a job is
-    // still executing.  Without this, a long-running job (e.g. an agentTurn
-    // exceeding MAX_TIMER_DELAY_MS) causes the clamped 60 s timer to fire
-    // while `running` is true.  The early return then leaves no timer set,
-    // silently killing the scheduler until the next gateway restart.
-    //
-    // We use MAX_TIMER_DELAY_MS as a fixed re-check interval to avoid a
-    // zero-delay hot-loop when past-due jobs are waiting for the current
-    // execution to finish.
-    // See: https://github.com/openclaw/openclaw/issues/12025
-    armRunningRecheckTimer(state);
-    return;
-  }
-  state.running = true;
+  // frankclaw: Allow overlapping timer ticks so a long-running job (e.g.
+  // nightly merge, 30-60 min) does not starve shorter time-critical jobs
+  // (e.g. morning briefing).  Each job's `runningAtMs` marker prevents
+  // double-pickup, and all state mutations are serialized by `locked()`.
+  // The old `state.running` early-return gate blocked ALL new jobs while
+  // any single job was executing, causing lane queue starvation.
+  state.activeTicks++;
+  state.running = state.activeTicks > 0;
   // Keep a watchdog timer armed while a tick is executing. If execution hangs
   // (for example in a provider call), the scheduler still wakes to re-check.
   armRunningRecheckTimer(state);
@@ -846,9 +839,6 @@ export async function onTimer(state: CronServiceState) {
     }
   } finally {
     // Piggyback session reaper on timer tick (self-throttled to every 5 min).
-    // Placed in `finally` so the reaper runs even when a long-running job keeps
-    // `state.running` true across multiple timer ticks — the early return at the
-    // top of onTimer would otherwise skip the reaper indefinitely.
     const storePaths = new Set<string>();
     if (state.deps.resolveSessionStorePath) {
       const defaultAgentId = state.deps.defaultAgentId ?? DEFAULT_AGENT_ID;
@@ -881,7 +871,8 @@ export async function onTimer(state: CronServiceState) {
       }
     }
 
-    state.running = false;
+    state.activeTicks = Math.max(0, state.activeTicks - 1);
+    state.running = state.activeTicks > 0;
     armTimer(state);
   }
 }

@@ -128,6 +128,8 @@ export type CronServiceState = {
   store: CronStoreFile | null;
   timer: NodeJS.Timeout | null;
   running: boolean;
+  /** frankclaw: number of concurrently executing timer ticks. */
+  activeTicks: number;
   op: Promise<unknown>;
   warnedDisabled: boolean;
   storeLoadedAtMs: number | null;
@@ -140,6 +142,7 @@ export function createCronServiceState(deps: CronServiceDeps): CronServiceState 
     store: null,
     timer: null,
     running: false,
+    activeTicks: 0,
     op: Promise.resolve(),
     warnedDisabled: false,
     storeLoadedAtMs: null,

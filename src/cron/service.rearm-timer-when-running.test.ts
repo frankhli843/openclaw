@@ -54,42 +54,41 @@ describe("CronService - timer re-arm when running (#12025)", () => {
     vi.clearAllMocks();
   });
 
-  it("re-arms the timer when onTimer is called while state.running is true", async () => {
+  it("re-arms the timer when onTimer is called while another tick is active", async () => {
     const timeoutSpy = vi.spyOn(globalThis, "setTimeout");
     const store = await makeStorePath();
     const now = Date.parse("2026-02-06T10:05:00.000Z");
+
+    const jobs = [
+      createDueRecurringJob({
+        id: "recurring-job",
+        nowMs: now,
+        nextRunAtMs: now + 5 * 60_000,
+      }),
+    ];
+
+    // Write store to disk so forceReload finds the jobs.
+    await fs.mkdir(path.dirname(store.storePath), { recursive: true });
+    await fs.writeFile(store.storePath, JSON.stringify({ version: 1, jobs }, null, 2), "utf-8");
 
     const state = createRunningCronServiceState({
       storePath: store.storePath,
       log: noopLogger,
       nowMs: () => now,
-      jobs: [
-        createDueRecurringJob({
-          id: "recurring-job",
-          nowMs: now,
-          nextRunAtMs: now + 5 * 60_000,
-        }),
-      ],
+      jobs,
     });
 
-    // Before the fix in #12025, this would return without re-arming,
-    // silently killing the scheduler.
+    // With overlapping ticks, a second onTimer call proceeds normally.
     await onTimer(state);
 
-    // The timer must be re-armed so the scheduler continues ticking,
-    // with a fixed 60s delay to avoid hot-looping.
     expect(state.timer).not.toBeNull();
     expect(timeoutSpy).toHaveBeenCalled();
-    const delays = timeoutSpy.mock.calls
-      .map(([, delay]) => delay)
-      .filter((d): d is number => typeof d === "number");
-    expect(delays).toContain(60_000);
 
-    // state.running should still be true (onTimer bailed out, didn't
-    // touch it — the original caller's finally block handles that).
+    // state.running still true: pre-existing tick keeps activeTicks > 0.
     expect(state.running).toBe(true);
 
     timeoutSpy.mockRestore();
+    if (state.timer) clearTimeout(state.timer);
     await store.cleanup();
   });
 
