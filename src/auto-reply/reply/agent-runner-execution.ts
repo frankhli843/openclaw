@@ -26,6 +26,7 @@ import {
   isTransientHttpError,
 } from "../../agents/pi-embedded-helpers.js";
 import { sanitizeUserFacingText } from "../../agents/pi-embedded-helpers/sanitize-user-facing-text.js";
+import { classifyEmbeddedPiRunResultForModelFallback } from "../../agents/pi-embedded-runner/result-fallback-classifier.js";
 import { isLikelyExecutionAckPrompt } from "../../agents/pi-embedded-runner/run/incomplete-turn.js";
 import { runEmbeddedPiAgent } from "../../agents/pi-embedded.js";
 import {
@@ -120,6 +121,8 @@ export type AgentRunLoopResult =
       directlySentBlockKeys?: Set<string>;
     }
   | { kind: "final"; payload: ReplyPayload; retryableFailure?: boolean; failureMessage?: string };
+
+type EmbeddedAgentRunResult = Awaited<ReturnType<typeof runEmbeddedPiAgent>>;
 
 type FallbackSelectionState = Pick<
   SessionEntry,
@@ -690,6 +693,32 @@ export async function runAgentTurnWithFallback(params: {
   let bootstrapPromptWarningSignaturesSeen = resolveBootstrapWarningSignaturesSeen(
     params.getActiveSessionEntry()?.systemPromptReport,
   );
+  let pendingFallbackCandidateRollback:
+    | {
+        provider: string;
+        model: string;
+        rollback: () => Promise<void>;
+      }
+    | undefined;
+  const clearPendingFallbackRollback = (rollback?: () => Promise<void>) => {
+    if (!rollback || pendingFallbackCandidateRollback?.rollback === rollback) {
+      pendingFallbackCandidateRollback = undefined;
+    }
+  };
+  const rollbackClassifiedFallbackCandidateSelection = async (provider: string, model: string) => {
+    const pending = pendingFallbackCandidateRollback;
+    if (!pending || pending.provider !== provider || pending.model !== model) {
+      return;
+    }
+    pendingFallbackCandidateRollback = undefined;
+    try {
+      await pending.rollback();
+    } catch (rollbackError) {
+      logVerbose(
+        `failed to roll back classified fallback candidate selection (non-fatal): ${String(rollbackError)}`,
+      );
+    }
+  };
   const persistFallbackCandidateSelection = async (
     provider: string,
     model: string,
@@ -861,9 +890,24 @@ export async function runAgentTurnWithFallback(params: {
           })
         : undefined;
       const onToolResult = params.opts?.onToolResult;
-      const fallbackResult = await runWithModelFallback({
+      const fallbackResult = await runWithModelFallback<EmbeddedAgentRunResult>({
         ...resolveModelFallbackOptions(params.followupRun.run),
         runId,
+        classifyResult: async ({ result, provider, model }) => {
+          const classification = classifyEmbeddedPiRunResultForModelFallback({
+            result,
+            provider,
+            model,
+            hasDirectlySentBlockReply: directlySentBlockKeys.size > 0,
+            hasBlockReplyPipelineOutput: Boolean(
+              blockReplyPipeline?.hasBuffered() || blockReplyPipeline?.didStream(),
+            ),
+          });
+          if (classification) {
+            await rollbackClassifiedFallbackCandidateSelection(provider, model);
+          }
+          return classification;
+        },
         run: async (provider, model, runOptions) => {
           // Notify that model selection is complete (including after fallback).
           // This allows responsePrefix template interpolation with the actual model.
@@ -878,6 +922,13 @@ export async function runAgentTurnWithFallback(params: {
               provider,
               model,
             );
+            if (rollbackFallbackCandidateSelection) {
+              pendingFallbackCandidateRollback = {
+                provider,
+                model,
+                rollback: rollbackFallbackCandidateSelection,
+              };
+            }
           } catch (error) {
             logVerbose(
               `failed to persist fallback candidate selection (non-fatal): ${String(error)}`,
@@ -899,10 +950,9 @@ export async function runAgentTurnWithFallback(params: {
               params.getActiveSessionEntry(),
               provider,
             );
-            const authProfileId =
-              provider === params.followupRun.run.provider
-                ? params.followupRun.run.authProfileId
-                : undefined;
+            const authProfile = resolveRunAuthProfile(params.followupRun.run, provider, {
+              config: runtimeConfig,
+            });
             const hookMessageProvider = resolveOriginMessageProvider({
               originatingChannel: params.followupRun.originatingChannel,
               provider: params.sessionCtx.Provider,
@@ -929,7 +979,7 @@ export async function runAgentTurnWithFallback(params: {
                   ownerNumbers: params.followupRun.run.ownerNumbers,
                   cliSessionId: cliSessionBinding?.sessionId,
                   cliSessionBinding,
-                  authProfileId,
+                  authProfileId: authProfile.authProfileId,
                   bootstrapPromptWarningSignaturesSeen,
                   bootstrapPromptWarningSignature:
                     bootstrapPromptWarningSignaturesSeen[
@@ -977,6 +1027,7 @@ export async function runAgentTurnWithFallback(params: {
                 if (rollbackFallbackCandidateSelection) {
                   try {
                     await rollbackFallbackCandidateSelection();
+                    clearPendingFallbackRollback(rollbackFallbackCandidateSelection);
                   } catch (rollbackError) {
                     logVerbose(
                       `failed to roll back fallback candidate selection (non-fatal): ${String(rollbackError)}`,
@@ -1291,6 +1342,7 @@ export async function runAgentTurnWithFallback(params: {
               if (rollbackFallbackCandidateSelection) {
                 try {
                   await rollbackFallbackCandidateSelection();
+                  clearPendingFallbackRollback(rollbackFallbackCandidateSelection);
                 } catch (rollbackError) {
                   logVerbose(
                     `failed to roll back fallback candidate selection (non-fatal): ${String(rollbackError)}`,

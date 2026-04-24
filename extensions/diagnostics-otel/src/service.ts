@@ -176,9 +176,32 @@ export function createDiagnosticsOtelService(): OpenClawPluginService {
   let stopLogTransport: (() => void) | null = null;
   let unsubscribe: (() => void) | null = null;
 
+  const stopStarted = async () => {
+    const currentUnsubscribe = unsubscribe;
+    const currentStopLogTransport = stopLogTransport;
+    const currentLogProvider = logProvider;
+    const currentSdk = sdk;
+
+    unsubscribe = null;
+    stopLogTransport = null;
+    logProvider = null;
+    sdk = null;
+
+    currentUnsubscribe?.();
+    currentStopLogTransport?.();
+    if (currentLogProvider) {
+      await currentLogProvider.shutdown().catch(() => undefined);
+    }
+    if (currentSdk) {
+      await currentSdk.shutdown().catch(() => undefined);
+    }
+  };
+
   return {
     id: "diagnostics-otel",
     async start(ctx) {
+      await stopStarted();
+
       const cfg = ctx.config.diagnostics;
       const otel = cfg?.otel;
       if (!cfg?.enabled || !otel?.enabled) {
@@ -251,6 +274,7 @@ export function createDiagnosticsOtelService(): OpenClawPluginService {
         try {
           sdk.start();
         } catch (err) {
+          await stopStarted();
           ctx.logger.error(`diagnostics-otel: failed to start SDK: ${formatError(err)}`);
           throw err;
         }
@@ -788,6 +812,14 @@ export function createDiagnosticsOtelService(): OpenClawPluginService {
               recordHeartbeat(evt);
               return;
             case "tool.loop":
+            case "tool.execution.started":
+            case "tool.execution.completed":
+            case "tool.execution.error":
+            case "run.started":
+            case "run.completed":
+            case "model.call.started":
+            case "model.call.completed":
+            case "model.call.error":
             case "diagnostic.memory.sample":
             case "diagnostic.memory.pressure":
             case "payload.large":
@@ -805,18 +837,7 @@ export function createDiagnosticsOtelService(): OpenClawPluginService {
       }
     },
     async stop() {
-      unsubscribe?.();
-      unsubscribe = null;
-      stopLogTransport?.();
-      stopLogTransport = null;
-      if (logProvider) {
-        await logProvider.shutdown().catch(() => undefined);
-        logProvider = null;
-      }
-      if (sdk) {
-        await sdk.shutdown().catch(() => undefined);
-        sdk = null;
-      }
+      await stopStarted();
     },
   } satisfies OpenClawPluginService;
 }
