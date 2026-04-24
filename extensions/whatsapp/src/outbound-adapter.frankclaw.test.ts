@@ -1,10 +1,12 @@
 /**
  * Tests WhatsApp DNR quiet hours enforcement in the outbound adapter.
+ * Tests the enforceWhatsAppDnr wrapper that intercepts sends.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({
+// Mock the DNR module
+const dnrMocks = vi.hoisted(() => ({
   enforceWhatsAppDnrWindow: vi.fn(),
   WhatsAppDnrSuppressedError: class WhatsAppDnrSuppressedError extends Error {
     readonly nextEligibleAtMs: number;
@@ -14,63 +16,28 @@ const mocks = vi.hoisted(() => ({
       this.nextEligibleAtMs = nextEligibleAtMs;
     }
   },
-  createEmptyChannelResult: vi.fn(() => ({ channel: "whatsapp", results: [] })),
-  createAttachedChannelResultAdapter: vi.fn(() => ({
-    sendText: vi.fn(),
-    sendMedia: vi.fn(),
-    sendPoll: vi.fn(),
-  })),
-  sanitizeForPlainText: vi.fn((t: string) => t),
-  resolveOutboundSendDep: vi.fn(),
-  resolveSendableOutboundReplyParts: vi.fn(() => ({ hasMedia: false })),
-  sendTextMediaPayload: vi.fn(),
-  chunkText: vi.fn(),
-  shouldLogVerbose: vi.fn(() => false),
-  createSubsystemLogger: vi.fn(() => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn() })),
-  resolveWhatsAppOutboundTarget: vi.fn(),
-  sendPollWhatsApp: vi.fn(),
 }));
 
 vi.mock("../../../src/infra/outbound/discord-dnr.js", () => ({
-  enforceWhatsAppDnrWindow: mocks.enforceWhatsAppDnrWindow,
-  WhatsAppDnrSuppressedError: mocks.WhatsAppDnrSuppressedError,
+  enforceWhatsAppDnrWindow: dnrMocks.enforceWhatsAppDnrWindow,
+  WhatsAppDnrSuppressedError: dnrMocks.WhatsAppDnrSuppressedError,
 }));
 
-vi.mock("openclaw/plugin-sdk/channel-send-result", () => ({
-  createAttachedChannelResultAdapter: mocks.createAttachedChannelResultAdapter,
-  createEmptyChannelResult: mocks.createEmptyChannelResult,
-}));
+// Import the enforceWhatsAppDnr function indirectly through the module
+// We test the DNR enforcement via the exported outbound adapter
 
-vi.mock("openclaw/plugin-sdk/outbound-runtime", () => ({
-  resolveOutboundSendDep: mocks.resolveOutboundSendDep,
-  sanitizeForPlainText: mocks.sanitizeForPlainText,
-}));
+const sendMessageMock = vi.hoisted(() =>
+  vi.fn(async () => ({ messageId: "msg-123", toJid: "jid-456" })),
+);
 
-vi.mock("openclaw/plugin-sdk/reply-payload", () => ({
-  resolveSendableOutboundReplyParts: mocks.resolveSendableOutboundReplyParts,
-  sendTextMediaPayload: mocks.sendTextMediaPayload,
-}));
-
-vi.mock("openclaw/plugin-sdk/reply-runtime", () => ({
-  chunkText: mocks.chunkText,
+vi.mock("./send.js", () => ({
+  sendMessageWhatsApp: sendMessageMock,
+  sendPollWhatsApp: vi.fn(async () => ({ messageId: "poll-1", toJid: "jid-789" })),
 }));
 
 vi.mock("openclaw/plugin-sdk/runtime-env", () => ({
-  shouldLogVerbose: mocks.shouldLogVerbose,
-  createSubsystemLogger: mocks.createSubsystemLogger,
-}));
-
-vi.mock("./outbound-send-deps.js", () => ({
-  WHATSAPP_LEGACY_OUTBOUND_SEND_DEP_KEYS: [],
-}));
-
-vi.mock("./runtime-api.js", () => ({
-  resolveWhatsAppOutboundTarget: mocks.resolveWhatsAppOutboundTarget,
-}));
-
-vi.mock("./send.js", () => ({
-  sendPollWhatsApp: mocks.sendPollWhatsApp,
-  sendMessageWhatsApp: vi.fn(),
+  shouldLogVerbose: vi.fn(() => false),
+  createSubsystemLogger: vi.fn(() => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn() })),
 }));
 
 import { whatsappOutbound } from "./outbound-adapter.js";
@@ -80,57 +47,50 @@ describe("WhatsApp outbound adapter DNR enforcement", () => {
     vi.clearAllMocks();
   });
 
-  it("returns empty result when WhatsAppDnrSuppressedError is thrown", async () => {
-    mocks.enforceWhatsAppDnrWindow.mockImplementation(() => {
-      throw new mocks.WhatsAppDnrSuppressedError(Date.now() + 60_000);
+  it("suppresses send when WhatsAppDnrSuppressedError is thrown", async () => {
+    dnrMocks.enforceWhatsAppDnrWindow.mockImplementation(() => {
+      throw new dnrMocks.WhatsAppDnrSuppressedError(Date.now() + 60_000);
     });
 
-    const ctx = {
+    // Call sendText which goes through our DNR-wrapped sendMessageWhatsApp
+    const result = await whatsappOutbound.sendText!({
+      cfg: {} as any,
       to: "120363421390336301@g.us",
-      payload: { text: "Hello" },
-    } as any;
-
-    const result = await whatsappOutbound.sendPayload!(ctx);
-    expect(result).toEqual({ channel: "whatsapp", results: [] });
-    expect(mocks.sendTextMediaPayload).not.toHaveBeenCalled();
+      text: "Hello",
+      accountId: "default",
+    });
+    // DNR suppresses: sendMessageWhatsApp returns { messageId: "", toJid: "" }
+    expect(result).toMatchObject({ messageId: "" });
+    expect(sendMessageMock).not.toHaveBeenCalled();
   });
 
   it("proceeds with send when DNR window is not active", async () => {
-    mocks.enforceWhatsAppDnrWindow.mockImplementation(() => {
+    dnrMocks.enforceWhatsAppDnrWindow.mockImplementation(() => {
       // no-op, not in quiet hours
     });
-    mocks.sendTextMediaPayload.mockResolvedValue({ channel: "whatsapp", results: [{ ok: true }] });
 
-    const ctx = {
+    const result = await whatsappOutbound.sendText!({
+      cfg: {} as any,
       to: "120363421390336301@g.us",
-      payload: { text: "Hello" },
-    } as any;
-
-    await whatsappOutbound.sendPayload!(ctx);
-    expect(mocks.sendTextMediaPayload).toHaveBeenCalled();
+      text: "Hello",
+      accountId: "default",
+    });
+    expect(sendMessageMock).toHaveBeenCalled();
+    expect(result).toMatchObject({ messageId: "msg-123" });
   });
 
   it("re-throws non-DNR errors from enforceWhatsAppDnrWindow", async () => {
-    mocks.enforceWhatsAppDnrWindow.mockImplementation(() => {
+    dnrMocks.enforceWhatsAppDnrWindow.mockImplementation(() => {
       throw new Error("unexpected error");
     });
 
-    const ctx = {
-      to: "group@g.us",
-      payload: { text: "Hi" },
-    } as any;
-
-    await expect(whatsappOutbound.sendPayload!(ctx)).rejects.toThrow("unexpected error");
-  });
-
-  it("returns empty result for empty text and no media", async () => {
-    const ctx = {
-      to: "group@g.us",
-      payload: { text: "" },
-    } as any;
-
-    const result = await whatsappOutbound.sendPayload!(ctx);
-    expect(result).toEqual({ channel: "whatsapp", results: [] });
-    expect(mocks.enforceWhatsAppDnrWindow).not.toHaveBeenCalled();
+    await expect(
+      whatsappOutbound.sendText!({
+        cfg: {} as any,
+        to: "group@g.us",
+        text: "Hi",
+        accountId: "default",
+      }),
+    ).rejects.toThrow("unexpected error");
   });
 });

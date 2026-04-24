@@ -1,4 +1,8 @@
-import type { SpawnSubagentMode, SpawnSubagentSandboxMode } from "./subagent-spawn.types.js";
+import type {
+  SpawnSubagentContextMode,
+  SpawnSubagentMode,
+  SpawnSubagentSandboxMode,
+} from "./subagent-spawn.types.js";
 
 export type SpawnSubagentParams = {
   task: string;
@@ -11,6 +15,7 @@ export type SpawnSubagentParams = {
   mode?: SpawnSubagentMode;
   cleanup?: "delete" | "keep";
   sandbox?: SpawnSubagentSandboxMode;
+  context?: SpawnSubagentContextMode;
   lightContext?: boolean;
   expectsCompletionMessage?: boolean;
   attachments?: Array<{

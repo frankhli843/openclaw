@@ -1,3 +1,4 @@
+import { resolveBatchedReplyThreadingPolicy } from "openclaw/plugin-sdk/reply-reference";
 import {
   enforceWhatsAppDnrWindow,
   WhatsAppDnrSuppressedError,
@@ -10,6 +11,10 @@ import {
 } from "../../inbound-policy.js";
 import { newConnectionId } from "../../reconnect.js";
 import { formatError } from "../../session.js";
+import {
+  resolveWhatsAppDirectSystemPrompt,
+  resolveWhatsAppGroupSystemPrompt,
+} from "../../system-prompt.js";
 import { deliverWebReply } from "../deliver-reply.js";
 import { whatsappInboundLog } from "../loggers.js";
 import type { WebInboundMsg } from "../types.js";
@@ -270,6 +275,22 @@ export async function processMessage(params: {
     isSelfChat: params.msg.chatType !== "group" && inboundPolicy.isSelfChat,
     pipelineResponsePrefix: replyPipeline.responsePrefix,
   });
+  const replyThreading = resolveBatchedReplyThreadingPolicy(
+    account.replyToMode ?? "off",
+    params.msg.isBatched === true,
+  );
+
+  // Resolve combined conversation system prompt using the group or direct surface.
+  const conversationSystemPrompt =
+    params.msg.chatType === "group"
+      ? resolveWhatsAppGroupSystemPrompt({
+          accountConfig: account,
+          groupId: conversationId,
+        })
+      : resolveWhatsAppDirectSystemPrompt({
+          accountConfig: account,
+          peerId: dmRouteTarget ?? params.msg.from,
+        });
 
   // frankclaw addition: attach recent media from gated group history when
   // the current message has no media of its own (e.g. mention after image)
@@ -289,6 +310,7 @@ export async function processMessage(params: {
     conversationId,
     groupHistory: visibleGroupHistory,
     groupMemberRoster: params.groupMemberNames.get(params.groupHistoryKey),
+    groupSystemPrompt: conversationSystemPrompt,
     msg: params.msg,
     route: params.route,
     sender: {
@@ -296,6 +318,7 @@ export async function processMessage(params: {
       name: sender.name ?? undefined,
       e164: sender.e164 ?? undefined,
     },
+    replyThreading,
     visibleReplyTo: visibleReplyTo ?? undefined,
     // frankclaw addition
     historyMediaPaths: historyMedia?.mediaPaths,

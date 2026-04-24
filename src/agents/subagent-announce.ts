@@ -327,6 +327,10 @@ export async function runSubagentAnnounceFlow(params: {
     if (!outcome) {
       outcome = { status: "unknown" };
     }
+    const failedTerminalOutcome = outcome.status === "error";
+    if (failedTerminalOutcome) {
+      reply = undefined;
+    }
 
     let requesterDepth = getSubagentDepthFromSessionStore(targetRequesterSessionKey);
     const requesterIsInternalSession = () =>
@@ -408,7 +412,7 @@ export async function runSubagentAnnounceFlow(params: {
       }
     }
 
-    if (!childCompletionFindings) {
+    if (!childCompletionFindings && !failedTerminalOutcome) {
       const fallbackReply = normalizeOptionalString(params.fallbackReply);
       const fallbackIsSilent =
         Boolean(fallbackReply) &&

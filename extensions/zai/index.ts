@@ -41,19 +41,13 @@ function resolveGlm5ForwardCompatModel(
     return undefined;
   }
 
-  const existing = ctx.modelRegistry.find(
-    PROVIDER_ID,
-    trimmedModelId,
-  );
+  const existing = ctx.modelRegistry.find(PROVIDER_ID, trimmedModelId);
   if (existing) {
     return existing;
   }
 
   const def = buildZaiModelDefinition({ id: trimmedModelId });
-  const template = ctx.modelRegistry.find(
-    PROVIDER_ID,
-    GLM5_TEMPLATE_MODEL_ID,
-  );
+  const template = ctx.modelRegistry.find(PROVIDER_ID, GLM5_TEMPLATE_MODEL_ID);
   return normalizeModelCompat({
     ...template,
     id: def.id,
@@ -280,7 +274,13 @@ export default definePluginEntry({
       ...OPENAI_COMPATIBLE_REPLAY_HOOKS,
       prepareExtraParams: (ctx) => defaultToolStreamExtraParams(ctx.extraParams),
       ...TOOL_STREAM_DEFAULT_ON_HOOKS,
-      isBinaryThinking: () => true,
+      resolveThinkingProfile: () => ({
+        levels: [
+          { id: "off", label: "off" },
+          { id: "low", label: "on" },
+        ],
+        defaultLevel: "off",
+      }),
       isModernModelRef: ({ modelId }) => {
         const lower = normalizeLowercaseStringOrEmpty(modelId);
         return (

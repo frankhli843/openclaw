@@ -1,4 +1,8 @@
 import type { ToolLoopDetectionConfig } from "../config/types.tools.js";
+import {
+  freezeDiagnosticTraceContext,
+  type DiagnosticTraceContext,
+} from "../infra/diagnostic-trace-context.js";
 import type { SessionState } from "../logging/diagnostic-session-state.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import { getGlobalHookRunner } from "../plugins/hook-runner-global.js";
@@ -17,6 +21,7 @@ export type HookContext = {
   /** Ephemeral session UUID — regenerated on /new and /reset. */
   sessionId?: string;
   runId?: string;
+  trace?: DiagnosticTraceContext;
   loopDetection?: ToolLoopDetectionConfig;
 };
 
@@ -163,22 +168,21 @@ export async function runBeforeToolCallHook(args: {
           blocked: true,
           reason: loopResult.message,
         };
-      } else {
-        const warningKey = loopResult.warningKey ?? `${loopResult.detector}:${toolName}`;
-        if (shouldEmitLoopWarning(sessionState, warningKey, loopResult.count)) {
-          log.warn(`Loop warning for ${toolName}: ${loopResult.message}`);
-          logToolLoopAction({
-            sessionKey: args.ctx.sessionKey,
-            sessionId: args.ctx?.agentId,
-            toolName,
-            level: "warning",
-            action: "warn",
-            detector: loopResult.detector,
-            count: loopResult.count,
-            message: loopResult.message,
-            pairedToolName: loopResult.pairedToolName,
-          });
-        }
+      }
+      const warningKey = loopResult.warningKey ?? `${loopResult.detector}:${toolName}`;
+      if (shouldEmitLoopWarning(sessionState, warningKey, loopResult.count)) {
+        log.warn(`Loop warning for ${toolName}: ${loopResult.message}`);
+        logToolLoopAction({
+          sessionKey: args.ctx.sessionKey,
+          sessionId: args.ctx?.agentId,
+          toolName,
+          level: "warning",
+          action: "warn",
+          detector: loopResult.detector,
+          count: loopResult.count,
+          message: loopResult.message,
+          pairedToolName: loopResult.pairedToolName,
+        });
       }
     }
 
@@ -198,6 +202,7 @@ export async function runBeforeToolCallHook(args: {
       ...(args.ctx?.sessionKey && { sessionKey: args.ctx.sessionKey }),
       ...(args.ctx?.sessionId && { sessionId: args.ctx.sessionId }),
       ...(args.ctx?.runId && { runId: args.ctx.runId }),
+      ...(args.ctx?.trace && { trace: freezeDiagnosticTraceContext(args.ctx.trace) }),
       ...(args.toolCallId && { toolCallId: args.toolCallId }),
     };
     const hookResult = await hookRunner.runBeforeToolCall(
@@ -350,7 +355,7 @@ export async function runBeforeToolCallHook(args: {
             reason: "Approval cancelled (run aborted)",
           };
         }
-        log.warn(`plugin approval gateway request failed, falling back to block: ${String(err)}`);
+        log.warn(`plugin approval gateway request failed; blocking tool call: ${String(err)}`);
         return {
           blocked: true,
           reason: "Plugin approval required (gateway unavailable)",

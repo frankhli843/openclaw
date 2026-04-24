@@ -3,6 +3,10 @@ import type { ThinkLevel, VerboseLevel } from "../../auto-reply/thinking.js";
 import type { AgentDefaultsConfig } from "../../config/types.agent-defaults.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import type { CronJob } from "../types.js";
+import {
+  resolveCronChannelOutputPolicy,
+  resolveCurrentChannelTarget,
+} from "./channel-output-policy.js";
 import { resolveCronPayloadOutcome } from "./helpers.js";
 import {
   getCliSessionId,
@@ -41,20 +45,6 @@ type CronPromptRunResult = Awaited<ReturnType<typeof runCliAgent>>;
 type CronEmbeddedRuntime = typeof import("./run-embedded.runtime.js");
 let cronEmbeddedRuntimePromise: Promise<CronEmbeddedRuntime> | undefined;
 
-function resolveCurrentChannelTarget(params: {
-  channel?: string;
-  to?: string;
-  threadId?: string | number;
-}): string | undefined {
-  if (!params.to) {
-    return undefined;
-  }
-  if (params.channel !== "telegram" || params.threadId == null) {
-    return params.to;
-  }
-  return params.to.includes(":topic:") ? params.to : `${params.to}:topic:${params.threadId}`;
-}
-
 async function loadCronEmbeddedRuntime() {
   cronEmbeddedRuntimePromise ??= import("./run-embedded.runtime.js");
   return await cronEmbeddedRuntimePromise;
@@ -90,6 +80,7 @@ export function createCronPromptExecutor(params: {
   toolPolicy: {
     requireExplicitMessageTarget: boolean;
     disableMessageTool: boolean;
+    forceMessageTool: boolean;
   };
   skillsSnapshot: SkillSnapshot;
   agentPayload: AgentTurnPayload;
@@ -140,6 +131,7 @@ export function createCronPromptExecutor(params: {
             sessionId: params.cronSession.sessionEntry.sessionId,
             sessionKey: params.agentSessionKey,
             agentId: params.agentId,
+            trigger: "cron",
             sessionFile,
             workspaceDir: params.workspaceDir,
             config: params.cfgWithAgentDefaults,
@@ -151,6 +143,7 @@ export function createCronPromptExecutor(params: {
             runId: params.cronSession.sessionEntry.sessionId,
             cliSessionId,
             skillsSnapshot: params.skillsSnapshot,
+            messageChannel: params.messageChannel,
             bootstrapPromptWarningSignaturesSeen,
             bootstrapPromptWarningSignature,
             senderIsOwner: true,
@@ -162,22 +155,24 @@ export function createCronPromptExecutor(params: {
         }
         const { resolveFastModeState, resolveNestedAgentLane, runEmbeddedPiAgent } =
           await loadCronEmbeddedRuntime();
+        const currentChannelId = await resolveCurrentChannelTarget({
+          channel: params.messageChannel,
+          to: params.resolvedDelivery.to,
+          threadId: params.resolvedDelivery.threadId,
+        });
         const result = await runEmbeddedPiAgent({
           sessionId: params.cronSession.sessionEntry.sessionId,
           sessionKey: params.agentSessionKey,
           agentId: params.agentId,
           trigger: "cron",
+          cleanupBundleMcpOnRunEnd: params.job.sessionTarget === "isolated",
           allowGatewaySubagentBinding: true,
           senderIsOwner: false,
           messageChannel: params.messageChannel,
           agentAccountId: params.resolvedDelivery.accountId,
           messageTo: params.resolvedDelivery.to,
           messageThreadId: params.resolvedDelivery.threadId,
-          currentChannelId: resolveCurrentChannelTarget({
-            channel: params.messageChannel,
-            to: params.resolvedDelivery.to,
-            threadId: params.resolvedDelivery.threadId,
-          }),
+          currentChannelId,
           sessionFile,
           agentDir: params.agentDir,
           workspaceDir: params.workspaceDir,
@@ -207,6 +202,7 @@ export function createCronPromptExecutor(params: {
           runId: params.cronSession.sessionEntry.sessionId,
           requireExplicitMessageTarget: params.toolPolicy.requireExplicitMessageTarget,
           disableMessageTool: params.toolPolicy.disableMessageTool,
+          forceMessageTool: params.toolPolicy.forceMessageTool,
           allowTransientCooldownProbe: runOptions?.allowTransientCooldownProbe,
           abortSignal: params.abortSignal,
           bootstrapPromptWarningSignaturesSeen,
@@ -256,6 +252,7 @@ export async function executeCronRun(params: {
   toolPolicy: {
     requireExplicitMessageTarget: boolean;
     disableMessageTool: boolean;
+    forceMessageTool: boolean;
   };
   skillsSnapshot: SkillSnapshot;
   agentPayload: AgentTurnPayload;
@@ -352,17 +349,35 @@ export async function executeCronRun(params: {
   // Fixes the 2026-04-23 knowledge-agent failure where the parent cron
   // session died after batch 1 because it never got a second turn.
   if (!params.isAborted()) {
-    const checkInterim = (rawResult: unknown): boolean => {
-      const result = rawResult as CronPromptRunResult;
-      if (!result) {
-        return false;
-      }
-      const payloads = result.payloads ?? [];
-      const { deliveryPayloadHasStructuredContent, outputText } = resolveCronPayloadOutcome({
-        payloads,
-        runLevelError: result.meta?.error,
-        finalAssistantVisibleText: result.meta?.finalAssistantVisibleText,
-        preferFinalAssistantVisibleText: params.resolvedDelivery.channel === "telegram",
+    const interimPayloads = runResult.payloads ?? [];
+    const {
+      deliveryPayloadHasStructuredContent: interimPayloadHasStructuredContent,
+      outputText: interimOutputText,
+    } = resolveCronPayloadOutcome({
+      payloads: interimPayloads,
+      runLevelError: runResult.meta?.error,
+      finalAssistantVisibleText: runResult.meta?.finalAssistantVisibleText,
+      preferFinalAssistantVisibleText: (
+        await resolveCronChannelOutputPolicy(params.resolvedDelivery.channel)
+      ).preferFinalAssistantVisibleText,
+    });
+    const interimText = interimOutputText?.trim() ?? "";
+    const shouldRetryInterimAck =
+      !runResult.meta?.error &&
+      !runResult.didSendViaMessagingTool &&
+      !interimPayloadHasStructuredContent &&
+      !interimPayloads.some((payload) => payload?.isError === true) &&
+      isLikelyInterimCronMessage(interimText);
+
+    let hasFreshDescendants = false;
+    let hasActiveDescendants = false;
+    if (shouldRetryInterimAck) {
+      const { countActiveDescendantRuns, listDescendantRunsForRequester } =
+        await loadCronSubagentRegistryRuntime();
+      hasFreshDescendants = listDescendantRunsForRequester(params.agentSessionKey).some((entry) => {
+        const descendantStartedAt =
+          typeof entry.startedAt === "number" ? entry.startedAt : entry.createdAt;
+        return typeof descendantStartedAt === "number" && descendantStartedAt >= runStartedAt;
       });
       const text = outputText?.trim() ?? "";
       // frankclaw: empty text (e.g. from sessions_yield producing only tool
@@ -377,7 +392,7 @@ export async function executeCronRun(params: {
         !payloads.some((payload) => payload?.isError === true) &&
         isEmptyOrInterim
       );
-    };
+    }
 
     const sessionFile =
       params.cronSession.sessionEntry.sessionFile?.trim() ||

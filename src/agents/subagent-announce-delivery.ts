@@ -31,6 +31,7 @@ import {
   loadConfig,
   loadSessionStore,
   queueEmbeddedPiMessage,
+  resolveActiveEmbeddedRunSessionId,
   resolveAgentIdFromSessionKey,
   resolveConversationIdFromTargets,
   resolveExternalBestEffortDeliveryTarget,
@@ -57,16 +58,44 @@ type SubagentAnnounceDeliveryDeps = {
   callGateway: typeof callGateway;
   loadConfig: typeof loadConfig;
   readLatestAssistantReply: typeof readLatestAssistantReply;
+  getRequesterSessionActivity: (requesterSessionKey: string) => {
+    sessionId?: string;
+    isActive: boolean;
+  };
+  queueEmbeddedPiMessage: typeof queueEmbeddedPiMessage;
 };
 
 const defaultSubagentAnnounceDeliveryDeps: SubagentAnnounceDeliveryDeps = {
   callGateway,
   loadConfig,
   readLatestAssistantReply,
+  getRequesterSessionActivity: (requesterSessionKey: string) => {
+    const sessionId =
+      resolveActiveEmbeddedRunSessionId(requesterSessionKey) ??
+      loadRequesterSessionEntry(requesterSessionKey).entry?.sessionId;
+    return {
+      sessionId,
+      isActive: Boolean(sessionId && isEmbeddedPiRunActive(sessionId)),
+    };
+  },
+  queueEmbeddedPiMessage,
 };
 
 let subagentAnnounceDeliveryDeps: SubagentAnnounceDeliveryDeps =
   defaultSubagentAnnounceDeliveryDeps;
+
+function resolveRequesterSessionActivity(requesterSessionKey: string) {
+  const activity = subagentAnnounceDeliveryDeps.getRequesterSessionActivity(requesterSessionKey);
+  if (activity.sessionId || activity.isActive) {
+    return activity;
+  }
+  const { entry } = loadRequesterSessionEntry(requesterSessionKey);
+  const sessionId = entry?.sessionId;
+  return {
+    sessionId,
+    isActive: Boolean(sessionId && isEmbeddedPiRunActive(sessionId)),
+  };
+}
 
 function resolveDirectAnnounceTransientRetryDelaysMs() {
   return process.env.OPENCLAW_TEST_FAST === "1"
@@ -511,7 +540,7 @@ async function maybeQueueSubagentAnnounce(params: {
   }
   const { cfg, entry } = loadRequesterSessionEntry(params.requesterSessionKey);
   const canonicalKey = resolveRequesterStoreKey(cfg, params.requesterSessionKey);
-  const sessionId = entry?.sessionId;
+  const { sessionId, isActive } = resolveRequesterSessionActivity(canonicalKey);
   if (!sessionId) {
     return "none";
   }
@@ -521,11 +550,13 @@ async function maybeQueueSubagentAnnounce(params: {
     channel: entry?.channel ?? entry?.lastChannel ?? entry?.origin?.provider,
     sessionEntry: entry,
   });
-  const isActive = isEmbeddedPiRunActive(sessionId);
 
   const shouldSteer = queueSettings.mode === "steer" || queueSettings.mode === "steer-backlog";
   if (shouldSteer) {
-    const steered = queueEmbeddedPiMessage(sessionId, params.steerMessage);
+    const steered = subagentAnnounceDeliveryDeps.queueEmbeddedPiMessage(
+      sessionId,
+      params.steerMessage,
+    );
     if (steered) {
       return "steered";
     }
@@ -620,6 +651,26 @@ async function sendSubagentAnnounceDirectly(params: {
       isGatewayMessageChannel(normalizedSessionOnlyOriginChannel)
         ? normalizedSessionOnlyOriginChannel
         : undefined;
+    const requesterActivity = resolveRequesterSessionActivity(canonicalRequesterSessionKey);
+    if (params.expectsCompletionMessage && requesterActivity.isActive) {
+      const woke = requesterActivity.sessionId
+        ? subagentAnnounceDeliveryDeps.queueEmbeddedPiMessage(
+            requesterActivity.sessionId,
+            params.triggerMessage,
+          )
+        : false;
+      if (woke) {
+        return {
+          delivered: true,
+          path: "steered",
+        };
+      }
+      return {
+        delivered: false,
+        path: "direct",
+        error: "active requester session could not be woken",
+      };
+    }
     if (params.signal?.aborted) {
       return {
         delivered: false,

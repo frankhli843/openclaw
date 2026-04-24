@@ -35,6 +35,7 @@ async function runQaSuite(opts: {
   primaryModel?: string;
   alternateModel?: string;
   fastMode?: boolean;
+  thinking?: string;
   allowFailures?: boolean;
   cliAuthMode?: string;
   parityPack?: string;
@@ -45,6 +46,7 @@ async function runQaSuite(opts: {
   cpus?: number;
   memory?: string;
   disk?: string;
+  preflight?: boolean;
 }) {
   const runtime = await loadQaLabCliRuntime();
   await runtime.runQaSuiteCommand(opts);
@@ -239,12 +241,17 @@ export function registerQaLabCli(program: Command) {
     .option("--concurrency <count>", "Scenario worker concurrency", (value: string) =>
       Number(value),
     )
+    .option("--preflight", "Run a single-scenario bootstrap preflight and stop", false)
     .option(
       "--allow-failures",
       "Write artifacts without setting a failing exit code when scenarios fail",
       false,
     )
     .option("--fast", "Enable provider fast mode where supported", false)
+    .option(
+      "--thinking <level>",
+      "Suite thinking default: off|minimal|low|medium|high|xhigh|adaptive|max",
+    )
     .option("--image <alias>", "Multipass image alias")
     .option("--cpus <count>", "Multipass vCPU count", (value: string) => Number(value))
     .option("--memory <size>", "Multipass memory size")
@@ -264,10 +271,12 @@ export function registerQaLabCli(program: Command) {
         concurrency?: number;
         allowFailures?: boolean;
         fast?: boolean;
+        thinking?: string;
         image?: string;
         cpus?: number;
         memory?: string;
         disk?: string;
+        preflight?: boolean;
       }) => {
         await runQaSuite({
           repoRoot: opts.repoRoot,
@@ -278,6 +287,7 @@ export function registerQaLabCli(program: Command) {
           primaryModel: opts.model,
           alternateModel: opts.altModel,
           fastMode: opts.fast,
+          thinking: opts.thinking,
           cliAuthMode: opts.cliAuthMode,
           parityPack: opts.parityPack,
           scenarioIds: opts.scenario,
@@ -287,6 +297,7 @@ export function registerQaLabCli(program: Command) {
           cpus: opts.cpus,
           memory: opts.memory,
           disk: opts.disk,
+          preflight: opts.preflight,
         });
       },
     );
@@ -339,7 +350,7 @@ export function registerQaLabCli(program: Command) {
     .option("--fast", "Enable provider fast mode for all candidate runs")
     .option(
       "--thinking <level>",
-      "Candidate thinking default: off|minimal|low|medium|high|xhigh|adaptive",
+      "Candidate thinking default: off|minimal|low|medium|high|xhigh|adaptive|max",
     )
     .option(
       "--model-thinking <ref=level>",

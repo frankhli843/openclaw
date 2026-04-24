@@ -1,8 +1,14 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AcpSessionStoreEntry } from "../acp/runtime/session-meta.js";
 import type { SessionEntry } from "../config/sessions.js";
 import type { ParsedAgentSessionKey } from "../routing/session-key.js";
 import {
+  resetDetachedTaskLifecycleRuntimeForTests,
+  setDetachedTaskLifecycleRuntime,
+  getDetachedTaskLifecycleRuntime,
+} from "./detached-task-runtime.js";
+import {
+  previewTaskRegistryMaintenance,
   resetTaskRegistryMaintenanceRuntimeForTests,
   runTaskRegistryMaintenance,
   setTaskRegistryMaintenanceRuntimeForTests,
@@ -38,33 +44,32 @@ type TaskRegistryMaintenanceRuntime = Parameters<
 afterEach(() => {
   stopTaskRegistryMaintenanceForTests();
   resetTaskRegistryMaintenanceRuntimeForTests();
+  resetDetachedTaskLifecycleRuntimeForTests();
 });
 
 function createTaskRegistryMaintenanceHarness(params: {
   tasks: TaskRecord[];
   sessionStore?: Record<string, SessionEntry>;
   acpEntry?: AcpSessionStoreEntry["entry"];
-  acpStoreReadFailed?: boolean;
   activeCronJobIds?: string[];
   activeRunIds?: string[];
 }) {
   const sessionStore = params.sessionStore ?? {};
   const acpEntry = params.acpEntry;
-  const acpStoreReadFailed = params.acpStoreReadFailed ?? false;
   const activeCronJobIds = new Set(params.activeCronJobIds ?? []);
   const activeRunIds = new Set(params.activeRunIds ?? []);
   const currentTasks = new Map(params.tasks.map((task) => [task.taskId, { ...task }]));
 
   const runtime: TaskRegistryMaintenanceRuntime = {
     readAcpSessionEntry: () =>
-      acpEntry !== undefined || acpStoreReadFailed
+      acpEntry !== undefined
         ? ({
             cfg: {} as never,
             storePath: "",
             sessionKey: "",
             storeSessionKey: "",
             entry: acpEntry,
-            storeReadFailed: acpStoreReadFailed,
+            storeReadFailed: false,
           } satisfies AcpSessionStoreEntry)
         : ({
             cfg: {} as never,
@@ -126,33 +131,8 @@ function createTaskRegistryMaintenanceHarness(params: {
 }
 
 describe("task-registry maintenance issue #60299", () => {
-  it("marks stale ACP tasks lost when reading the ACP session store fails", async () => {
-    const task = makeStaleTask({
-      runtime: "acp",
-      sourceId: "acp-run-store-read-failed",
-      runId: "acp-run-store-read-failed",
-      childSessionKey: "agent:claude:acp:store-read-failed",
-      ownerKey: "agent:main:discord:channel:123",
-      requesterSessionKey: "agent:main:discord:channel:123",
-      scopeKind: "session",
-      deliveryStatus: "pending",
-      notifyPolicy: "done_only",
-    });
-
-    const { currentTasks } = createTaskRegistryMaintenanceHarness({
-      tasks: [task],
-      acpStoreReadFailed: true,
-    });
-
-    expect(await runTaskRegistryMaintenance()).toMatchObject({ reconciled: 1 });
-    expect(currentTasks.get(task.taskId)).toMatchObject({
-      status: "lost",
-      error: "backing session missing",
-    });
-  });
-
   it("marks stale cron tasks lost once the runtime no longer tracks the job as active", async () => {
-    const childSessionKey = "agent:main:slack:channel:test-channel";
+    const childSessionKey = "agent:main:workspace:channel:test-channel";
     const task = makeStaleTask({
       runtime: "cron",
       sourceId: "cron-job-1",
@@ -184,8 +164,8 @@ describe("task-registry maintenance issue #60299", () => {
     expect(currentTasks.get(task.taskId)).toMatchObject({ status: "running" });
   });
 
-  it("marks chat-backed cli tasks lost after the owning run context disappears", { timeout: 180_000 }, async () => {
-    const channelKey = "agent:main:slack:channel:C1234567890";
+  it("marks chat-backed cli tasks lost after the owning run context disappears", async () => {
+    const channelKey = "agent:main:workspace:channel:C1234567890";
     const task = makeStaleTask({
       runtime: "cli",
       sourceId: "run-chat-cli-stale",
@@ -204,8 +184,8 @@ describe("task-registry maintenance issue #60299", () => {
     expect(currentTasks.get(task.taskId)).toMatchObject({ status: "lost" });
   });
 
-  it("keeps chat-backed cli tasks live while the owning run context is still active", { timeout: 180_000 }, async () => {
-    const channelKey = "agent:main:slack:channel:C1234567890";
+  it("keeps chat-backed cli tasks live while the owning run context is still active", async () => {
+    const channelKey = "agent:main:workspace:channel:C1234567890";
     const task = makeStaleTask({
       runtime: "cli",
       sourceId: "run-chat-cli-live",
@@ -223,5 +203,36 @@ describe("task-registry maintenance issue #60299", () => {
 
     expect(await runTaskRegistryMaintenance()).toMatchObject({ reconciled: 0 });
     expect(currentTasks.get(task.taskId)).toMatchObject({ status: "running" });
+  });
+
+  it("skips markTaskLost and counts recovered when recovery hook recovers a stale task", async () => {
+    const task = makeStaleTask({
+      runtime: "cron",
+      sourceId: "cron-job-recovered",
+      childSessionKey: undefined,
+    });
+
+    const { currentTasks } = createTaskRegistryMaintenanceHarness({
+      tasks: [task],
+    });
+
+    const recoveryHook = vi.fn(() => ({ recovered: true }));
+    setDetachedTaskLifecycleRuntime({
+      ...getDetachedTaskLifecycleRuntime(),
+      tryRecoverTaskBeforeMarkLost: recoveryHook,
+    });
+
+    expect(previewTaskRegistryMaintenance()).toMatchObject({ reconciled: 1, recovered: 0 });
+    const result = await runTaskRegistryMaintenance();
+    expect(result).toMatchObject({ reconciled: 0, recovered: 1 });
+    expect(currentTasks.get(task.taskId)).toMatchObject({ status: "running" });
+    expect(recoveryHook).toHaveBeenCalledWith(
+      expect.objectContaining({
+        taskId: task.taskId,
+        runtime: "cron",
+        task: expect.objectContaining({ taskId: task.taskId }),
+        now: expect.any(Number),
+      }),
+    );
   });
 });

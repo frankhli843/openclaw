@@ -2,14 +2,14 @@ import type { RequestClient } from "@buape/carbon";
 import { resolveAgentAvatar } from "openclaw/plugin-sdk/agent-runtime";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-runtime";
 import type { MarkdownTableMode, ReplyToMode } from "openclaw/plugin-sdk/config-runtime";
-import type { ChunkMode } from "openclaw/plugin-sdk/reply-chunking";
-import type { ReplyPayload } from "openclaw/plugin-sdk/reply-dispatch-runtime";
 import {
   enforceDiscordDnrWindow,
   DiscordDnrSuppressedError,
   deferDelivery,
   enqueueDelivery,
 } from "openclaw/plugin-sdk/infra-runtime";
+import type { ChunkMode } from "openclaw/plugin-sdk/reply-chunking";
+import type { ReplyPayload } from "openclaw/plugin-sdk/reply-dispatch-runtime";
 import {
   resolveSendableOutboundReplyParts,
   resolveTextChunksWithFallback,
@@ -29,7 +29,7 @@ import { chunkDiscordTextWithMode } from "../chunk.js";
 import { isLikelyDiscordVideoMedia } from "../media-detection.js";
 import { createDiscordRetryRunner } from "../retry.js";
 import { sendMessageDiscord, sendVoiceMessageDiscord, sendWebhookMessageDiscord } from "../send.js";
-import { sendDiscordText } from "../send.shared.js";
+import { buildDiscordSendError, sendDiscordText } from "../send.shared.js";
 
 export type DiscordThreadBindingLookupRecord = {
   accountId: string;
@@ -328,21 +328,31 @@ async function sendDiscordChunkWithFallback(params: {
   // that can cause ordering issues under queue contention or rate limiting.
   if (params.channelId && params.request && params.rest) {
     const { channelId, request, rest } = params;
-    await sendWithRetry(
-      () =>
-        sendDiscordText(
-          rest,
-          channelId,
-          text,
-          params.replyTo,
-          request,
-          params.maxLinesPerMessage,
-          undefined,
-          undefined,
-          params.chunkMode,
-        ),
-      params.retryConfig,
-    );
+    try {
+      await sendWithRetry(
+        () =>
+          sendDiscordText(
+            rest,
+            channelId,
+            text,
+            params.replyTo,
+            request,
+            params.maxLinesPerMessage,
+            undefined,
+            undefined,
+            params.chunkMode,
+          ),
+        params.retryConfig,
+      );
+    } catch (err) {
+      throw await buildDiscordSendError(err, {
+        channelId,
+        cfg: params.cfg,
+        rest,
+        token: params.token,
+        hasMedia: false,
+      });
+    }
     return;
   }
   await sendWithRetry(
