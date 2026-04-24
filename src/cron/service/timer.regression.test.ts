@@ -68,11 +68,12 @@ describe("cron service timer regressions", () => {
     timeoutSpy.mockRestore();
   });
 
-  it("re-arms timer without hot-looping when a run is already in progress", async () => {
+  it("allows overlapping ticks and re-arms timer (frankclaw anti-starvation)", async () => {
+    // frankclaw: with overlapping ticks, onTimer no longer short-circuits
+    // when state.running is true. It increments activeTicks and proceeds.
     const timeoutSpy = vi.spyOn(globalThis, "setTimeout");
     const store = timerRegressionFixtures.makeStorePath();
     const now = Date.parse("2026-02-06T10:05:00.000Z");
-    // frankclaw: use recurring job so armTimer re-arms after execution.
     const jobs: CronJob[] = [
       {
         id: "recurring-due",
@@ -97,10 +98,14 @@ describe("cron service timer regressions", () => {
       jobs,
     });
 
+    expect(state.activeTicks).toBe(1);
+
     await onTimer(state);
 
+    // After overlapping tick completes, activeTicks returns to 1.
+    expect(state.activeTicks).toBe(1);
+    expect(state.running).toBe(true);
     expect(timeoutSpy).toHaveBeenCalled();
-    expect(state.timer).not.toBeNull();
     const delays = timeoutSpy.mock.calls
       .map(([, delay]) => delay)
       .filter((d): d is number => typeof d === "number");
