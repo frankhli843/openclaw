@@ -346,53 +346,50 @@ export async function executeCronRun(params: {
   // frankclaw: multi-turn orchestration loop. Replaces the single-shot
   // interim retry with a loop that waits for spawned descendants, feeds
   // their output back to the model, and lets it spawn the next batch.
-  // Fixes the 2026-04-23 knowledge-agent failure where the parent cron
-  // session died after batch 1 because it never got a second turn.
+  // Fixes the 2026-04-23/24 knowledge-agent failure where the parent cron
+  // session died after batch 1 because the orchestration loop never ran
+  // (checkInterim was undefined, causing ReferenceError at runtime).
   if (!params.isAborted()) {
-    const interimPayloads = runResult.payloads ?? [];
-    const {
-      deliveryPayloadHasStructuredContent: interimPayloadHasStructuredContent,
-      outputText: interimOutputText,
-    } = resolveCronPayloadOutcome({
-      payloads: interimPayloads,
-      runLevelError: runResult.meta?.error,
-      finalAssistantVisibleText: runResult.meta?.finalAssistantVisibleText,
-      preferFinalAssistantVisibleText: (
-        await resolveCronChannelOutputPolicy(params.resolvedDelivery.channel)
-      ).preferFinalAssistantVisibleText,
-    });
-    const interimText = interimOutputText?.trim() ?? "";
-    const shouldRetryInterimAck =
-      !runResult.meta?.error &&
-      !runResult.didSendViaMessagingTool &&
-      !interimPayloadHasStructuredContent &&
-      !interimPayloads.some((payload) => payload?.isError === true) &&
-      isLikelyInterimCronMessage(interimText);
+    // Cache the channel output policy once for use in the checkInterim closure.
+    const channelOutputPolicy = await resolveCronChannelOutputPolicy(
+      params.resolvedDelivery.channel,
+    );
 
-    let hasFreshDescendants = false;
-    let hasActiveDescendants = false;
-    if (shouldRetryInterimAck) {
-      const { countActiveDescendantRuns, listDescendantRunsForRequester } =
-        await loadCronSubagentRegistryRuntime();
-      hasFreshDescendants = listDescendantRunsForRequester(params.agentSessionKey).some((entry) => {
-        const descendantStartedAt =
-          typeof entry.startedAt === "number" ? entry.startedAt : entry.createdAt;
-        return typeof descendantStartedAt === "number" && descendantStartedAt >= runStartedAt;
+    // checkInterim: evaluates whether a given run result is an interim
+    // acknowledgment (e.g. "On it", "Spawning worker...") rather than a
+    // substantive final answer. The orchestration loop calls this after
+    // each model turn to decide whether to wait for descendants and
+    // feed their output back.
+    const checkInterim = (result: unknown): boolean => {
+      if (!result || typeof result !== "object") {
+        return false;
+      }
+      const r = result as {
+        payloads?: Array<{ text?: string; isError?: boolean }>;
+        meta?: { error?: unknown; finalAssistantVisibleText?: string };
+        didSendViaMessagingTool?: boolean;
+      };
+      const payloads = r.payloads ?? [];
+      const { deliveryPayloadHasStructuredContent, outputText } = resolveCronPayloadOutcome({
+        payloads,
+        runLevelError: r.meta?.error,
+        finalAssistantVisibleText: r.meta?.finalAssistantVisibleText,
+        preferFinalAssistantVisibleText: channelOutputPolicy.preferFinalAssistantVisibleText,
       });
-      const text = outputText?.trim() ?? "";
       // frankclaw: empty text (e.g. from sessions_yield producing only tool
       // calls with no visible text) is not substantive output. Treat it as
       // interim so the orchestration loop waits for descendants rather than
       // concluding that the model finished.
+      const text = outputText?.trim() ?? "";
       const isEmptyOrInterim = !text || isLikelyInterimCronMessage(text);
       return (
-        !result.meta?.error &&
-        !result.didSendViaMessagingTool &&
+        !r.meta?.error &&
+        !r.didSendViaMessagingTool &&
         !deliveryPayloadHasStructuredContent &&
         !payloads.some((payload) => payload?.isError === true) &&
         isEmptyOrInterim
       );
-    }
+    };
 
     const sessionFile =
       params.cronSession.sessionEntry.sessionFile?.trim() ||
