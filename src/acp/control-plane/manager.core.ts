@@ -131,22 +131,6 @@ export function resolveBackgroundTaskTerminalResult(
   terminalSummary?: string;
 } {
   const normalized = normalizeText(progressSummary)?.replace(/\s+/g, " ").trim();
-  // frankclaw: zero-tool-call detection — if the worker produced text output
-  // but never called a single tool, it stopped at a progress checkpoint.
-  // This catches cases the regex patterns below miss (e.g. "HEARTBEAT_OK"
-  // without any preceding tool execution).
-  if (
-    typeof options?.toolCallCount === "number" &&
-    options.toolCallCount === 0 &&
-    normalized &&
-    normalized.length > 0
-  ) {
-    return {
-      terminalOutcome: "blocked",
-      terminalSummary:
-        "ACP run completed with zero tool calls (narrated output without executing).",
-    };
-  }
   if (!normalized) {
     return {};
   }
@@ -178,6 +162,15 @@ export function resolveBackgroundTaskTerminalResult(
     return {
       terminalOutcome: "blocked",
       terminalSummary: "ACP run stopped at a progress checkpoint instead of a terminal result.",
+    };
+  }
+  // frankclaw: zero-tool-call detection. Keep this as a LAST resort, so we
+  // preserve more specific terminal hints like permission denied.
+  if (typeof options?.toolCallCount === "number" && options.toolCallCount === 0) {
+    return {
+      terminalOutcome: "blocked",
+      terminalSummary:
+        "ACP run completed with zero tool calls (narrated output without executing).",
     };
   }
   return {};
