@@ -276,6 +276,31 @@ export class AcpSessionManager {
       return { checked, resolved, failed: failed + 1 };
     }
 
+    // frankclaw: wait for ACP runtime backend to become healthy before iterating.
+    // The ACPX plugin registers its backend during startup with healthy=false, then
+    // probeAvailability() sets healthy=true asynchronously. Without this wait, all
+    // sessions fail with ACP_BACKEND_UNAVAILABLE because the probe hasn't completed yet.
+    const BACKEND_WAIT_TIMEOUT_MS = 30_000;
+    const BACKEND_POLL_INTERVAL_MS = 500;
+    const isBackendReady = () => {
+      try {
+        this.deps.requireRuntimeBackend(params.cfg.acp?.backend);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    const waitStart = Date.now();
+    while (!isBackendReady() && Date.now() - waitStart < BACKEND_WAIT_TIMEOUT_MS) {
+      await new Promise((resolve) => setTimeout(resolve, BACKEND_POLL_INTERVAL_MS));
+    }
+    if (!isBackendReady()) {
+      logVerbose(
+        `acp-manager: startup identity reconcile skipped — no healthy ACP runtime backend after ${BACKEND_WAIT_TIMEOUT_MS}ms`,
+      );
+      return { checked: 0, resolved: 0, failed: 0 };
+    }
+
     for (const session of acpSessions) {
       if (!session.acp || !session.sessionKey) {
         continue;
