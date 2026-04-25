@@ -1,4 +1,10 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { afterEach, describe, expect, it, vi, beforeEach } from "vitest";
+import {
+  getConversationTurns,
+  prependConversationTurnsToBody,
+  CONVERSATION_TURNS_MARKER,
+  __clearAllConversationTurns,
+} from "./conversation-turns.frankclaw.js";
 
 let capturedDispatchParams: unknown;
 
@@ -154,6 +160,7 @@ describe("whatsapp inbound dispatch", () => {
   beforeEach(() => {
     capturedDispatchParams = undefined;
     dispatchReplyWithBufferedBlockDispatcherMock.mockClear();
+    __clearAllConversationTurns();
   });
 
   it("builds a finalized inbound context payload", () => {
@@ -732,5 +739,176 @@ describe("whatsapp inbound dispatch", () => {
         normalizeE164: () => null,
       }),
     ).toBe("+15550003333");
+  });
+
+  // frankclaw: integration test for conversation turn recording + context assembly
+  describe("conversation turn recording (frankclaw)", () => {
+    it("records a conversation turn after a reply is delivered", async () => {
+      const deliverReply = vi.fn(async () => undefined);
+      const rememberSentText = vi.fn();
+      const groupHistoryKey = "whatsapp:default:group:dahong@g.us";
+
+      // Mock the dispatcher to simulate delivering a reply with text
+      dispatchReplyWithBufferedBlockDispatcherMock.mockImplementationOnce(
+        async (params: {
+          ctx: unknown;
+          dispatcherOptions?: {
+            deliver?: (
+              payload: CapturedReplyPayload,
+              info: { kind: "tool" | "block" | "final" },
+            ) => Promise<void>;
+          };
+        }) => {
+          capturedDispatchParams = params;
+          await params.dispatcherOptions?.deliver?.(
+            { text: "Here are 3 recipes: lasagna, carbonara, risotto" },
+            { kind: "final" },
+          );
+          return { queuedFinal: false, counts: { tool: 0, block: 0, final: 1 } };
+        },
+      );
+
+      await dispatchBufferedReply({
+        context: { Body: "Show me recipes", BodyForAgent: "Show me recipes", SenderName: "Frank" },
+        conversationId: "dahong@g.us",
+        deliverReply,
+        rememberSentText,
+        groupHistories: new Map(),
+        groupHistoryKey,
+        shouldClearGroupHistory: true,
+      });
+
+      // Verify the conversation turn was recorded
+      const turns = getConversationTurns(groupHistoryKey);
+      expect(turns).toHaveLength(1);
+      expect(turns[0].userMessage).toBe("Show me recipes");
+      expect(turns[0].botReply).toBe("Here are 3 recipes: lasagna, carbonara, risotto");
+      expect(turns[0].senderLabel).toBe("Frank");
+    });
+
+    it("follow-up message includes prior conversation turns in context", async () => {
+      const deliverReply = vi.fn(async () => undefined);
+      const rememberSentText = vi.fn();
+      const groupHistoryKey = "whatsapp:default:group:dahong@g.us";
+
+      // Step 1: Simulate first exchange (bot replies to user)
+      dispatchReplyWithBufferedBlockDispatcherMock.mockImplementationOnce(
+        async (params: {
+          ctx: unknown;
+          dispatcherOptions?: {
+            deliver?: (
+              payload: CapturedReplyPayload,
+              info: { kind: "tool" | "block" | "final" },
+            ) => Promise<void>;
+          };
+        }) => {
+          capturedDispatchParams = params;
+          await params.dispatcherOptions?.deliver?.(
+            { text: "Here are 3 recipes: lasagna, carbonara, risotto. Want details?" },
+            { kind: "final" },
+          );
+          return { queuedFinal: false, counts: { tool: 0, block: 0, final: 1 } };
+        },
+      );
+
+      await dispatchBufferedReply({
+        context: {
+          Body: "Show me Italian recipes",
+          BodyForAgent: "Show me Italian recipes",
+          SenderName: "Frank",
+        },
+        conversationId: "dahong@g.us",
+        deliverReply,
+        rememberSentText,
+        groupHistories: new Map(),
+        groupHistoryKey,
+        shouldClearGroupHistory: true,
+      });
+
+      // Step 2: Simulate follow-up message using prependConversationTurnsToBody
+      // (this is what process-message.ts does for the next inbound message)
+      const followUpBody = prependConversationTurnsToBody({
+        chatKey: groupHistoryKey,
+        currentBody: "Nope just this one",
+      });
+
+      // The follow-up body should now include prior conversation context
+      expect(followUpBody).toContain(CONVERSATION_TURNS_MARKER);
+      expect(followUpBody).toContain("Show me Italian recipes");
+      expect(followUpBody).toContain(
+        "Here are 3 recipes: lasagna, carbonara, risotto. Want details?",
+      );
+      expect(followUpBody).toContain("Nope just this one");
+
+      // Context should come before the current message
+      const contextEnd = followUpBody.indexOf("Nope just this one");
+      const contextStart = followUpBody.indexOf(CONVERSATION_TURNS_MARKER);
+      expect(contextStart).toBeLessThan(contextEnd);
+    });
+
+    it("does not record a conversation turn when no reply was sent", async () => {
+      const groupHistoryKey = "whatsapp:default:group:silent@g.us";
+
+      // Dispatcher returns without delivering anything
+      dispatchReplyWithBufferedBlockDispatcherMock.mockImplementationOnce(async () => {
+        return { queuedFinal: false, counts: { tool: 0, block: 0, final: 0 } };
+      });
+
+      await dispatchBufferedReply({
+        context: { Body: "some message", BodyForAgent: "some message" },
+        conversationId: "silent@g.us",
+        groupHistories: new Map(),
+        groupHistoryKey,
+        shouldClearGroupHistory: false,
+      });
+
+      expect(getConversationTurns(groupHistoryKey)).toHaveLength(0);
+    });
+
+    it("accumulates multi-chunk reply text into a single conversation turn", async () => {
+      const deliverReply = vi.fn(async () => undefined);
+      const rememberSentText = vi.fn();
+      const groupHistoryKey = "whatsapp:default:group:multi@g.us";
+
+      // Simulate multiple delivery chunks
+      dispatchReplyWithBufferedBlockDispatcherMock.mockImplementationOnce(
+        async (params: {
+          ctx: unknown;
+          dispatcherOptions?: {
+            deliver?: (
+              payload: CapturedReplyPayload,
+              info: { kind: "tool" | "block" | "final" },
+            ) => Promise<void>;
+          };
+        }) => {
+          capturedDispatchParams = params;
+          await params.dispatcherOptions?.deliver?.(
+            { text: "Part 1: The recipe starts with..." },
+            { kind: "block" },
+          );
+          await params.dispatcherOptions?.deliver?.(
+            { text: "Part 2: Then you add the sauce..." },
+            { kind: "final" },
+          );
+          return { queuedFinal: false, counts: { tool: 0, block: 1, final: 1 } };
+        },
+      );
+
+      await dispatchBufferedReply({
+        context: { Body: "Give me the full recipe", BodyForAgent: "Give me the full recipe" },
+        conversationId: "multi@g.us",
+        deliverReply,
+        rememberSentText,
+        groupHistories: new Map(),
+        groupHistoryKey,
+        shouldClearGroupHistory: true,
+      });
+
+      const turns = getConversationTurns(groupHistoryKey);
+      expect(turns).toHaveLength(1);
+      expect(turns[0].botReply).toBe(
+        "Part 1: The recipe starts with...\nPart 2: Then you add the sauce...",
+      );
+    });
   });
 });

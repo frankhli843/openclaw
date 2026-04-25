@@ -30,6 +30,7 @@ import { whatsappInboundLog } from "../loggers.js";
 import type { WebInboundMsg } from "../types.js";
 import { elide } from "../util.js";
 import { maybeSendAckReaction } from "./ack-reaction.js";
+import { prependConversationTurnsToBody } from "./conversation-turns.frankclaw.js"; // frankclaw: rolling conversation context
 import {
   resolveVisibleWhatsAppGroupHistory,
   resolveVisibleWhatsAppReplyContext,
@@ -347,6 +348,12 @@ export async function processMessage(params: {
     }
     shouldClearGroupHistory = !(params.suppressGroupHistoryClear ?? false);
   }
+
+  // frankclaw: prepend rolling conversation turns (prior user+bot exchanges) for context
+  combinedBody = prependConversationTurnsToBody({
+    chatKey: params.groupHistoryKey,
+    currentBody: combinedBody,
+  });
 
   // Echo detection uses combined body so we don't respond twice.
   const combinedEchoKey = params.buildCombinedEchoKey({
