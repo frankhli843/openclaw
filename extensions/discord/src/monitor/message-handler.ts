@@ -6,6 +6,8 @@ import {
 } from "openclaw/plugin-sdk/channel-inbound";
 import { danger, logVerbose } from "openclaw/plugin-sdk/runtime-env";
 import { resolveOpenProviderRuntimeGroupPolicy } from "openclaw/plugin-sdk/runtime-group-policy";
+// frankclaw: import note-to-self detector for pre-debounce bot-self bypass
+import { isNoteToSelf } from "../../../../src/auto-reply/note-to-self.frankclaw.js";
 import { reactMessageDiscord } from "../send.reactions.js";
 import {
   isDiscordGroupAllowedByPolicy,
@@ -279,12 +281,14 @@ export function createDiscordMessageHandler(
       // slowdown (see #15874).
       const msgAuthorId = data.message?.author?.id ?? data.author?.id;
       if (params.botUserId && msgAuthorId === params.botUserId) {
-        // frankclaw addition: allow openclaw-watchdog recovery messages to
-        // pass through to preflight where the webhook relay rewrites the
-        // author. Without this bypass the recovery posts get dropped here
-        // before they ever reach the relay.
+        // frankclaw: allow note-to-self messages (canonical [Doramon note to
+        // self] and legacy [doramon you forgot to answer!]:) to pass through
+        // to preflight where the webhook relay rewrites the author. Without
+        // this bypass they get dropped before reaching the relay.
         const __fcContent = data.message?.content ?? "";
-        if (!__fcContent.startsWith("[doramon you forgot to answer!]:")) {
+        // frankclaw: use isNoteToSelf() to recognize BOTH the canonical
+        // [Doramon note to self] prefix and the legacy deadletter prefix.
+        if (!isNoteToSelf(__fcContent)) {
           return;
         }
       }

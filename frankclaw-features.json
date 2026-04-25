@@ -1408,6 +1408,29 @@
       "runtime": [],
       "e2eTests": ["test/frankclaw-features-e2e.test.ts"],
       "addedDate": "2026-04-22"
+    },
+    {
+      "name": "Note-to-self pre-debounce bypass",
+      "description": "Bot-self messages with [Doramon note to self] or legacy [doramon you forgot to answer!]: prefix bypass the pre-debounce filter in Discord message-handler.ts and reach preflight/relay",
+      "static": [
+        {
+          "file": "extensions/discord/src/monitor/message-handler.ts",
+          "pattern": "isNoteToSelf",
+          "minCount": 1
+        },
+        {
+          "file": "src/auto-reply/note-to-self.frankclaw.ts",
+          "pattern": "CANONICAL_PREFIX",
+          "minCount": 1
+        }
+      ],
+      "tests": [
+        "extensions/discord/src/monitor/message-handler.bot-self-filter.test.ts",
+        "src/auto-reply/note-to-self.frankclaw.test.ts"
+      ],
+      "runtime": [],
+      "e2eTests": [],
+      "addedDate": "2026-04-25"
     }
   ],
   "workspaceChecks": [

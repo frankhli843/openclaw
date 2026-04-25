@@ -47,6 +47,56 @@ describe("createDiscordMessageHandler bot-self filter", () => {
     expect(processDiscordMessageMock).not.toHaveBeenCalled();
   });
 
+  it("allows bot-own messages with canonical [Doramon note to self] prefix through", async () => {
+    preflightDiscordMessageMock.mockReset();
+    processDiscordMessageMock.mockReset();
+    preflightDiscordMessageMock.mockImplementation(
+      async (params: { data: { channel_id: string } }) =>
+        createPreflightContext(params.data.channel_id),
+    );
+
+    const handler = createDiscordMessageHandler(createDiscordHandlerParams());
+    const data = createMessageData(DEFAULT_DISCORD_BOT_USER_ID);
+    data.message.content = "[Doramon note to self] Background task done: foo";
+
+    await expect(handler(data as never, {} as never)).resolves.toBeUndefined();
+
+    await flushAsyncWork();
+    expect(preflightDiscordMessageMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("allows bot-own messages with legacy [doramon you forgot to answer!]: prefix through", async () => {
+    preflightDiscordMessageMock.mockReset();
+    processDiscordMessageMock.mockReset();
+    preflightDiscordMessageMock.mockImplementation(
+      async (params: { data: { channel_id: string } }) =>
+        createPreflightContext(params.data.channel_id),
+    );
+
+    const handler = createDiscordMessageHandler(createDiscordHandlerParams());
+    const data = createMessageData(DEFAULT_DISCORD_BOT_USER_ID);
+    data.message.content = "[doramon you forgot to answer!]: some recovery text";
+
+    await expect(handler(data as never, {} as never)).resolves.toBeUndefined();
+
+    await flushAsyncWork();
+    expect(preflightDiscordMessageMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("still blocks bot-own messages without a note-to-self prefix", async () => {
+    preflightDiscordMessageMock.mockReset();
+    processDiscordMessageMock.mockReset();
+
+    const handler = createDiscordMessageHandler(createDiscordHandlerParams());
+    const data = createMessageData(DEFAULT_DISCORD_BOT_USER_ID);
+    data.message.content = "just a regular bot message";
+
+    await expect(handler(data as never, {} as never)).resolves.toBeUndefined();
+
+    expect(preflightDiscordMessageMock).not.toHaveBeenCalled();
+    expect(processDiscordMessageMock).not.toHaveBeenCalled();
+  });
+
   it("enqueues non-bot messages for processing", async () => {
     preflightDiscordMessageMock.mockReset();
     processDiscordMessageMock.mockReset();
