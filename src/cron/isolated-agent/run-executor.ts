@@ -72,6 +72,7 @@ export function createCronPromptExecutor(params: {
   thinkLevel: ThinkLevel | undefined;
   timeoutMs: number;
   messageChannel: string | undefined;
+  suppressExecNotifyOnExit: boolean;
   resolvedDelivery: {
     accountId?: string;
     to?: string;
@@ -199,6 +200,12 @@ export function createCronPromptExecutor(params: {
           bootstrapContextMode: params.agentPayload?.lightContext ? "lightweight" : undefined,
           bootstrapContextRunKind: "cron",
           toolsAllow: params.agentPayload?.toolsAllow,
+          execOverrides: params.suppressExecNotifyOnExit
+            ? {
+                notifyOnExit: false,
+                notifyOnExitEmptySuccess: false,
+              }
+            : undefined,
           runId: params.cronSession.sessionEntry.sessionId,
           requireExplicitMessageTarget: params.toolPolicy.requireExplicitMessageTarget,
           disableMessageTool: params.toolPolicy.disableMessageTool,
@@ -266,6 +273,7 @@ export async function executeCronRun(params: {
   isAborted: () => boolean;
   thinkLevel: ThinkLevel | undefined;
   timeoutMs: number;
+  suppressExecNotifyOnExit: boolean;
   runStartedAt?: number;
 }): Promise<CronExecutionResult> {
   const resolvedVerboseLevel: VerboseLevel =
@@ -289,6 +297,7 @@ export async function executeCronRun(params: {
     thinkLevel: params.thinkLevel,
     timeoutMs: params.timeoutMs,
     messageChannel: params.resolvedDelivery.channel,
+    suppressExecNotifyOnExit: params.suppressExecNotifyOnExit,
     resolvedDelivery: params.resolvedDelivery,
     toolPolicy: params.toolPolicy,
     skillsSnapshot: params.skillsSnapshot,
