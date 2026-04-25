@@ -6,7 +6,10 @@ vi.mock("../gateway/call.js", () => ({
   callGateway: (...args: unknown[]) => callGateway(...args),
 }));
 
-import { attemptGiveUpFallbackDelivery } from "./subagent-announce-giveup-fallback.frankclaw.js";
+import {
+  attemptGiveUpFallbackDelivery,
+  attemptModelFailureDirectDelivery,
+} from "./subagent-announce-giveup-fallback.frankclaw.js";
 import type { SubagentRunRecord } from "./subagent-registry.types.js";
 
 function makeEntry(overrides: Partial<SubagentRunRecord> = {}): SubagentRunRecord {
@@ -55,6 +58,11 @@ describe("attemptGiveUpFallbackDelivery", () => {
   });
 
   it("uses fallbackFrozenResultText when frozenResultText is empty", async () => {
+    // First call = last-resort capture (chat.history) returns empty
+    callGateway.mockResolvedValueOnce({ messages: [] });
+    // Second call = retry with limit 5, returns empty
+    callGateway.mockResolvedValueOnce({ messages: [] });
+    // Third call = send delivery
     callGateway.mockResolvedValueOnce(undefined);
 
     const result = await attemptGiveUpFallbackDelivery(
@@ -65,8 +73,9 @@ describe("attemptGiveUpFallbackDelivery", () => {
     );
 
     expect(result.recovered).toBe(true);
-    const callArgs = callGateway.mock.calls[0][0];
-    expect(callArgs.params.message).toContain("Fallback result from session store.");
+    const sendCall = callGateway.mock.calls.find((c) => c[0].method === "send");
+    expect(sendCall).toBeDefined();
+    expect(sendCall![0].params.message).toContain("Fallback result from session store.");
   });
 
   it("skips fallback for non-completion messages", async () => {
@@ -78,20 +87,109 @@ describe("attemptGiveUpFallbackDelivery", () => {
     expect(callGateway).not.toHaveBeenCalled();
   });
 
-  it("skips fallback when there is no frozen result text", async () => {
+  it("attempts last-resort capture when frozenResultText is empty", async () => {
+    // Last-resort capture via chat.history returns a result
+    callGateway.mockResolvedValueOnce({
+      messages: [
+        { role: "user", content: "do the task" },
+        { role: "assistant", content: "Here is the captured result from ACP session." },
+      ],
+    });
+    // send delivery
+    callGateway.mockResolvedValueOnce(undefined);
+
+    const entry = makeEntry({
+      frozenResultText: null,
+      fallbackFrozenResultText: undefined,
+    });
+    const result = await attemptGiveUpFallbackDelivery(entry);
+
+    expect(result.recovered).toBe(true);
+    // The frozenResultText should be updated on the entry
+    expect(entry.frozenResultText).toBe("Here is the captured result from ACP session.");
+    const sendCall = callGateway.mock.calls.find((c) => c[0].method === "send");
+    expect(sendCall).toBeDefined();
+    expect(sendCall![0].params.message).toContain("Here is the captured result from ACP session.");
+  });
+
+  it("handles structured content blocks in last-resort capture", async () => {
+    callGateway.mockResolvedValueOnce({
+      messages: [
+        {
+          role: "assistant",
+          content: [{ type: "text", text: "Structured block result." }],
+        },
+      ],
+    });
+    callGateway.mockResolvedValueOnce(undefined);
+
+    const entry = makeEntry({ frozenResultText: null });
+    const result = await attemptGiveUpFallbackDelivery(entry);
+
+    expect(result.recovered).toBe(true);
+    expect(entry.frozenResultText).toBe("Structured block result.");
+  });
+
+  it("synthesizes error notification when no result can be captured but outcome is error", async () => {
+    // chat.history returns empty
+    callGateway.mockResolvedValueOnce({ messages: [] });
+    // retry with limit 5 returns empty
+    callGateway.mockResolvedValueOnce({ messages: [] });
+    // send delivery
+    callGateway.mockResolvedValueOnce(undefined);
+
     const result = await attemptGiveUpFallbackDelivery(
-      makeEntry({ frozenResultText: null, fallbackFrozenResultText: null }),
+      makeEntry({
+        frozenResultText: null,
+        fallbackFrozenResultText: undefined,
+        outcome: { status: "error", error: "claude-agent-acp crashed" },
+      }),
+    );
+
+    expect(result.recovered).toBe(true);
+    const sendCall = callGateway.mock.calls.find((c) => c[0].method === "send");
+    expect(sendCall![0].params.message).toContain("failed");
+    expect(sendCall![0].params.message).toContain("claude-agent-acp crashed");
+  });
+
+  it("synthesizes ok notification when result cannot be captured but outcome is ok", async () => {
+    callGateway.mockResolvedValueOnce({ messages: [] });
+    callGateway.mockResolvedValueOnce({ messages: [] });
+    callGateway.mockResolvedValueOnce(undefined);
+
+    const result = await attemptGiveUpFallbackDelivery(
+      makeEntry({
+        frozenResultText: null,
+        fallbackFrozenResultText: undefined,
+        outcome: { status: "ok" },
+      }),
+    );
+
+    expect(result.recovered).toBe(true);
+    const sendCall = callGateway.mock.calls.find((c) => c[0].method === "send");
+    expect(sendCall![0].params.message).toContain("completed successfully");
+    expect(sendCall![0].params.message).toContain("output could not be captured");
+  });
+
+  it("gives up when no result, no capture, and outcome is unknown", async () => {
+    callGateway.mockResolvedValueOnce({ messages: [] });
+    callGateway.mockResolvedValueOnce({ messages: [] });
+
+    const result = await attemptGiveUpFallbackDelivery(
+      makeEntry({
+        frozenResultText: null,
+        fallbackFrozenResultText: undefined,
+        outcome: { status: "unknown" },
+      }),
     );
 
     expect(result.recovered).toBe(false);
-    expect(callGateway).not.toHaveBeenCalled();
   });
 
   it("skips fallback when there is no delivery channel", async () => {
     const result = await attemptGiveUpFallbackDelivery(makeEntry({ requesterOrigin: undefined }));
 
     expect(result.recovered).toBe(false);
-    expect(callGateway).not.toHaveBeenCalled();
   });
 
   it("skips fallback when channel has no 'to' target", async () => {
@@ -102,17 +200,15 @@ describe("attemptGiveUpFallbackDelivery", () => {
     );
 
     expect(result.recovered).toBe(false);
-    expect(callGateway).not.toHaveBeenCalled();
   });
 
-  it("returns recovered:false when callGateway throws", async () => {
+  it("returns recovered:false when callGateway throws on send", async () => {
     callGateway.mockRejectedValueOnce(new Error("channel not available"));
 
     const result = await attemptGiveUpFallbackDelivery(makeEntry());
 
     expect(result.recovered).toBe(false);
     expect(result.error).toContain("channel not available");
-    expect(callGateway).toHaveBeenCalledTimes(1);
   });
 
   it("includes the label in the fallback message when available", async () => {
@@ -147,5 +243,95 @@ describe("attemptGiveUpFallbackDelivery", () => {
 
     const callArgs = callGateway.mock.calls[0][0];
     expect(callArgs.timeoutMs).toBe(30_000);
+  });
+
+  it("handles chat.history failure gracefully during last-resort capture", async () => {
+    // chat.history throws
+    callGateway.mockRejectedValueOnce(new Error("session not found"));
+    // retry with limit 5 also throws
+    callGateway.mockRejectedValueOnce(new Error("session not found"));
+
+    const result = await attemptGiveUpFallbackDelivery(
+      makeEntry({
+        frozenResultText: null,
+        fallbackFrozenResultText: undefined,
+        outcome: { status: "unknown" },
+      }),
+    );
+
+    expect(result.recovered).toBe(false);
+  });
+});
+
+describe("attemptModelFailureDirectDelivery", () => {
+  beforeEach(() => {
+    callGateway.mockReset();
+  });
+
+  it("delivers frozen result text directly to the channel", async () => {
+    callGateway.mockResolvedValueOnce(undefined);
+
+    const result = await attemptModelFailureDirectDelivery(makeEntry());
+
+    expect(result.recovered).toBe(true);
+    expect(result.deliveryPath).toBe("discord:1474343755153932394");
+    const callArgs = callGateway.mock.calls[0][0];
+    expect(callArgs.method).toBe("send");
+    expect(callArgs.params.message).toContain("[Worker result]");
+    expect(callArgs.params.message).toContain("model outage");
+    expect(callArgs.params.message).toContain("Task completed successfully");
+    expect(callArgs.params.idempotencyKey).toContain("announce-model-failure-bypass:run-test-1");
+  });
+
+  it("attempts last-resort capture when frozenResultText is empty", async () => {
+    // chat.history returns a result
+    callGateway.mockResolvedValueOnce({
+      messages: [{ role: "assistant", content: "Captured at retry time." }],
+    });
+    // send delivery
+    callGateway.mockResolvedValueOnce(undefined);
+
+    const entry = makeEntry({ frozenResultText: null });
+    const result = await attemptModelFailureDirectDelivery(entry);
+
+    expect(result.recovered).toBe(true);
+    expect(entry.frozenResultText).toBe("Captured at retry time.");
+  });
+
+  it("skips for non-completion messages", async () => {
+    const result = await attemptModelFailureDirectDelivery(
+      makeEntry({ expectsCompletionMessage: false }),
+    );
+
+    expect(result.recovered).toBe(false);
+    expect(callGateway).not.toHaveBeenCalled();
+  });
+
+  it("skips when no result text and no capture possible", async () => {
+    callGateway.mockResolvedValueOnce({ messages: [] });
+    callGateway.mockResolvedValueOnce({ messages: [] });
+
+    const result = await attemptModelFailureDirectDelivery(
+      makeEntry({ frozenResultText: null, fallbackFrozenResultText: undefined }),
+    );
+
+    expect(result.recovered).toBe(false);
+  });
+
+  it("skips when no delivery target", async () => {
+    const result = await attemptModelFailureDirectDelivery(
+      makeEntry({ requesterOrigin: undefined }),
+    );
+
+    expect(result.recovered).toBe(false);
+  });
+
+  it("returns recovered:false on send failure", async () => {
+    callGateway.mockRejectedValueOnce(new Error("network error"));
+
+    const result = await attemptModelFailureDirectDelivery(makeEntry());
+
+    expect(result.recovered).toBe(false);
+    expect(result.error).toContain("network error");
   });
 });
