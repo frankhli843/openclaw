@@ -1,4 +1,3 @@
-import { isSilentReplyText, SILENT_REPLY_TOKEN } from "../auto-reply/tokens.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import type { ConversationRef } from "../infra/outbound/session-binding-service.js";
 import { normalizeAccountId } from "../routing/session-key.js";
@@ -19,11 +18,6 @@ import {
 import { buildAnnounceIdempotencyKey, resolveQueueAnnounceId } from "./announce-idempotency.js";
 import type { AgentInternalEvent } from "./internal-events.js";
 import {
-  hasInternalRuntimeContext,
-  stripInternalRuntimeContext,
-} from "./internal-runtime-context.js";
-import { readLatestAssistantReply } from "./run-wait.js";
-import {
   callGateway,
   createBoundDeliveryRouter,
   getGlobalHookRunner,
@@ -37,6 +31,7 @@ import {
   resolveExternalBestEffortDeliveryTarget,
   resolveQueueSettings,
   resolveStorePath,
+  sendMessage,
 } from "./subagent-announce-delivery.runtime.js";
 import {
   runSubagentAnnounceDispatch,
@@ -47,28 +42,26 @@ import { type AnnounceQueueItem, enqueueAnnounce } from "./subagent-announce-que
 import { getSubagentDepthFromSessionStore } from "./subagent-depth.js";
 import { resolveRequesterStoreKey } from "./subagent-requester-store-key.js";
 import type { SpawnSubagentMode } from "./subagent-spawn.types.js";
-import { isAnnounceSkip } from "./tools/sessions-send-tokens.js";
 
 export { resolveAnnounceOrigin } from "./subagent-announce-origin.js";
 
-const DEFAULT_SUBAGENT_ANNOUNCE_TIMEOUT_MS = 300_000;
+const DEFAULT_SUBAGENT_ANNOUNCE_TIMEOUT_MS = 120_000;
 const MAX_TIMER_SAFE_TIMEOUT_MS = 2_147_000_000;
 
 type SubagentAnnounceDeliveryDeps = {
   callGateway: typeof callGateway;
   loadConfig: typeof loadConfig;
-  readLatestAssistantReply: typeof readLatestAssistantReply;
   getRequesterSessionActivity: (requesterSessionKey: string) => {
     sessionId?: string;
     isActive: boolean;
   };
   queueEmbeddedPiMessage: typeof queueEmbeddedPiMessage;
+  sendMessage: typeof sendMessage;
 };
 
 const defaultSubagentAnnounceDeliveryDeps: SubagentAnnounceDeliveryDeps = {
   callGateway,
   loadConfig,
-  readLatestAssistantReply,
   getRequesterSessionActivity: (requesterSessionKey: string) => {
     const sessionId =
       resolveActiveEmbeddedRunSessionId(requesterSessionKey) ??
@@ -79,10 +72,70 @@ const defaultSubagentAnnounceDeliveryDeps: SubagentAnnounceDeliveryDeps = {
     };
   },
   queueEmbeddedPiMessage,
+  sendMessage,
 };
 
 let subagentAnnounceDeliveryDeps: SubagentAnnounceDeliveryDeps =
   defaultSubagentAnnounceDeliveryDeps;
+
+function resolveBoundConversationOrigin(params: {
+  bindingConversation: ConversationRef & { parentConversationId?: string };
+  requesterConversation?: ConversationRef;
+  requesterOrigin?: DeliveryContext;
+}): DeliveryContext {
+  const conversation = params.bindingConversation;
+  const conversationId = conversation.conversationId?.trim() ?? "";
+  const parentConversationId = conversation.parentConversationId?.trim() ?? "";
+  const requesterConversationId = params.requesterConversation?.conversationId?.trim() ?? "";
+  const requesterTo = params.requesterOrigin?.to?.trim();
+  if (
+    conversation.channel === "matrix" &&
+    parentConversationId &&
+    requesterConversationId &&
+    parentConversationId === requesterConversationId &&
+    requesterTo
+  ) {
+    return {
+      channel: conversation.channel,
+      accountId: conversation.accountId,
+      to: requesterTo,
+      ...(conversationId ? { threadId: conversationId } : {}),
+    };
+  }
+
+  const boundTarget = resolveConversationDeliveryTarget({
+    channel: conversation.channel,
+    conversationId,
+    parentConversationId,
+  });
+  const inferredThreadId =
+    boundTarget.threadId ??
+    (parentConversationId && parentConversationId !== conversationId
+      ? conversationId
+      : undefined) ??
+    (params.requesterOrigin?.threadId != null && params.requesterOrigin.threadId !== ""
+      ? String(params.requesterOrigin.threadId)
+      : undefined);
+  if (
+    requesterTo &&
+    conversationId &&
+    requesterConversationId &&
+    conversationId.toLowerCase() === requesterConversationId.toLowerCase()
+  ) {
+    return {
+      channel: conversation.channel,
+      accountId: conversation.accountId,
+      to: requesterTo,
+      threadId: inferredThreadId,
+    };
+  }
+  return {
+    channel: conversation.channel,
+    accountId: conversation.accountId,
+    to: boundTarget.to,
+    threadId: inferredThreadId,
+  };
+}
 
 function resolveRequesterSessionActivity(requesterSessionKey: string) {
   const activity = subagentAnnounceDeliveryDeps.getRequesterSessionActivity(requesterSessionKey);
@@ -129,160 +182,6 @@ function summarizeDeliveryError(error: unknown): string {
     return JSON.stringify(error);
   } catch {
     return "error";
-  }
-}
-
-/**
- * [frankclaw] Build a user-facing fallback message from internal events.
- *
- * The fallback delivery path previously sent `params.triggerMessage` (the raw
- * <<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>> block) directly to external channels
- * like WhatsApp.  This leaked internal session keys, stats, and untrusted
- * child result text to the user and, worse, to any downstream ACP session
- * that intercepted the message (2026-04-10 regression: completion context
- * injected into an unrelated Claude Code session).
- *
- * Instead, extract a short user-facing summary from the structured
- * `internalEvents` array.  If no events are available, strip the internal
- * runtime context from the trigger message and use whatever remains.
- */
-function buildSanitizedFallbackMessage(
-  triggerMessage: string,
-  internalEvents?: AgentInternalEvent[],
-): string {
-  // Prefer structured events — they carry task label + status without leaking
-  // session keys or raw child output.
-  if (internalEvents && internalEvents.length > 0) {
-    const summaries: string[] = [];
-    for (const event of internalEvents) {
-      if (event.type === "task_completion") {
-        const label = event.taskLabel?.trim() || "background task";
-        const status = event.statusLabel?.trim() || event.status || "done";
-        summaries.push(`${label}: ${status}`);
-      }
-    }
-    if (summaries.length > 0) {
-      return summaries.join("\n");
-    }
-  }
-
-  // Fallback: strip internal context markers.  If nothing meaningful remains,
-  // return a generic placeholder so we never send an empty or all-fence message.
-  const stripped = stripInternalRuntimeContext(triggerMessage).trim();
-  if (stripped && !hasInternalRuntimeContext(stripped)) {
-    return stripped;
-  }
-  return "A background task completed.";
-}
-
-function normalizeCompletionReplyText(text: string): string {
-  const stripped = stripInternalRuntimeContext(text).trim();
-  if (!stripped) {
-    return "";
-  }
-  if (isAnnounceSkip(stripped) || isSilentReplyText(stripped, SILENT_REPLY_TOKEN)) {
-    return "";
-  }
-  return stripped;
-}
-
-function collectCompletionReplySignals(
-  value: unknown,
-  state: { texts: string[]; hasMedia: boolean },
-  depth = 0,
-): void {
-  if (value == null || depth > 5) {
-    return;
-  }
-  if (typeof value === "string") {
-    const normalized = normalizeCompletionReplyText(value);
-    if (normalized) {
-      state.texts.push(normalized);
-    }
-    return;
-  }
-  if (Array.isArray(value)) {
-    for (const item of value) {
-      collectCompletionReplySignals(item, state, depth + 1);
-    }
-    return;
-  }
-  if (typeof value !== "object") {
-    return;
-  }
-
-  const record = value as Record<string, unknown>;
-  if (typeof record.mediaUrl === "string" || typeof record.mediaPath === "string") {
-    state.hasMedia = true;
-  }
-
-  const content = record.content;
-  if (Array.isArray(content)) {
-    for (const block of content) {
-      if (!block || typeof block !== "object") {
-        continue;
-      }
-      const typedBlock = block as Record<string, unknown>;
-      const type = typeof typedBlock.type === "string" ? typedBlock.type : "";
-      if (type === "image" || type === "audio" || type === "video" || type === "file") {
-        state.hasMedia = true;
-      }
-      if (typeof typedBlock.text === "string") {
-        const normalized = normalizeCompletionReplyText(typedBlock.text);
-        if (normalized) {
-          state.texts.push(normalized);
-        }
-      }
-    }
-  }
-
-  for (const key of ["text", "reply", "payloads", "message", "messages", "final", "finalReply"]) {
-    if (key in record) {
-      collectCompletionReplySignals(record[key], state, depth + 1);
-    }
-  }
-}
-
-function hasDeliverableCompletionFinalResult(result: unknown): boolean {
-  const state = { texts: [] as string[], hasMedia: false };
-  collectCompletionReplySignals(result, state);
-  return state.hasMedia || state.texts.length > 0;
-}
-
-/**
- * [frankclaw] Re-read the parent session store to see if the completion turn
- * produced a user-facing assistant reply that the `method: "agent"` gateway
- * return shape did not expose.
- *
- * Background: for some provider return shapes (notably openai-codex / gpt-5.2
- * responses), `hasDeliverableCompletionFinalResult(agentResult)` returns false
- * even when the parent session DID produce a full assistant text reply — the
- * reply is in the session JSONL but not in the specific `result` object passed
- * back through `callGateway({ method: "agent" })`.  The old fallback path then
- * shipped a sanitized "task done" stub instead of Frank's actual answer
- * (2026-04-15 regression: full "Yep, fixed" reply was generated at 07:09 EDT
- * but only a `completed successfully` stub was queued for Discord delivery).
- *
- * This helper consults `chat.history` via `readLatestAssistantReply` and
- * returns the normalized tail assistant text if it is a real user-facing
- * reply.  The caller should prefer this text over `buildSanitizedFallbackMessage`
- * when it is non-empty.  Any failure (gateway error, timeout, empty tail) is
- * swallowed so the existing sanitized-fallback path still runs.
- */
-async function readSessionStoreFallbackReply(params: {
-  sessionKey: string;
-}): Promise<string | undefined> {
-  try {
-    const text = await subagentAnnounceDeliveryDeps.readLatestAssistantReply({
-      sessionKey: params.sessionKey,
-    });
-    if (typeof text !== "string") {
-      return undefined;
-    }
-    const normalized = normalizeCompletionReplyText(text);
-    return normalized || undefined;
-  } catch {
-    return undefined;
   }
 }
 
@@ -406,22 +305,12 @@ export async function resolveSubagentCompletionOrigin(params: {
     failClosed: false,
   });
   if (route.mode === "bound" && route.binding) {
-    const boundTarget = resolveConversationDeliveryTarget({
-      channel: route.binding.conversation.channel,
-      conversationId: route.binding.conversation.conversationId,
-      parentConversationId: route.binding.conversation.parentConversationId,
-    });
     return mergeDeliveryContext(
-      {
-        channel: route.binding.conversation.channel,
-        accountId: route.binding.conversation.accountId,
-        to: boundTarget.to,
-        threadId:
-          boundTarget.threadId ??
-          (requesterOrigin?.threadId != null && requesterOrigin.threadId !== ""
-            ? String(requesterOrigin.threadId)
-            : undefined),
-      },
+      resolveBoundConversationOrigin({
+        bindingConversation: route.binding.conversation,
+        requesterConversation,
+        requesterOrigin,
+      }),
       requesterOrigin,
     );
   }
@@ -592,6 +481,111 @@ async function maybeQueueSubagentAnnounce(params: {
   return "none";
 }
 
+export function extractThreadCompletionFallbackText(internalEvents?: AgentInternalEvent[]): string {
+  if (!internalEvents || internalEvents.length === 0) {
+    return "";
+  }
+  for (const event of internalEvents) {
+    if (event.type !== "task_completion") {
+      continue;
+    }
+    const result = event.result.trim();
+    if (result) {
+      return result;
+    }
+    const statusLabel = event.statusLabel.trim();
+    const taskLabel = event.taskLabel.trim();
+    if (statusLabel && taskLabel) {
+      return `${taskLabel}: ${statusLabel}`;
+    }
+    if (statusLabel) {
+      return statusLabel;
+    }
+    if (taskLabel) {
+      return taskLabel;
+    }
+  }
+  return "";
+}
+
+function hasVisibleGatewayAgentPayload(response: unknown): boolean {
+  const result =
+    response && typeof response === "object" && "result" in response
+      ? (response as { result?: unknown }).result
+      : undefined;
+  const payloads =
+    result && typeof result === "object" && "payloads" in result
+      ? (result as { payloads?: unknown }).payloads
+      : undefined;
+  if (!Array.isArray(payloads)) {
+    return false;
+  }
+  return payloads.some((payload) => {
+    if (!payload || typeof payload !== "object") {
+      return false;
+    }
+    const record = payload as {
+      text?: unknown;
+      mediaUrl?: unknown;
+      mediaUrls?: unknown;
+      presentation?: unknown;
+      interactive?: unknown;
+      channelData?: unknown;
+    };
+    const text = typeof record.text === "string" ? record.text.trim() : "";
+    const mediaUrl = typeof record.mediaUrl === "string" ? record.mediaUrl.trim() : "";
+    const mediaUrls = Array.isArray(record.mediaUrls)
+      ? record.mediaUrls.some((item) => typeof item === "string" && item.trim())
+      : false;
+    return Boolean(
+      text ||
+      mediaUrl ||
+      mediaUrls ||
+      record.presentation ||
+      record.interactive ||
+      record.channelData,
+    );
+  });
+}
+
+async function sendThreadCompletionFallback(params: {
+  cfg: OpenClawConfig;
+  channel?: string;
+  to?: string;
+  accountId?: string;
+  threadId?: string;
+  content: string;
+  requesterSessionKey: string;
+  bestEffortDeliver?: boolean;
+  idempotencyKey: string;
+  signal?: AbortSignal;
+}): Promise<boolean> {
+  const channel = params.channel?.trim();
+  const to = params.to?.trim();
+  const content = params.content.trim();
+  if (!channel || !to || !params.threadId || !content) {
+    return false;
+  }
+  await runAnnounceDeliveryWithRetry({
+    operation: "completion direct thread fallback send",
+    signal: params.signal,
+    run: async () =>
+      await subagentAnnounceDeliveryDeps.sendMessage({
+        cfg: params.cfg,
+        channel,
+        to,
+        accountId: params.accountId,
+        threadId: params.threadId,
+        content,
+        requesterSessionKey: params.requesterSessionKey,
+        bestEffort: params.bestEffortDeliver,
+        idempotencyKey: params.idempotencyKey,
+        abortSignal: params.signal,
+      }),
+  });
+  return true;
+}
+
 async function sendSubagentAnnounceDirectly(params: {
   targetRequesterSessionKey: string;
   triggerMessage: string;
@@ -652,7 +646,7 @@ async function sendSubagentAnnounceDirectly(params: {
         ? normalizedSessionOnlyOriginChannel
         : undefined;
     const requesterActivity = resolveRequesterSessionActivity(canonicalRequesterSessionKey);
-    if (params.expectsCompletionMessage && requesterActivity.isActive) {
+    if (params.expectsCompletionMessage && requesterActivity.sessionId) {
       const woke = requesterActivity.sessionId
         ? subagentAnnounceDeliveryDeps.queueEmbeddedPiMessage(
             requesterActivity.sessionId,
@@ -665,11 +659,13 @@ async function sendSubagentAnnounceDirectly(params: {
           path: "steered",
         };
       }
-      return {
-        delivered: false,
-        path: "direct",
-        error: "active requester session could not be woken",
-      };
+      if (requesterActivity.isActive) {
+        return {
+          delivered: false,
+          path: "direct",
+          error: "active requester session could not be woken",
+        };
+      }
     }
     if (params.signal?.aborted) {
       return {
@@ -677,153 +673,94 @@ async function sendSubagentAnnounceDirectly(params: {
         path: "none",
       };
     }
-    const agentResult = await runAnnounceDeliveryWithRetry<unknown>({
-      operation: params.expectsCompletionMessage
-        ? "completion direct announce agent call"
-        : "direct announce agent call",
-      signal: params.signal,
-      run: async () =>
-        await subagentAnnounceDeliveryDeps.callGateway({
-          method: "agent",
-          params: {
-            sessionKey: canonicalRequesterSessionKey,
-            message: params.triggerMessage,
-            deliver: deliveryTarget.deliver,
-            bestEffortDeliver: params.bestEffortDeliver,
-            internalEvents: params.internalEvents,
-            channel: deliveryTarget.deliver ? deliveryTarget.channel : sessionOnlyOriginChannel,
-            accountId: deliveryTarget.deliver
-              ? deliveryTarget.accountId
-              : sessionOnlyOriginChannel
-                ? sessionOnlyOrigin?.accountId
-                : undefined,
-            to: deliveryTarget.deliver
-              ? deliveryTarget.to
-              : sessionOnlyOriginChannel
-                ? sessionOnlyOrigin?.to
-                : undefined,
-            threadId: deliveryTarget.deliver
-              ? deliveryTarget.threadId
-              : sessionOnlyOriginChannel
-                ? sessionOnlyOrigin?.threadId
-                : undefined,
-            inputProvenance: {
-              kind: "inter_session",
-              sourceSessionKey: params.sourceSessionKey,
-              sourceChannel: params.sourceChannel ?? INTERNAL_MESSAGE_CHANNEL,
-              sourceTool: params.sourceTool ?? "subagent_announce",
-            },
-            idempotencyKey: params.directIdempotencyKey,
-          },
-          expectFinal: true,
-          timeoutMs: announceTimeoutMs,
-        }),
-    });
-
-    // [frankclaw] The gateway call succeeded — the parent session received and
-    // processed the completion message.  Whether the parent LLM chooses to
-    // produce a user-facing reply is the parent's decision (it may have made
-    // tool calls, processed internally, or deemed it informational).  Treating
-    // "no user-facing reply" as a delivery failure caused futile retries that
-    // re-fed the same completion into the parent, always with the same result,
-    // until MAX_ANNOUNCE_RETRY_COUNT was hit and the announce was given up.
-    //
-    // But silently marking as delivered when the parent produces no reply means
-    // Frank never hears about the subagent's result (2026-04-09 regression).
-    // Fallback: if the parent produced no user-facing reply AND we have a valid
-    // external delivery target, push the trigger message (which is the subagent
-    // completion summary) directly to the external channel so Frank at least
-    // sees something. The parent session's own idle decision is preserved.
-    if (
-      params.expectsCompletionMessage &&
-      !params.requesterIsSubagent &&
-      !hasDeliverableCompletionFinalResult(agentResult)
-    ) {
-      defaultRuntime.log(
-        `[warn] Subagent completion announce for ${params.directIdempotencyKey}: completion update produced no user-facing reply (gateway call succeeded) — attempting direct fallback delivery`,
-      );
-      if (deliveryTarget.deliver && deliveryTarget.channel && deliveryTarget.to) {
-        try {
-          // [frankclaw] Real gateway method name is "send" (WRITE_SCOPE). The
-          // previous "message.send" was a channel tool name from plugin
-          // allowlists, not a JSON-RPC method — it fell through
-          // authorizeOperatorScopesForMethod's default-deny path and got
-          // ADMIN_SCOPE, which the subagent caller scopes don't have, so every
-          // fallback delivery silently failed with "missing scope:
-          // operator.admin". This meant Frank never saw any CC ACP subagent
-          // progress updates while the workers were actually doing real work
-          // (regression window: 2026-04-09 afternoon).
-          //
-          // [frankclaw] Prefer the parent session's real assistant reply over
-          // the sanitized trigger summary.  For some provider return shapes
-          // (for example openai-codex/gpt-5.2) the parent session actually
-          // DOES produce a full user-facing reply but `agentResult` from the
-          // `method: "agent"` gateway call does not expose it in a way the
-          // `hasDeliverableCompletionFinalResult` walker can detect.  In that
-          // case the old fallback shipped a short sanitized stub ("task
-          // done") and Frank never saw the real text (2026-04-15 regression:
-          // the full "Yep, fixed. Root cause was…" reply was generated at
-          // 07:09 EDT in the Discord session JSONL but only the sanitized
-          // summary was queued for delivery, and even that never reached the
-          // thread).  `readSessionStoreFallbackReply` consults `chat.history`
-          // for the canonical requester session key and returns the latest
-          // tail assistant text when present; if it is empty or the read
-          // fails, we fall through to the existing sanitized-trigger path so
-          // Frank still sees something.
-          //
-          // [frankclaw] Check whether the parent session produced a real
-          // user-facing reply during the method:"agent" call.  When
-          // deliver:true was set, the gateway already delivered that reply
-          // to the external channel.  Sending it again via the fallback
-          // method:"send" causes duplicate messages in the thread
-          // (2026-04-21 regression: same completion posted 2-3x in Discord
-          // because hasDeliverableCompletionFinalResult returned false for
-          // openai-codex/gpt-5.2 result shapes even when a real reply
-          // existed in the session store and had already been delivered).
-          //
-          // Only fall through to the method:"send" path when the session
-          // store truly has no user-facing reply, meaning the parent LLM
-          // produced NO_REPLY / silent and the user needs a summary stub.
-          const sessionStoreReply = await readSessionStoreFallbackReply({
-            sessionKey: canonicalRequesterSessionKey,
-          });
-          if (sessionStoreReply) {
-            // Parent produced a real reply and deliver:true was set, so the
-            // gateway already delivered it.  Skip fallback to avoid duplicate.
-            defaultRuntime.log(
-              `[info] Subagent completion announce for ${params.directIdempotencyKey}: session-store-reply dedup, session store has reply and deliver was true, skipping fallback to avoid duplicate delivery`,
-            );
-          } else {
-            // Parent produced no user-facing reply.  Send sanitized summary
-            // so the user at least sees something about the completion.
-            const fallbackMessage = buildSanitizedFallbackMessage(
-              params.triggerMessage,
-              params.internalEvents,
-            );
-            await subagentAnnounceDeliveryDeps.callGateway({
-              method: "send",
-              params: {
-                channel: deliveryTarget.channel,
-                accountId: deliveryTarget.accountId,
-                to: deliveryTarget.to,
-                threadId: deliveryTarget.threadId,
-                message: fallbackMessage,
-                idempotencyKey: `${params.directIdempotencyKey}:fallback`,
+    const threadCompletionFallbackText =
+      params.expectsCompletionMessage && deliveryTarget.deliver && deliveryTarget.threadId
+        ? extractThreadCompletionFallbackText(params.internalEvents)
+        : "";
+    let directAnnounceResponse: unknown;
+    try {
+      directAnnounceResponse = await runAnnounceDeliveryWithRetry({
+        operation: params.expectsCompletionMessage
+          ? "completion direct announce agent call"
+          : "direct announce agent call",
+        signal: params.signal,
+        run: async () =>
+          await subagentAnnounceDeliveryDeps.callGateway({
+            method: "agent",
+            params: {
+              sessionKey: canonicalRequesterSessionKey,
+              message: params.triggerMessage,
+              deliver: deliveryTarget.deliver,
+              bestEffortDeliver: params.bestEffortDeliver,
+              internalEvents: params.internalEvents,
+              channel: deliveryTarget.deliver ? deliveryTarget.channel : sessionOnlyOriginChannel,
+              accountId: deliveryTarget.deliver
+                ? deliveryTarget.accountId
+                : sessionOnlyOriginChannel
+                  ? sessionOnlyOrigin?.accountId
+                  : undefined,
+              to: deliveryTarget.deliver
+                ? deliveryTarget.to
+                : sessionOnlyOriginChannel
+                  ? sessionOnlyOrigin?.to
+                  : undefined,
+              threadId: deliveryTarget.deliver
+                ? deliveryTarget.threadId
+                : sessionOnlyOriginChannel
+                  ? sessionOnlyOrigin?.threadId
+                  : undefined,
+              inputProvenance: {
+                kind: "inter_session",
+                sourceSessionKey: params.sourceSessionKey,
+                sourceChannel: params.sourceChannel ?? INTERNAL_MESSAGE_CHANNEL,
+                sourceTool: params.sourceTool ?? "subagent_announce",
               },
-            });
-            defaultRuntime.log(
-              `[info] Subagent completion announce for ${params.directIdempotencyKey}: delivered via direct fallback (sanitized-summary) to ${deliveryTarget.channel}:${deliveryTarget.to}`,
-            );
-          }
-        } catch (fallbackErr) {
-          defaultRuntime.log(
-            `[warn] Subagent completion announce for ${params.directIdempotencyKey}: direct fallback delivery also failed: ${summarizeDeliveryError(fallbackErr)} (treating as delivered to avoid retry loop)`,
-          );
-        }
-      } else {
-        defaultRuntime.log(
-          `[warn] Subagent completion announce for ${params.directIdempotencyKey}: no external delivery target available for fallback (treating as delivered)`,
-        );
+              idempotencyKey: params.directIdempotencyKey,
+            },
+            expectFinal: true,
+            timeoutMs: announceTimeoutMs,
+          }),
+      });
+    } catch (err) {
+      const didFallback = await sendThreadCompletionFallback({
+        cfg,
+        channel: deliveryTarget.channel,
+        to: deliveryTarget.to,
+        accountId: deliveryTarget.accountId,
+        threadId: deliveryTarget.threadId,
+        content: threadCompletionFallbackText,
+        requesterSessionKey: canonicalRequesterSessionKey,
+        bestEffortDeliver: params.bestEffortDeliver,
+        idempotencyKey: params.directIdempotencyKey,
+        signal: params.signal,
+      });
+      if (didFallback) {
+        return {
+          delivered: true,
+          path: "direct-thread-fallback",
+        };
+      }
+      throw err;
+    }
+
+    if (threadCompletionFallbackText && !hasVisibleGatewayAgentPayload(directAnnounceResponse)) {
+      const didFallback = await sendThreadCompletionFallback({
+        cfg,
+        channel: deliveryTarget.channel,
+        to: deliveryTarget.to,
+        accountId: deliveryTarget.accountId,
+        threadId: deliveryTarget.threadId,
+        content: threadCompletionFallbackText,
+        requesterSessionKey: canonicalRequesterSessionKey,
+        bestEffortDeliver: params.bestEffortDeliver,
+        idempotencyKey: params.directIdempotencyKey,
+        signal: params.signal,
+      });
+      if (didFallback) {
+        return {
+          delivered: true,
+          path: "direct-thread-fallback",
+        };
       }
     }
 
@@ -907,7 +844,4 @@ export const __testing = {
         }
       : defaultSubagentAnnounceDeliveryDeps;
   },
-  buildSanitizedFallbackMessage,
-  hasDeliverableCompletionFinalResult,
-  sendSubagentAnnounceDirectly,
 };

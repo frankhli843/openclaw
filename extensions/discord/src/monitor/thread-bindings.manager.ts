@@ -190,17 +190,15 @@ function toSessionBindingRecord(
   };
 }
 
-export function createThreadBindingManager(
-  params: {
-    accountId?: string;
-    token?: string;
-    cfg?: OpenClawConfig;
-    persist?: boolean;
-    enableSweeper?: boolean;
-    idleTimeoutMs?: number;
-    maxAgeMs?: number;
-  } = {},
-): ThreadBindingManager {
+export function createThreadBindingManager(params: {
+  accountId?: string;
+  token?: string;
+  cfg: OpenClawConfig;
+  persist?: boolean;
+  enableSweeper?: boolean;
+  idleTimeoutMs?: number;
+  maxAgeMs?: number;
+}): ThreadBindingManager {
   ensureBindingsLoaded();
   const accountId = normalizeAccountId(params.accountId);
   const existing = MANAGERS_BY_ACCOUNT_ID.get(accountId);
@@ -285,13 +283,11 @@ export function createThreadBindingManager(
       if (!rest) {
         try {
           const cfg = resolveCurrentCfg();
-          rest = createDiscordRestClient(
-            {
-              accountId,
-              token: resolveCurrentToken(),
-            },
+          rest = createDiscordRestClient({
             cfg,
-          ).rest;
+            accountId,
+            token: resolveCurrentToken(),
+          }).rest;
         } catch {
           return;
         }

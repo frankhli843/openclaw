@@ -2,6 +2,14 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 
 let capturedDispatchParams: unknown;
 
+type CapturedReplyPayload = {
+  text?: string;
+  isReasoning?: boolean;
+  isCompactionNotice?: boolean;
+  mediaUrl?: string;
+  mediaUrls?: string[];
+};
+
 const { dispatchReplyWithBufferedBlockDispatcherMock } = vi.hoisted(() => ({
   dispatchReplyWithBufferedBlockDispatcherMock: vi.fn(async (params: { ctx: unknown }) => {
     capturedDispatchParams = params;
@@ -36,10 +44,20 @@ vi.mock("./runtime-api.js", () => ({
   },
   resolveInboundLastRouteSessionKey: (params: { sessionKey: string }) => params.sessionKey,
   resolveMarkdownTableMode: () => undefined,
-  resolveSendableOutboundReplyParts: (payload: { text?: string }) => ({
-    text: payload.text ?? "",
-    hasMedia: false,
-  }),
+  resolveSendableOutboundReplyParts: (payload: {
+    text?: string;
+    mediaUrls?: string[];
+    mediaUrl?: string;
+  }) => {
+    const urls = [
+      ...(Array.isArray(payload.mediaUrls) ? payload.mediaUrls : []),
+      ...(payload.mediaUrl ? [payload.mediaUrl] : []),
+    ];
+    return {
+      text: payload.text ?? "",
+      hasMedia: urls.length > 0,
+    };
+  },
   resolveTextChunkLimit: () => 4000,
   shouldLogVerbose: () => false,
   toLocationContext: () => ({}),
@@ -91,7 +109,7 @@ function getCapturedDeliver() {
     capturedDispatchParams as {
       dispatcherOptions?: {
         deliver?: (
-          payload: { text?: string; isReasoning?: boolean; isCompactionNotice?: boolean },
+          payload: CapturedReplyPayload,
           info: { kind: "tool" | "block" | "final" },
         ) => Promise<void>;
       };
@@ -190,7 +208,6 @@ describe("whatsapp inbound dispatch", () => {
         senderE164: "+15550002222",
         groupSubject: "Test Group",
         groupParticipants: [],
-        // no mediaPath, no mediaUrl
       }),
       route: makeRoute({ sessionKey: "agent:main:whatsapp:group:123@g.us" }),
       sender: { name: "Alice", e164: "+15550002222" },
@@ -204,7 +221,7 @@ describe("whatsapp inbound dispatch", () => {
     expect(ctx.MediaTypes).toEqual(["image/jpeg", "image/png"]);
   });
 
-  it("does NOT attach history media when current message already has media", () => {
+  it("does not attach history media when current message already has media", () => {
     const ctx = buildWhatsAppInboundContext({
       combinedBody: "Alice: check this",
       conversationId: "123@g.us",
@@ -230,30 +247,36 @@ describe("whatsapp inbound dispatch", () => {
 
     expect(ctx.MediaPath).toBe("/media/inbound/own-photo.jpg");
     expect(ctx.MediaType).toBe("image/jpeg");
-    // Should NOT have the history media arrays
     expect(ctx.MediaPaths).toBeUndefined();
   });
 
-  it("does not inject history media fields when historyMediaPaths is empty", () => {
+  it("keeps agent and command bodies independently overridable", () => {
     const ctx = buildWhatsAppInboundContext({
-      combinedBody: "hi",
-      conversationId: "123@g.us",
-      groupHistory: [],
-      groupMemberRoster: new Map(),
+      bodyForAgent: "spoken transcript",
+      combinedBody: "spoken transcript",
+      commandBody: "<media:audio>",
+      conversationId: "+1000",
       msg: makeMsg({
-        from: "123@g.us",
-        chatType: "group",
-        groupParticipants: [],
+        body: "<media:audio>",
+        mediaPath: "/tmp/voice.ogg",
+        mediaType: "audio/ogg; codecs=opus",
       }),
-      route: makeRoute({ sessionKey: "agent:main:whatsapp:group:123@g.us" }),
-      sender: { name: "Alice", e164: "+15550002222" },
-      historyMediaPaths: [],
-      historyMediaTypes: [],
+      rawBody: "<media:audio>",
+      route: makeRoute(),
+      sender: {
+        e164: "+1000",
+      },
+      transcript: "spoken transcript",
     });
 
-    expect(ctx.MediaPath).toBeUndefined();
-    expect(ctx.MediaPaths).toBeUndefined();
-    expect(ctx.MediaTypes).toBeUndefined();
+    expect(ctx).toMatchObject({
+      Body: "spoken transcript",
+      BodyForAgent: "spoken transcript",
+      BodyForCommands: "<media:audio>",
+      CommandBody: "<media:audio>",
+      RawBody: "<media:audio>",
+      Transcript: "spoken transcript",
+    });
   });
 
   it("falls back SenderId to SenderE164 when sender id is missing", () => {
@@ -412,7 +435,7 @@ describe("whatsapp inbound dispatch", () => {
     expect(groupHistories.get("whatsapp:default:group:123@g.us") ?? []).toHaveLength(0);
   });
 
-  it("delivers block and final WhatsApp payloads, but suppresses tool payloads", async () => {
+  it("delivers block and final WhatsApp payloads; suppresses text-only tool payloads but delivers tool media", async () => {
     const deliverReply = vi.fn(async () => undefined);
     const rememberSentText = vi.fn();
 
@@ -428,10 +451,27 @@ describe("whatsapp inbound dispatch", () => {
     expect(deliverReply).not.toHaveBeenCalled();
     expect(rememberSentText).not.toHaveBeenCalled();
 
+    await deliver?.(
+      { text: "tool image", mediaUrls: ["/tmp/generated.jpg"] },
+      {
+        kind: "tool",
+      },
+    );
+    expect(deliverReply).toHaveBeenCalledTimes(1);
+    expect(rememberSentText).toHaveBeenCalledTimes(1);
+    expect(deliverReply).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        replyResult: expect.objectContaining({
+          mediaUrls: ["/tmp/generated.jpg"],
+          text: undefined,
+        }),
+      }),
+    );
+
     await deliver?.({ text: "block payload" }, { kind: "block" });
     await deliver?.({ text: "final payload" }, { kind: "final" });
-    expect(deliverReply).toHaveBeenCalledTimes(2);
-    expect(rememberSentText).toHaveBeenCalledTimes(2);
+    expect(deliverReply).toHaveBeenCalledTimes(3);
+    expect(rememberSentText).toHaveBeenCalledTimes(3);
   });
 
   it("suppresses reasoning and compaction payloads before WhatsApp delivery", async () => {
@@ -523,6 +563,65 @@ describe("whatsapp inbound dispatch", () => {
 
     expect(deliverReply).toHaveBeenCalledTimes(1);
     expect(rememberSentText).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns true for tool-only media turns after delivering media", async () => {
+    const deliverReply = vi.fn(async () => undefined);
+    const rememberSentText = vi.fn();
+    dispatchReplyWithBufferedBlockDispatcherMock.mockImplementationOnce(
+      async (params: {
+        ctx: unknown;
+        dispatcherOptions?: {
+          deliver?: (
+            payload: CapturedReplyPayload,
+            info: { kind: "tool" | "block" | "final" },
+          ) => Promise<void>;
+        };
+      }) => {
+        capturedDispatchParams = params;
+        await params.dispatcherOptions?.deliver?.(
+          { text: "tool image", mediaUrls: ["/tmp/generated.jpg"] },
+          { kind: "tool" },
+        );
+        return { queuedFinal: false, counts: { tool: 1, block: 0, final: 0 } };
+      },
+    );
+
+    await expect(
+      dispatchWhatsAppBufferedReply({
+        cfg: { channels: { whatsapp: { blockStreaming: true } } } as never,
+        connectionId: "conn",
+        context: { Body: "hi" },
+        conversationId: "+1000",
+        deliverReply,
+        groupHistories: new Map(),
+        groupHistoryKey: "+1000",
+        maxMediaBytes: 1,
+        msg: makeMsg(),
+        rememberSentText,
+        replyLogger: {
+          info: () => {},
+          warn: () => {},
+          error: () => {},
+          debug: () => {},
+        } as never,
+        replyPipeline: {},
+        replyResolver: (async () => undefined) as never,
+        route: makeRoute(),
+        shouldClearGroupHistory: false,
+      }),
+    ).resolves.toBe(true);
+
+    expect(deliverReply).toHaveBeenCalledTimes(1);
+    expect(deliverReply).toHaveBeenCalledWith(
+      expect.objectContaining({
+        replyResult: expect.objectContaining({
+          mediaUrls: ["/tmp/generated.jpg"],
+          text: undefined,
+        }),
+      }),
+    );
+    expect(rememberSentText).toHaveBeenCalledWith(undefined, expect.any(Object));
   });
 
   it("passes sendComposing through as the reply typing callback", async () => {

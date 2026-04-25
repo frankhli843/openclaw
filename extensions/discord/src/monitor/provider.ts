@@ -831,8 +831,8 @@ export async function monitorDiscordProvider(opts: MonitorDiscordOpts = {}) {
   let lifecycleStarted = false;
   let gatewaySupervisor: ReturnType<typeof createDiscordGatewaySupervisor> | undefined;
   let deactivateMessageHandler: (() => void) | undefined;
-  let autoPresenceController: ReturnType<
-    typeof createDiscordMonitorClient
+  let autoPresenceController: Awaited<
+    ReturnType<typeof createDiscordMonitorClient>
   >["autoPresenceController"] = null;
   let lifecycleGateway: MutableDiscordGateway | undefined;
   let earlyGatewayEmitter = gatewaySupervisor?.emitter;
@@ -952,7 +952,7 @@ export async function monitorDiscordProvider(opts: MonitorDiscordOpts = {}) {
       gatewaySupervisor: createdGatewaySupervisor,
       autoPresenceController: createdAutoPresenceController,
       eventQueueOpts,
-    } = createDiscordMonitorClient({
+    } = await createDiscordMonitorClient({
       accountId: account.accountId,
       applicationId,
       token,
