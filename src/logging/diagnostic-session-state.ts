@@ -80,16 +80,43 @@ function findStateBySessionId(sessionId: string): SessionState | undefined {
 export function getDiagnosticSessionState(ref: SessionRef): SessionState {
   pruneDiagnosticSessionStates();
   const key = resolveSessionKey(ref);
-  const existing =
-    diagnosticSessionStates.get(key) ?? (ref.sessionId && findStateBySessionId(ref.sessionId));
-  if (existing) {
+  const directMatch = diagnosticSessionStates.get(key);
+  if (directMatch) {
     if (ref.sessionId) {
-      existing.sessionId = ref.sessionId;
+      directMatch.sessionId = ref.sessionId;
     }
     if (ref.sessionKey) {
-      existing.sessionKey = ref.sessionKey;
+      directMatch.sessionKey = ref.sessionKey;
     }
-    return existing;
+    return directMatch;
+  }
+  // When found via sessionId fallback, do NOT mutate the existing entry's
+  // sessionKey. The fallback entry belongs to a different session key (e.g.,
+  // a WhatsApp group session) and mutating it would cause misleading stuck-
+  // session diagnostics (the original session key would be overwritten by
+  // the new caller's key). Instead, create a fresh entry for the new key.
+  // See: heartbeat poll routed into WhatsApp DaHong session key incident.
+  const fallback = ref.sessionId ? findStateBySessionId(ref.sessionId) : undefined;
+  if (fallback && fallback.sessionKey && ref.sessionKey && fallback.sessionKey !== ref.sessionKey) {
+    const created: SessionState = {
+      sessionId: ref.sessionId,
+      sessionKey: ref.sessionKey,
+      lastActivity: Date.now(),
+      state: "idle",
+      queueDepth: 0,
+    };
+    diagnosticSessionStates.set(key, created);
+    pruneDiagnosticSessionStates(Date.now(), true);
+    return created;
+  }
+  if (fallback) {
+    if (ref.sessionId) {
+      fallback.sessionId = ref.sessionId;
+    }
+    if (ref.sessionKey) {
+      fallback.sessionKey = ref.sessionKey;
+    }
+    return fallback;
   }
   const created: SessionState = {
     sessionId: ref.sessionId,

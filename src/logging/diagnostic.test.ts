@@ -79,6 +79,27 @@ describe("diagnostic session state pruning", () => {
     expect(bySessionId.sessionKey).toBe("agent:main:demo-channel:channel:c1");
     expect(getDiagnosticSessionStateCountForTest()).toBe(1);
   });
+
+  it("does not mutate sessionKey when findStateBySessionId finds a different key", () => {
+    // Simulate a WhatsApp session registered with sessionId "main"
+    const whatsappState = getDiagnosticSessionState({
+      sessionId: "main",
+      sessionKey: "agent:main:whatsapp:group:120363405743307729@g.us",
+    });
+    whatsappState.state = "processing";
+
+    // Simulate a heartbeat lookup for the same sessionId but different key
+    const heartbeatState = getDiagnosticSessionState({
+      sessionId: "main",
+      sessionKey: "agent:main:main",
+    });
+
+    // The heartbeat should get its own entry, not mutate the WhatsApp one
+    expect(heartbeatState).not.toBe(whatsappState);
+    expect(whatsappState.sessionKey).toBe("agent:main:whatsapp:group:120363405743307729@g.us");
+    expect(heartbeatState.sessionKey).toBe("agent:main:main");
+    expect(getDiagnosticSessionStateCountForTest()).toBe(2);
+  });
 });
 
 describe("logger import side effects", () => {
