@@ -57,10 +57,10 @@
     },
     {
       "name": "Discord DNR quiet hours (channel)",
-      "description": "Enforces quiet hours on Discord channel-level outbound (sendText/sendMedia)",
+      "description": "Enforces quiet hours on Discord channel-level outbound via outbound adapter",
       "static": [
         {
-          "file": "extensions/discord/src/channel.ts",
+          "file": "extensions/discord/src/outbound-adapter.ts",
           "pattern": "enforceDiscordDnrWindow",
           "minCount": 1
         }
@@ -883,16 +883,16 @@
     },
     {
       "name": "Subagent announce: direct delivery must be user-visible",
-      "description": "Direct subagent completion handoff only counts as delivered when the parent produces a user-facing reply (not NO_REPLY or internal-only output), enabling fallback queue retries.",
+      "description": "Direct subagent completion handoff only counts as delivered when the parent produces a user-facing reply, enabling thread completion fallback when no visible payload is detected.",
       "static": [
         {
           "file": "src/agents/subagent-announce-delivery.ts",
-          "pattern": "hasDeliverableCompletionFinalResult",
+          "pattern": "hasVisibleGatewayAgentPayload",
           "minCount": 1
         },
         {
           "file": "src/agents/subagent-announce-delivery.ts",
-          "pattern": "completion update produced no user-facing reply",
+          "pattern": "sendThreadCompletionFallback",
           "minCount": 1
         }
       ],
@@ -901,30 +901,25 @@
       "e2eTests": ["test/frankclaw-features-e2e.test.ts"]
     },
     {
-      "name": "Subagent announce: session-store reply fallback",
-      "description": "When the agent gateway method returns an agentResult shape the walker cannot detect a reply in (e.g. openai-codex/gpt-5.2 response shape), the fallback path re-reads the parent session via readLatestAssistantReply (chat.history) and delivers the real assistant text instead of the sanitized trigger summary. Regression: 2026-04-15 DNR Replays thread where the full 'Yep, fixed' reply was generated but only a 'completed successfully' stub was queued for Discord and never reached the thread.",
+      "name": "Subagent announce: thread completion fallback",
+      "description": "When the agent gateway method returns no visible payload, extract completion text from internal events and send it directly to the origin thread via sendThreadCompletionFallback. Replaces the earlier session-store reply fallback approach.",
       "static": [
         {
           "file": "src/agents/subagent-announce-delivery.ts",
-          "pattern": "readSessionStoreFallbackReply",
-          "minCount": 2
-        },
-        {
-          "file": "src/agents/subagent-announce-delivery.ts",
-          "pattern": "session-store-reply",
+          "pattern": "extractThreadCompletionFallbackText",
           "minCount": 1
         },
         {
           "file": "src/agents/subagent-announce-delivery.ts",
-          "pattern": "readLatestAssistantReply: typeof readLatestAssistantReply",
+          "pattern": "direct-thread-fallback",
           "minCount": 1
         }
       ],
       "tests": ["src/agents/subagent-announce-delivery.silent-result.test.ts"],
       "runtime": [
         {
-          "logPattern": "delivered via direct fallback (session-store-reply)",
-          "note": "Emitted when the fallback successfully delivered the real parent session reply instead of the sanitized trigger summary.",
+          "logPattern": "completion direct thread fallback send",
+          "note": "Emitted when the thread completion fallback fires",
           "onEvent": true
         }
       ],
@@ -1067,21 +1062,21 @@
     },
     {
       "name": "Subagent completion announce direct fallback delivery",
-      "description": "When a subagent completion announce reaches the parent session but the parent produces no user-facing reply, fall back to sending the trigger message (subagent completion summary) directly to the external channel via the gateway 'send' method (WRITE_SCOPE). Prevents silent drops of subagent output. Original 2026-04-09 fix used the wrong method name 'message.send' (that's a channel tool name, not a JSON-RPC method), which fell through to ADMIN_SCOPE default-deny and silently dropped every fallback, hiding hours of real CC ACP subagent work from Frank. Static probe now enforces method: \"send\" and explicitly rejects method: \"message.send\" to prevent regression.",
+      "description": "When a subagent completion announce reaches the parent session but the parent produces no visible gateway payload, fall back to sending the completion text directly to the origin thread via sendMessage. Uses sendThreadCompletionFallback with sendMessage dep.",
       "static": [
         {
           "file": "src/agents/subagent-announce-delivery.ts",
-          "pattern": "direct fallback delivery",
+          "pattern": "sendThreadCompletionFallback",
+          "minCount": 2
+        },
+        {
+          "file": "src/agents/subagent-announce-delivery.ts",
+          "pattern": "direct-thread-fallback",
           "minCount": 1
         },
         {
           "file": "src/agents/subagent-announce-delivery.ts",
-          "pattern": ":fallback",
-          "minCount": 1
-        },
-        {
-          "file": "src/agents/subagent-announce-delivery.ts",
-          "pattern": "method: \"send\"",
+          "pattern": "sendMessage",
           "minCount": 1
         }
       ],
@@ -1146,22 +1141,22 @@
     },
     {
       "name": "Subagent completion fallback sanitizes internal context",
-      "description": "The fallback delivery path that fires when a subagent completion announce produces no user-facing reply now sanitizes the message before sending to external channels. Previously it sent the raw <<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>> block (with session keys, child output, and internal events) directly to WhatsApp/Telegram/etc, leaking internal state and causing downstream ACP sessions to receive raw internal context injections.",
+      "description": "The fallback delivery path extracts user-facing text from structured internal events via extractThreadCompletionFallbackText, avoiding raw internal context leakage. Sanitization of internal runtime context is centralized in deliver.ts.",
       "static": [
         {
           "file": "src/agents/subagent-announce-delivery.ts",
-          "pattern": "buildSanitizedFallbackMessage",
+          "pattern": "extractThreadCompletionFallbackText",
           "minCount": 2,
-          "note": "Helper definition + usage in fallback path"
+          "note": "Definition + usage in fallback path"
         },
         {
-          "file": "src/agents/subagent-announce-delivery.ts",
+          "file": "src/infra/outbound/deliver.ts",
           "pattern": "hasInternalRuntimeContext",
           "minCount": 1,
-          "note": "Guard against sending fenced content to external channels"
+          "note": "Centralized guard against sending fenced content to external channels"
         }
       ],
-      "tests": ["src/agents/subagent-announce-delivery.sanitized-fallback.test.ts"],
+      "tests": ["src/agents/subagent-announce-delivery.silent-result.test.ts"],
       "runtime": [],
       "e2eTests": ["test/frankclaw-features-e2e.test.ts"]
     },
@@ -1619,7 +1614,7 @@
     },
     {
       "name": "Doramon todo-loop cron-tick dispatch",
-      "description": "Driver dispatches pending todos via 'openclaw cron run <tick-id>' — a proven-reliable primitive that enqueues an isolated agent turn through the gateway's cron scheduler. The tick cron job (see cron/doramon-todo-loop-tick.md) reads the pending queue, picks highest priority, and spawns a Claude Code ACP worker per the audit-first contract. Replaces earlier broken paths: Discord-note indirection, --at cron one-shots that never fired, and --mode now system events that enqueued but didn't drive turns.",
+      "description": "Driver dispatches pending todos via 'openclaw cron run <tick-id>' \u2014 a proven-reliable primitive that enqueues an isolated agent turn through the gateway's cron scheduler. The tick cron job (see cron/doramon-todo-loop-tick.md) reads the pending queue, picks highest priority, and spawns a Claude Code ACP worker per the audit-first contract. Replaces earlier broken paths: Discord-note indirection, --at cron one-shots that never fired, and --mode now system events that enqueued but didn't drive turns.",
       "category": "todo-loop",
       "static": [
         {

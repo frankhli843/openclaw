@@ -24,6 +24,10 @@ import {
 import { resolveChannelContextVisibilityMode } from "openclaw/plugin-sdk/context-visibility-runtime";
 import { recordInboundSession } from "openclaw/plugin-sdk/conversation-runtime";
 import { isDangerousNameMatchingEnabled } from "openclaw/plugin-sdk/dangerous-name-runtime";
+import {
+  enforceDiscordDnrWindow,
+  DiscordDnrSuppressedError,
+} from "openclaw/plugin-sdk/infra-runtime";
 import { resolveMarkdownTableMode } from "openclaw/plugin-sdk/markdown-table-runtime";
 import { getAgentScopedMediaLocalRoots } from "openclaw/plugin-sdk/media-runtime";
 import { resolveChunkMode } from "openclaw/plugin-sdk/reply-chunking";
@@ -51,7 +55,7 @@ import { resolveDiscordConversationIdentity } from "../conversation-identity.js"
 import { resolveDiscordDraftStreamingChunking } from "../draft-chunking.js";
 import { createDiscordDraftStream } from "../draft-stream.js";
 import { resolveDiscordPreviewStreamMode } from "../preview-streaming.js";
-import { removeReactionDiscord } from "../send.js";
+import { reactMessageDiscord, removeReactionDiscord } from "../send.js";
 import { editMessageDiscord } from "../send.messages.js";
 import {
   createDiscordAckReactionAdapter,
@@ -170,8 +174,11 @@ export async function processDiscordMessage(
     discordRestFetch,
     abortSignal,
   } = ctx;
+  // frankclaw: pre-run abort checks must throw (not return) so the durable
+  // queue treats the job as failed and retries on next boot. A silent return
+  // causes the queue to permanently delete the message.
   if (isProcessAborted(abortSignal)) {
-    return;
+    throw new Error("process aborted before run started");
   }
 
   const ssrfPolicy = cfg.browser?.ssrfPolicy;
@@ -184,7 +191,7 @@ export async function processDiscordMessage(
   };
   const mediaList = await resolveMediaList(message, mediaMaxBytes, mediaResolveOptions);
   if (isProcessAborted(abortSignal)) {
-    return;
+    throw new Error("process aborted before run started");
   }
   const forwardedMediaList = await resolveForwardedMediaList(
     message,
@@ -192,7 +199,7 @@ export async function processDiscordMessage(
     mediaResolveOptions,
   );
   if (isProcessAborted(abortSignal)) {
-    return;
+    throw new Error("process aborted before run started");
   }
   mediaList.push(...forwardedMediaList);
   const text = messageText;
@@ -384,7 +391,10 @@ export async function processDiscordMessage(
   let threadLabel: string | undefined;
   let parentSessionKey: string | undefined;
   if (threadChannel) {
-    const includeThreadStarter = channelConfig?.includeThreadStarter !== false;
+    // frankclaw: thread-starter injection is force-disabled (2026-04-18).
+    // Long-running threads otherwise re-inject a stale starter on every turn.
+    // Use scoped-prompt registry for per-thread context instead.
+    const includeThreadStarter = false;
     if (includeThreadStarter) {
       const starter = await resolveDiscordThreadStarter({
         channel: threadChannel,
@@ -590,6 +600,20 @@ export async function processDiscordMessage(
   });
   const chunkMode = resolveChunkMode(cfg, "discord", accountId);
 
+  // frankclaw: DNR window check for gating draft preview sends/edits during
+  // quiet hours. Used to suppress streaming and preview-finalization edits.
+  const isDnrWindowActive = (): boolean => {
+    try {
+      enforceDiscordDnrWindow({ channel: "discord", to: deliverTarget });
+      return false;
+    } catch (err) {
+      if (err instanceof DiscordDnrSuppressedError) {
+        return true;
+      }
+      throw err;
+    }
+  };
+
   // --- Discord draft stream (edit-based preview streaming) ---
   const discordStreamMode = resolveDiscordPreviewStreamMode(discordConfig);
   const draftMaxChars = Math.min(textLimit, 2000);
@@ -688,6 +712,10 @@ export async function processDiscordMessage(
 
   const updateDraftFromPartial = (text?: string) => {
     if (!draftStream || !text) {
+      return;
+    }
+    // frankclaw: DNR enforcement — do not send/edit preview messages during quiet hours.
+    if (isDnrWindowActive()) {
       return;
     }
     // Strip reasoning/thinking tags that may leak through the stream.
@@ -789,90 +817,108 @@ export async function processDiscordMessage(
           return;
         }
         if (draftStream && isFinal) {
-          draftFinalDeliveryHandled = true;
-          const reply = resolveSendableOutboundReplyParts(payload);
-          const hasMedia = reply.hasMedia;
-          const finalText = payload.text;
-          const previewFinalText = resolvePreviewFinalText(finalText);
-          const hasExplicitReplyDirective =
-            Boolean(payload.replyToTag || payload.replyToCurrent) ||
-            (typeof finalText === "string" && /\[\[\s*reply_to(?:_current|\s*:)/i.test(finalText));
+          // frankclaw: DNR enforcement — during quiet hours, skip preview
+          // streaming edits and fall through to deliverDiscordReply which
+          // properly queues the reply for the next open window.
+          if (isDnrWindowActive()) {
+            await draftStream.stop();
+            if (!finalizedViaPreviewMessage) {
+              await draftStream.clear();
+            }
+          } else {
+            draftFinalDeliveryHandled = true;
+            const reply = resolveSendableOutboundReplyParts(payload);
+            const hasMedia = reply.hasMedia;
+            const finalText = payload.text;
+            const previewFinalText = resolvePreviewFinalText(finalText);
+            const hasExplicitReplyDirective =
+              Boolean(payload.replyToTag || payload.replyToCurrent) ||
+              (typeof finalText === "string" &&
+                /\[\[\s*reply_to(?:_current|\s*:)/i.test(finalText));
 
-          const result = await deliverFinalizableDraftPreview({
-            kind: info.kind,
-            payload,
-            draft: {
-              flush: flushDraft,
-              clear: draftStream.clear,
-              discardPending: draftStream.discardPending,
-              seal: draftStream.seal,
-              id: draftStream.messageId,
-            },
-            buildFinalEdit: () => {
-              if (
-                finalizedViaPreviewMessage ||
-                hasMedia ||
-                typeof previewFinalText !== "string" ||
-                hasExplicitReplyDirective ||
-                payload.isError
-              ) {
-                return undefined;
-              }
-              return { content: previewFinalText };
-            },
-            editFinal: async (previewMessageId, edit) => {
-              if (isProcessAborted(abortSignal)) {
-                throw new Error("process aborted");
-              }
-              notifyFinalReplyStart();
-              await editMessageDiscord(deliverChannelId, previewMessageId, edit, {
-                cfg,
-                accountId,
-                rest: deliveryRest,
-              });
-            },
-            deliverNormally: async () => {
-              if (isProcessAborted(abortSignal)) {
-                return false;
-              }
-              const replyToId = replyReference.use();
-              notifyFinalReplyStart();
-              await deliverDiscordReply({
-                cfg,
-                replies: [payload],
-                target: deliverTarget,
-                token,
-                accountId,
-                rest: deliveryRest,
-                runtime,
-                replyToId,
-                replyToMode,
-                textLimit,
-                maxLinesPerMessage,
-                tableMode,
-                chunkMode,
-                sessionKey: ctxPayload.SessionKey,
-                threadBindings,
-                mediaLocalRoots,
-              });
-              replyReference.markSent();
-              observer?.onFinalReplyDelivered?.();
-              return true;
-            },
-            onPreviewFinalized: () => {
-              finalizedViaPreviewMessage = true;
-              replyReference.markSent();
-              observer?.onFinalReplyDelivered?.();
-            },
-            logPreviewEditFailure: (err) => {
-              logVerbose(
-                `discord: preview final edit failed; falling back to standard send (${String(err)})`,
-              );
-            },
-          });
-          if (result !== "normal-skipped") {
-            return;
-          }
+            const result = await deliverFinalizableDraftPreview({
+              kind: info.kind,
+              payload,
+              draft: {
+                flush: flushDraft,
+                clear: draftStream.clear,
+                discardPending: draftStream.discardPending,
+                seal: draftStream.seal,
+                id: draftStream.messageId,
+              },
+              buildFinalEdit: () => {
+                if (
+                  finalizedViaPreviewMessage ||
+                  hasMedia ||
+                  typeof previewFinalText !== "string" ||
+                  hasExplicitReplyDirective ||
+                  payload.isError
+                ) {
+                  return undefined;
+                }
+                return { content: previewFinalText };
+              },
+              editFinal: async (previewMessageId, edit) => {
+                if (isProcessAborted(abortSignal)) {
+                  throw new Error("process aborted");
+                }
+                notifyFinalReplyStart();
+                await editMessageDiscord(deliverChannelId, previewMessageId, edit, {
+                  cfg,
+                  accountId,
+                  rest: deliveryRest,
+                });
+              },
+              deliverNormally: async () => {
+                if (isProcessAborted(abortSignal)) {
+                  return false;
+                }
+                const replyToId = replyReference.use();
+                notifyFinalReplyStart();
+                // frankclaw: capture delivery result to check dnrSuppressed
+                const deliveryResult = await deliverDiscordReply({
+                  cfg,
+                  replies: [payload],
+                  target: deliverTarget,
+                  token,
+                  accountId,
+                  rest: deliveryRest,
+                  runtime,
+                  replyToId,
+                  replyToMode,
+                  textLimit,
+                  maxLinesPerMessage,
+                  tableMode,
+                  chunkMode,
+                  sessionKey: ctxPayload.SessionKey,
+                  threadBindings,
+                  mediaLocalRoots,
+                });
+                if (deliveryResult.dnrSuppressed) {
+                  void reactMessageDiscord(messageChannelId, message.id, "🛏️", {
+                    rest: client.rest as never,
+                  }).catch(() => {});
+                  return true;
+                }
+                replyReference.markSent();
+                observer?.onFinalReplyDelivered?.();
+                return true;
+              },
+              onPreviewFinalized: () => {
+                finalizedViaPreviewMessage = true;
+                replyReference.markSent();
+                observer?.onFinalReplyDelivered?.();
+              },
+              logPreviewEditFailure: (err) => {
+                logVerbose(
+                  `discord: preview final edit failed; falling back to standard send (${String(err)})`,
+                );
+              },
+            });
+            if (result !== "normal-skipped") {
+              return;
+            }
+          } // end else !isDnrWindowActive
         }
         if (isProcessAborted(abortSignal)) {
           return;
@@ -882,7 +928,8 @@ export async function processDiscordMessage(
         if (isFinal) {
           notifyFinalReplyStart();
         }
-        await deliverDiscordReply({
+        // frankclaw: capture delivery result to check dnrSuppressed
+        const deliveryResult = await deliverDiscordReply({
           cfg,
           replies: [payload],
           target: deliverTarget,
@@ -900,6 +947,12 @@ export async function processDiscordMessage(
           threadBindings,
           mediaLocalRoots,
         });
+        if (deliveryResult.dnrSuppressed) {
+          void reactMessageDiscord(messageChannelId, message.id, "🛏️", {
+            rest: client.rest as never,
+          }).catch(() => {});
+          return;
+        }
         replyReference.markSent();
         if (isFinal) {
           observer?.onFinalReplyDelivered?.();
@@ -1106,6 +1159,17 @@ export async function processDiscordMessage(
   }
 
   if (!dispatchResult?.queuedFinal) {
+    // frankclaw: if agent produced no reply during DNR quiet hours, react with
+    // 🛏️ so the sender knows the message was received but deferred.
+    try {
+      enforceDiscordDnrWindow({ channel: "discord", to: `channel:${messageChannelId}` });
+    } catch (err) {
+      if (err instanceof DiscordDnrSuppressedError) {
+        await reactMessageDiscord(messageChannelId, message.id, "🛏️", {
+          rest: client.rest as never,
+        }).catch(() => {});
+      }
+    }
     if (isGuildMessage) {
       clearHistoryEntriesIfEnabled({
         historyMap: guildHistories,

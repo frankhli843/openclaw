@@ -844,4 +844,7 @@ export const __testing = {
         }
       : defaultSubagentAnnounceDeliveryDeps;
   },
+  // frankclaw: expose for test verification
+  hasVisibleGatewayAgentPayload,
+  sendSubagentAnnounceDirectly,
 };
