@@ -35,6 +35,8 @@ import {
   type SessionStoreLockTask,
 } from "./store-lock-state.js";
 import { resolveMaintenanceConfig } from "./store-maintenance-runtime.js";
+// frankclaw: reduce lock contention by throttling maintenance and stripping bloat
+import { shouldRunMaintenance } from "./store-maintenance-throttle.frankclaw.js";
 import {
   capEntryCount,
   getActiveSessionMaintenanceWarning,
@@ -43,6 +45,7 @@ import {
   type ResolvedSessionMaintenanceConfig,
   type SessionMaintenanceWarning,
 } from "./store-maintenance.js";
+import { slimSessionStoreForWrite } from "./store-session-slim.frankclaw.js";
 import {
   mergeSessionEntry,
   mergeSessionEntryPreserveActivity,
@@ -236,6 +239,10 @@ async function saveSessionStoreUnlocked(
 ): Promise<void> {
   normalizeSessionStore(store);
 
+  // frankclaw: throttle maintenance to reduce lock hold time (only run every ~30s)
+  if (!opts?.skipMaintenance && !shouldRunMaintenance(storePath)) {
+    opts = { ...opts, skipMaintenance: true };
+  }
   if (!opts?.skipMaintenance) {
     // Resolve maintenance config once (avoids repeated loadConfig() calls).
     const maintenance = opts?.maintenanceConfig
@@ -354,6 +361,8 @@ async function saveSessionStoreUnlocked(
     }
   }
 
+  // frankclaw: strip bloat fields from terminal entries before serialization
+  slimSessionStoreForWrite(store, opts?.activeSessionKey);
   await fs.promises.mkdir(path.dirname(storePath), { recursive: true });
   const json = JSON.stringify(store, null, 2);
   if (getSerializedSessionStore(storePath) === json) {
@@ -617,7 +626,10 @@ async function withSessionStoreLock<T>(
       `withSessionStoreLock: storePath must be a non-empty string, got ${JSON.stringify(storePath)}`,
     );
   }
-  const timeoutMs = opts.timeoutMs ?? 10_000;
+  // frankclaw: allow env var override for large session stores under contention
+  const envTimeoutMs = Number(process.env.OPENCLAW_SESSION_STORE_LOCK_TIMEOUT_MS);
+  const timeoutMs =
+    opts.timeoutMs ?? (Number.isFinite(envTimeoutMs) && envTimeoutMs > 0 ? envTimeoutMs : 10_000);
   const staleMs = opts.staleMs ?? 30_000;
   // `pollIntervalMs` is retained for API compatibility with older lock options.
   void opts.pollIntervalMs;
