@@ -59,8 +59,12 @@ async function attemptLastResortResultCapture(
     // Walk messages in reverse to find the last assistant reply with content
     for (let i = messages.length - 1; i >= 0; i--) {
       const msg = messages[i];
-      if (!msg || typeof msg !== "object") continue;
-      if (msg.role !== "assistant") continue;
+      if (!msg || typeof msg !== "object") {
+        continue;
+      }
+      if (msg.role !== "assistant") {
+        continue;
+      }
       const content = msg.content;
       if (typeof content === "string" && content.trim()) {
         log.info?.(
@@ -104,7 +108,9 @@ async function attemptLastResortResultCapture(
       : [];
     for (let i = msgs.length - 1; i >= 0; i--) {
       const msg = msgs[i];
-      if (!msg || typeof msg !== "object") continue;
+      if (!msg || typeof msg !== "object") {
+        continue;
+      }
       const content = msg.content;
       if (typeof content === "string" && content.trim()) {
         return content.trim();

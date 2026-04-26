@@ -341,7 +341,7 @@ export function createDurableJobQueue(opts: DurableJobQueueOptions = {}) {
         throw new Error(`durable queue job already dead-lettered: ${dedupeKey}`);
       }
       if (job.state === "succeeded") {
-        if (typeof job.result !== "undefined") {
+        if (job.result !== undefined) {
           return job.result;
         }
         throw new Error(`durable queue succeeded job is missing result: ${dedupeKey}`);
@@ -565,7 +565,7 @@ export function createDurableJobQueue(opts: DurableJobQueueOptions = {}) {
           throw new Error(healed.detail ?? `durable queue healer failed: ${dedupeKey}`);
         }
 
-        if (typeof healed.result !== "undefined") {
+        if (healed.result !== undefined) {
           job.result = healed.result;
         }
       } else {

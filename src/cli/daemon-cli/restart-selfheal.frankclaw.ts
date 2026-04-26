@@ -128,7 +128,7 @@ export function extractDatetime(content: string): Date | null {
       const match = line.match(pattern);
       if (match) {
         const parsed = new Date(match[0]);
-        if (!isNaN(parsed.getTime())) {
+        if (!Number.isNaN(parsed.getTime())) {
           return parsed;
         }
       }
