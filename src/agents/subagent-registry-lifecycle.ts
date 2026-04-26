@@ -13,7 +13,7 @@ import { retireSessionMcpRuntimeForSessionKey } from "./pi-bundle-mcp-tools.js";
 // frankclaw: last-resort fallback delivery when all announce retries are exhausted
 import { attemptGiveUpFallbackDelivery } from "./subagent-announce-giveup-fallback.frankclaw.js";
 import { type SubagentRunOutcome, withSubagentOutcomeTiming } from "./subagent-announce-output.js";
-import { captureSubagentCompletionReply, runSubagentAnnounceFlow } from "./subagent-announce.js";
+// frankclaw: note: this module only needs subagent-announce types, not runtime imports
 import {
   SUBAGENT_ENDED_REASON_COMPLETE,
   type SubagentLifecycleEndedReason,

@@ -1,4 +1,4 @@
-import { Type } from "@sinclair/typebox";
+import { Type } from "typebox";
 import { formatCliCommand } from "../../cli/command-format.js";
 import type { OpenClawConfig } from "../../config/config.js";
 import { normalizeResolvedSecretInputString } from "../../config/types.secrets.js";
@@ -147,7 +147,7 @@ function isoToPerplexityDate(iso: string): string | undefined {
     return undefined;
   }
   const [, year, month, day] = match;
-  return `${parseInt(month, 10)}/${parseInt(day, 10)}/${year}`;
+  return `${Number.parseInt(month, 10)}/${Number.parseInt(day, 10)}/${year}`;
 }
 
 function normalizeToIsoDate(value: string): string | undefined {

@@ -9,12 +9,13 @@ import {
 } from "../../agents/sandbox-paths.js";
 import { ensureSandboxWorkspaceForSession } from "../../agents/sandbox.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
-import { logVerbose, resolveConfigDir } from "../../globals.js";
+import { logVerbose } from "../../globals.js";
 import { resolveChannelAccountMediaMaxMb } from "../../media/configured-max-bytes.js";
 import { isPassThroughRemoteMediaSource } from "../../media/media-source-url.js";
 import { resolveOutboundAttachmentFromUrl } from "../../media/outbound-attachment.js";
 import { resolveAgentScopedOutboundMediaAccess } from "../../media/read-capability.js";
 import { MEDIA_MAX_BYTES } from "../../media/store.js";
+import { resolveConfigDir } from "../../utils.js";
 import type { ReplyPayload } from "../types.js";
 
 const FILE_URL_RE = /^file:\/\//i;

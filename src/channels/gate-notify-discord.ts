@@ -46,11 +46,15 @@ export function registerGateNotifyDiscord(params: {
       if (messageId && ownerDiscordId) {
         try {
           const chatName = event.info.chatName || event.info.chatId;
-          await createThreadDiscord(discordChannelId, {
-            messageId,
-            name: `${chatName} blocked`,
-            content: `<@${ownerDiscordId}> New blocked message from ${event.info.platform}: "${chatName}" (${event.info.chatId}). Reply here to set a gate mode.`,
-          });
+          await createThreadDiscord(
+            discordChannelId,
+            {
+              messageId,
+              name: `${chatName} blocked`,
+              content: `<@${ownerDiscordId}> New blocked message from ${event.info.platform}: "${chatName}" (${event.info.chatId}). Reply here to set a gate mode.`,
+            },
+            { cfg, accountId: "default" },
+          );
         } catch (threadErr) {
           logVerbose(
             `[gate-notify-discord] Thread creation failed (non-fatal): ${String(threadErr)}`,
