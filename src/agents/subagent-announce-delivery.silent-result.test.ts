@@ -97,10 +97,14 @@ describe("completion direct announce delivery gating", () => {
       internalEvents: [
         {
           type: "task_completion",
+          source: "subagent",
+          childSessionKey: "agent:main:acp:child-1",
+          announceType: "completion",
           taskLabel: "bug investigation",
           statusLabel: "completed",
           result: "Found 3 bugs",
-          status: "done",
+          status: "ok",
+          replyInstruction: "",
         },
       ],
       directIdempotencyKey: "announce:test:empty-reply-fallback",
@@ -143,10 +147,14 @@ describe("completion direct announce delivery gating", () => {
       internalEvents: [
         {
           type: "task_completion",
+          source: "subagent",
+          childSessionKey: "agent:main:acp:child-1",
+          announceType: "completion",
           taskLabel: "task",
           statusLabel: "done",
           result: "finished",
-          status: "done",
+          status: "ok",
+          replyInstruction: "",
         },
       ],
       directIdempotencyKey: "announce:test:fallback-fail",

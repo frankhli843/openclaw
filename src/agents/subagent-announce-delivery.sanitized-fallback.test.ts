@@ -90,7 +90,7 @@ describe("extractThreadCompletionFallbackText", () => {
         childSessionKey: "agent:main:acp:child-1",
         announceType: "status",
         taskLabel: "task",
-        status: "running",
+        status: "ok",
         statusLabel: "still going",
         result: "partial",
         replyInstruction: "",

@@ -30,7 +30,7 @@ describe("slimSessionStoreForWrite", () => {
       "session-done": makeEntry({
         status: "done",
         skillsSnapshot: makeSkillsSnapshot() as SessionEntry["skillsSnapshot"],
-        systemPromptReport: { tokens: 5000 } as SessionEntry["systemPromptReport"],
+        systemPromptReport: { tokens: 5000 } as unknown as SessionEntry["systemPromptReport"],
       }),
       "session-failed": makeEntry({
         status: "failed",

@@ -64,10 +64,14 @@ describe("createRawSendTool", () => {
 
   it("has required parameters in schema", () => {
     const tool = createRawSendTool({});
-    expect(tool.parameters.required).toEqual(["channel", "target", "message"]);
-    expect(tool.parameters.properties).toHaveProperty("channel");
-    expect(tool.parameters.properties).toHaveProperty("target");
-    expect(tool.parameters.properties).toHaveProperty("message");
+    const params = tool.parameters as unknown as {
+      required?: string[];
+      properties?: Record<string, unknown>;
+    };
+    expect(params.required).toEqual(["channel", "target", "message"]);
+    expect(params.properties).toHaveProperty("channel");
+    expect(params.properties).toHaveProperty("target");
+    expect(params.properties).toHaveProperty("message");
   });
 
   it("returns error when required params are missing", async () => {
