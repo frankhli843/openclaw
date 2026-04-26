@@ -1708,6 +1708,11 @@ export class AcpSessionManager {
     cached.appliedControlSignature = undefined;
   }
 
+  // frankclaw: when at the limit, evict idle cached sessions (no active turn)
+  // before rejecting. The normal TTL-based eviction only runs opportunistically
+  // and uses a 10-min window, so finished-but-not-yet-evicted sessions can fill
+  // all slots and create a deadlock where new spawns are rejected but nothing
+  // triggers cleanup.
   private enforceConcurrentSessionLimit(params: { cfg: OpenClawConfig; sessionKey: string }): void {
     const configuredLimit = params.cfg.acp?.maxConcurrentSessions;
     if (typeof configuredLimit !== "number" || !Number.isFinite(configuredLimit)) {
@@ -1717,6 +1722,27 @@ export class AcpSessionManager {
     const actorKey = normalizeActorKey(params.sessionKey);
     if (this.runtimeCache.has(actorKey)) {
       return;
+    }
+    const cacheSize = this.runtimeCache.size();
+    if (cacheSize < limit) {
+      return;
+    }
+    const idleEvicted: string[] = [];
+    for (const entry of this.runtimeCache.snapshot()) {
+      if (!this.activeTurnBySession.has(entry.actorKey)) {
+        this.runtimeCache.clear(entry.actorKey);
+        this.evictedRuntimeCount += 1;
+        this.lastEvictedAt = Date.now();
+        idleEvicted.push(entry.actorKey);
+        void entry.state.runtime
+          .close({ handle: entry.state.handle, reason: "limit-evicted" })
+          .catch(() => {});
+      }
+    }
+    if (idleEvicted.length > 0) {
+      logVerbose(
+        `acp-manager: limit-evicted ${idleEvicted.length} idle session(s) to make room (cache was ${cacheSize}/${limit})`,
+      );
     }
     const activeCount = this.runtimeCache.size();
     if (activeCount >= limit) {

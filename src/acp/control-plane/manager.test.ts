@@ -746,22 +746,82 @@ describe("AcpSessionManager", () => {
       });
       expect(manager.getObservabilitySnapshot(cfg).runtimeCache.activeSessions).toBe(1);
 
-      await expect(
-        manager.runTurn({
-          cfg,
-          sessionKey: "agent:codex:acp:session-b",
-          text: "second",
-          mode: "prompt",
-          requestId: "r2",
-        }),
-      ).rejects.toMatchObject({
-        code: "ACP_SESSION_INIT_FAILED",
-        message: expect.stringContaining("max concurrent sessions"),
+      // After session-a's turn timed out, its cache entry is idle (no active
+      // turn). A new session should succeed because the limit-eviction pass
+      // clears idle entries to prevent deadlock.
+      await manager.runTurn({
+        cfg,
+        sessionKey: "agent:codex:acp:session-b",
+        text: "second",
+        mode: "prompt",
+        requestId: "r2",
       });
-      expect(runtimeState.ensureSession).toHaveBeenCalledTimes(1);
+      expect(runtimeState.ensureSession).toHaveBeenCalledTimes(2);
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("enforces acp.maxConcurrentSessions when all sessions have active turns", async () => {
+    const runtimeState = createRuntime();
+    hoisted.requireAcpRuntimeBackendMock.mockReturnValue({
+      id: "acpx",
+      runtime: runtimeState.runtime,
+    });
+    hoisted.readAcpSessionEntryMock.mockImplementation((paramsUnknown: unknown) => {
+      const sessionKey = (paramsUnknown as { sessionKey?: string }).sessionKey ?? "";
+      return {
+        sessionKey,
+        storeSessionKey: sessionKey,
+        acp: {
+          ...readySessionMeta(),
+          runtimeSessionName: `runtime:${sessionKey}`,
+        },
+      };
+    });
+
+    const turnStarted = createDeferred();
+    runtimeState.runTurn.mockImplementation(async function* (input: { requestId: string }) {
+      if (input.requestId === "r1") {
+        turnStarted.resolve();
+        await new Promise(() => {});
+      }
+      yield { type: "done" as const };
+    });
+
+    const manager = new AcpSessionManager();
+    const limitedCfg = {
+      acp: {
+        ...baseCfg.acp,
+        maxConcurrentSessions: 1,
+      },
+    } as OpenClawConfig;
+
+    const first = manager.runTurn({
+      cfg: limitedCfg,
+      sessionKey: "agent:codex:acp:session-a",
+      text: "first",
+      mode: "prompt",
+      requestId: "r1",
+    });
+    void first.catch(() => undefined);
+    await turnStarted.promise;
+
+    // session-b should be rejected because session-a has an active turn
+    // and cannot be evicted
+    await expect(
+      manager.runTurn({
+        cfg: limitedCfg,
+        sessionKey: "agent:codex:acp:session-b",
+        text: "second",
+        mode: "prompt",
+        requestId: "r2",
+      }),
+    ).rejects.toMatchObject({
+      code: "ACP_SESSION_INIT_FAILED",
+      message: expect.stringContaining("max concurrent sessions"),
+    });
+    expect(runtimeState.ensureSession).toHaveBeenCalledTimes(1);
   });
 
   it("runs turns for different ACP sessions in parallel", async () => {
@@ -1279,7 +1339,7 @@ describe("AcpSessionManager", () => {
     expect(currentMeta.identity?.agentSessionId).toBeUndefined();
   });
 
-  it("enforces acp.maxConcurrentSessions when opening new runtime handles", async () => {
+  it("evicts idle cached sessions at the limit to make room for new ones", async () => {
     const runtimeState = createRuntime();
     hoisted.requireAcpRuntimeBackendMock.mockReturnValue({
       id: "acpx",
@@ -1312,22 +1372,18 @@ describe("AcpSessionManager", () => {
       requestId: "r1",
     });
 
-    await expect(
-      manager.runTurn({
-        cfg: limitedCfg,
-        sessionKey: "agent:codex:acp:session-b",
-        text: "second",
-        mode: "prompt",
-        requestId: "r2",
-      }),
-    ).rejects.toMatchObject({
-      code: "ACP_SESSION_INIT_FAILED",
-      message: expect.stringContaining("max concurrent sessions"),
+    // session-b should succeed because session-a is idle and gets limit-evicted
+    await manager.runTurn({
+      cfg: limitedCfg,
+      sessionKey: "agent:codex:acp:session-b",
+      text: "second",
+      mode: "prompt",
+      requestId: "r2",
     });
-    expect(runtimeState.ensureSession).toHaveBeenCalledTimes(1);
+    expect(runtimeState.ensureSession).toHaveBeenCalledTimes(2);
   });
 
-  it("enforces acp.maxConcurrentSessions during initializeSession", async () => {
+  it("evicts idle sessions during initializeSession when at the limit", async () => {
     const runtimeState = createRuntime();
     hoisted.requireAcpRuntimeBackendMock.mockReturnValue({
       id: "acpx",
@@ -1353,18 +1409,15 @@ describe("AcpSessionManager", () => {
       mode: "persistent",
     });
 
-    await expect(
-      manager.initializeSession({
-        cfg: limitedCfg,
-        sessionKey: "agent:codex:acp:session-b",
-        agent: "codex",
-        mode: "persistent",
-      }),
-    ).rejects.toMatchObject({
-      code: "ACP_SESSION_INIT_FAILED",
-      message: expect.stringContaining("max concurrent sessions"),
+    // session-b succeeds because session-a has no active turn and gets limit-evicted
+    await manager.initializeSession({
+      cfg: limitedCfg,
+      sessionKey: "agent:codex:acp:session-b",
+      agent: "codex",
+      mode: "persistent",
     });
-    expect(runtimeState.ensureSession).toHaveBeenCalledTimes(1);
+    expect(runtimeState.ensureSession).toHaveBeenCalledTimes(2);
+    expect(runtimeState.close).toHaveBeenCalledTimes(1);
   });
 
   it("persists runtime options provided during initializeSession", async () => {
