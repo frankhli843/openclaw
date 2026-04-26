@@ -104,13 +104,14 @@ function createDeferred<T>() {
   return { promise, resolve };
 }
 
-async function waitUntil(predicate: () => boolean, timeoutMs = 1_000) {
+/** Poll `predicate` until true, or throw after `timeoutMs`. Real timers must be active. */
+async function waitFor(predicate: () => boolean, timeoutMs = 5_000) {
   const deadline = Date.now() + timeoutMs;
   while (!predicate()) {
     if (Date.now() > deadline) {
-      throw new Error("waitUntil: timed out");
+      throw new Error(`waitFor: timed out after ${timeoutMs}ms`);
     }
-    await new Promise<void>((r) => setTimeout(r, 5));
+    await new Promise<void>((r) => setTimeout(r, 20));
   }
 }
 
@@ -180,7 +181,9 @@ describe("frankclaw: overlapping timer ticks (anti-starvation)", () => {
 
     // Tick 1 at 02:00: picks up merge job only.
     const tick1 = onTimer(state);
-    await waitUntil(() => runIsolatedAgentJob.mock.calls.length === 1);
+    // onTimer does async disk I/O under a lock before calling runIsolatedAgentJob.
+    // Poll until the mock is called rather than guessing a fixed yield time.
+    await waitFor(() => runIsolatedAgentJob.mock.calls.length >= 1);
 
     expect(state.activeTicks).toBe(1);
     expect(runIsolatedAgentJob).toHaveBeenCalledTimes(1);
@@ -190,7 +193,7 @@ describe("frankclaw: overlapping timer ticks (anti-starvation)", () => {
 
     // Tick 2: picks up briefing (merge still running).
     const tick2 = onTimer(state);
-    await waitUntil(() => runIsolatedAgentJob.mock.calls.length === 2);
+    await waitFor(() => runIsolatedAgentJob.mock.calls.length >= 2);
 
     expect(state.activeTicks).toBe(2);
     expect(runIsolatedAgentJob).toHaveBeenCalledTimes(2);

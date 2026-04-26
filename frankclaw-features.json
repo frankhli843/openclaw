@@ -1660,6 +1660,41 @@
       "runtime": [],
       "e2eTests": [],
       "addedDate": "2026-04-21"
+    },
+    {
+      "name": "ACP concurrency limit: evict idle sessions at limit",
+      "description": "When maxConcurrentSessions is reached, evict cached sessions with no active turn before rejecting. Prevents deadlock where finished-but-cached sessions fill all slots.",
+      "static": [
+        {
+          "file": "src/acp/control-plane/manager.core.ts",
+          "pattern": "limit-evicted",
+          "minCount": 1
+        }
+      ],
+      "tests": ["src/acp/control-plane/manager.test.ts"],
+      "runtime": [],
+      "e2eTests": [],
+      "addedDate": "2026-04-26"
+    },
+    {
+      "name": "Fatal plugin load errors (no silent failures)",
+      "description": "Gateway crashes on plugin load failures instead of silently continuing without broken plugins. Prevents masked bugs like zod v3/v4 mismatches killing channels silently.",
+      "static": [
+        {
+          "file": "src/gateway/plugin-load-guard.frankclaw.ts",
+          "pattern": "enforcePluginLoadSuccess",
+          "minCount": 1
+        },
+        {
+          "file": "src/gateway/server-plugins.ts",
+          "pattern": "enforcePluginLoadSuccess",
+          "minCount": 1
+        }
+      ],
+      "tests": [],
+      "runtime": [],
+      "e2eTests": [],
+      "addedDate": "2026-04-26"
     }
   ]
 }
