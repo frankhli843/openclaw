@@ -27,6 +27,16 @@ const DEFAULT_SELF_HEAL_MATCHERS = [
   "auth profile",
   "announce delivery failed",
   "cron announce delivery failed",
+  // Network-level transient errors (added after 2026-04-26 incident where
+  // a network outage caused daily-health-security to fail without retry).
+  "network",
+  "fetch failed",
+  "econnreset",
+  "econnrefused",
+  "econnaborted",
+  "socket",
+  "etimedout",
+  "failovererror",
 ];
 
 // ── Types ──────────────────────────────────────────────────────────────────

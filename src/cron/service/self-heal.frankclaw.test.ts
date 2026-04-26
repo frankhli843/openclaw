@@ -41,6 +41,17 @@ describe("isTransientCronInfraError", () => {
     expect(isTransientCronInfraError("rate limit", cfg)).toBe(false);
   });
 
+  it("matches network-level transient errors", () => {
+    const cfg = resolveCronSelfHealConfig(undefined);
+    expect(isTransientCronInfraError("network connection error", cfg)).toBe(true);
+    expect(isTransientCronInfraError("TypeError: fetch failed", cfg)).toBe(true);
+    expect(isTransientCronInfraError("ECONNRESET: connection reset by peer", cfg)).toBe(true);
+    expect(isTransientCronInfraError("connect ECONNREFUSED 127.0.0.1:443", cfg)).toBe(true);
+    expect(isTransientCronInfraError("socket hang up", cfg)).toBe(true);
+    expect(isTransientCronInfraError("FailoverError: all providers exhausted", cfg)).toBe(true);
+    expect(isTransientCronInfraError("ETIMEDOUT 10.0.0.1:443", cfg)).toBe(true);
+  });
+
   it("returns false for empty error", () => {
     const cfg = resolveCronSelfHealConfig(undefined);
     expect(isTransientCronInfraError("", cfg)).toBe(false);
