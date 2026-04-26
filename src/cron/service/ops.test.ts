@@ -228,9 +228,9 @@ describe("cron service ops seam coverage", () => {
       "cron: disabling interrupted one-shot job on startup to avoid duplicate replay",
     );
 
-    const persisted = JSON.parse(await fs.readFile(storePath, "utf8")) as {
-      jobs: CronJob[];
-    };
+    // Cron store can split runtime state into a separate `*-state.json` file.
+    // Load via the store loader so assertions observe the merged state.
+    const persisted = await loadCronStore(storePath);
     const job = persisted.jobs[0];
     expect(job).toBeDefined();
     expect(job?.enabled).toBe(false);

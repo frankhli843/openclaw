@@ -1,4 +1,3 @@
-import fs from "node:fs/promises";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createNoopLogger,
@@ -105,12 +104,27 @@ function createDeferred<T>() {
   return { promise, resolve };
 }
 
+async function waitUntil(predicate: () => boolean, timeoutMs = 1_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate()) {
+    if (Date.now() > deadline) {
+      throw new Error("waitUntil: timed out");
+    }
+    await new Promise<void>((r) => setTimeout(r, 5));
+  }
+}
+
 const noopLogger = createNoopLogger();
 
 // ── Overlapping timer ticks (anti-starvation) ───────────────────────────
 
 describe("frankclaw: overlapping timer ticks (anti-starvation)", () => {
   beforeEach(() => {
+    // The cron vitest lane runs with isolate disabled. Ensure fake timers from
+    // other files do not leak into this suite (this test uses real setTimeout
+    // to yield the event loop).
+    vi.clearAllTimers();
+    vi.useRealTimers();
     noopLogger.debug.mockClear();
     noopLogger.info.mockClear();
     noopLogger.warn.mockClear();
@@ -118,6 +132,8 @@ describe("frankclaw: overlapping timer ticks (anti-starvation)", () => {
   });
 
   afterEach(() => {
+    vi.clearAllTimers();
+    vi.useRealTimers();
     vi.clearAllMocks();
   });
 
@@ -164,7 +180,7 @@ describe("frankclaw: overlapping timer ticks (anti-starvation)", () => {
 
     // Tick 1 at 02:00: picks up merge job only.
     const tick1 = onTimer(state);
-    await new Promise<void>((r) => setTimeout(r, 10));
+    await waitUntil(() => runIsolatedAgentJob.mock.calls.length === 1);
 
     expect(state.activeTicks).toBe(1);
     expect(runIsolatedAgentJob).toHaveBeenCalledTimes(1);
@@ -174,7 +190,7 @@ describe("frankclaw: overlapping timer ticks (anti-starvation)", () => {
 
     // Tick 2: picks up briefing (merge still running).
     const tick2 = onTimer(state);
-    await new Promise<void>((r) => setTimeout(r, 10));
+    await waitUntil(() => runIsolatedAgentJob.mock.calls.length === 2);
 
     expect(state.activeTicks).toBe(2);
     expect(runIsolatedAgentJob).toHaveBeenCalledTimes(2);
@@ -194,7 +210,9 @@ describe("frankclaw: overlapping timer ticks (anti-starvation)", () => {
     expect(calledJobIds).toContain("nightly-merge");
     expect(calledJobIds).toContain("morning-briefing");
 
-    if (state.timer) clearTimeout(state.timer);
+    if (state.timer) {
+      clearTimeout(state.timer);
+    }
     await store.cleanup();
   });
 });

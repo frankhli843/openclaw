@@ -111,7 +111,9 @@ describe("cron service timer regressions", () => {
       .filter((d): d is number => typeof d === "number");
     expect(delays).toContain(60_000);
     timeoutSpy.mockRestore();
-    if (state.timer) clearTimeout(state.timer);
+    if (state.timer) {
+      clearTimeout(state.timer);
+    }
   });
 
   it("#24355: one-shot job retries then succeeds", async () => {

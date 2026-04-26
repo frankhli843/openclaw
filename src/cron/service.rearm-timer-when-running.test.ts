@@ -88,7 +88,9 @@ describe("CronService - timer re-arm when running (#12025)", () => {
     expect(state.running).toBe(true);
 
     timeoutSpy.mockRestore();
-    if (state.timer) clearTimeout(state.timer);
+    if (state.timer) {
+      clearTimeout(state.timer);
+    }
     await store.cleanup();
   });
 
