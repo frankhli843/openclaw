@@ -892,7 +892,7 @@
         },
         {
           "file": "src/agents/subagent-announce-delivery.ts",
-          "pattern": "sendThreadCompletionFallback",
+          "pattern": "sendCompletionFallback",
           "minCount": 1
         }
       ],
@@ -902,7 +902,7 @@
     },
     {
       "name": "Subagent announce: thread completion fallback",
-      "description": "When the agent gateway method returns no visible payload, extract completion text from internal events and send it directly to the origin thread via sendThreadCompletionFallback. Replaces the earlier session-store reply fallback approach.",
+      "description": "When the agent gateway method returns no visible payload, extract completion text from internal events and send it directly to the origin thread via sendCompletionFallback. Replaces the earlier session-store reply fallback approach.",
       "static": [
         {
           "file": "src/agents/subagent-announce-delivery.ts",
@@ -1062,11 +1062,11 @@
     },
     {
       "name": "Subagent completion announce direct fallback delivery",
-      "description": "When a subagent completion announce reaches the parent session but the parent produces no visible gateway payload, fall back to sending the completion text directly to the origin thread via sendMessage. Uses sendThreadCompletionFallback with sendMessage dep.",
+      "description": "When a subagent completion announce reaches the parent session but the parent produces no visible gateway payload, fall back to sending the completion text directly to the origin thread via sendMessage. Uses sendCompletionFallback with sendMessage dep.",
       "static": [
         {
           "file": "src/agents/subagent-announce-delivery.ts",
-          "pattern": "sendThreadCompletionFallback",
+          "pattern": "sendCompletionFallback",
           "minCount": 2
         },
         {
