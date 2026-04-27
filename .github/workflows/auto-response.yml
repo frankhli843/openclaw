@@ -33,13 +33,14 @@ jobs:
       - uses: actions/create-github-app-token@v3
         id: app-token-fallback
         if: steps.app-token.outcome == 'failure'
+        continue-on-error: true
         with:
           app-id: "2971289"
           private-key: ${{ secrets.GH_APP_PRIVATE_KEY_FALLBACK }}
       - name: Handle labeled items
         uses: actions/github-script@v9
         with:
-          github-token: ${{ steps.app-token.outputs.token || steps.app-token-fallback.outputs.token }}
+          github-token: ${{ steps.app-token.outputs.token || steps.app-token-fallback.outputs.token || github.token }}
           script: |
             // Labels prefixed with "r:" are auto-response triggers.
             const activePrLimit = 10;
