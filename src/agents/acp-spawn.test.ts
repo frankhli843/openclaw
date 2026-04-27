@@ -941,9 +941,7 @@ describe("spawnAcpDirect", () => {
       expect.objectContaining({
         sessionKey: expect.stringMatching(/^agent:codex:acp:/),
         agent: "codex",
-        runtimeOptions: {
-          timeoutSeconds: 45,
-        },
+        runtimeOptions: undefined,
       }),
     );
     const agentCall = findAgentGatewayCall();
