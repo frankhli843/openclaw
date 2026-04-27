@@ -1429,7 +1429,7 @@
         "src/auto-reply/note-to-self.frankclaw.test.ts"
       ],
       "runtime": [],
-      "e2eTests": [],
+      "e2eTests": ["extensions/discord/src/monitor/note-to-self-pre-debounce-bypass.e2e.test.ts"],
       "addedDate": "2026-04-25"
     }
   ],
