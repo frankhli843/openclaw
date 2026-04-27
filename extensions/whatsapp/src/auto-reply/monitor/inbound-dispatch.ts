@@ -103,6 +103,7 @@ export function buildWhatsAppInboundContext(params: {
   route: ReturnType<typeof resolveAgentRoute>;
   sender: SenderContext;
   transcript?: string;
+  mediaTranscribedIndexes?: number[];
   replyThreading?: ReplyThreadingContext;
   visibleReplyTo?: VisibleReplyTarget;
   // frankclaw addition: attach recent media from gated group history
@@ -143,6 +144,7 @@ export function buildWhatsAppInboundContext(params: {
     MediaPath: params.msg.mediaPath ?? mediaPaths?.[0],
     MediaUrl: params.msg.mediaUrl,
     MediaType: params.msg.mediaType ?? mediaTypes?.[0],
+    MediaTranscribedIndexes: params.mediaTranscribedIndexes,
     // frankclaw addition: pass array forms for multi-media from history
     ...(mediaPaths ? { MediaPaths: mediaPaths } : {}),
     ...(mediaTypes ? { MediaTypes: mediaTypes } : {}),

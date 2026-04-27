@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import {
   listAgentIds,
+  resolveAgentConfig,
   resolveAgentEffectiveModelPrimary,
   resolveAgentModelFallbacksOverride,
   resolveAgentWorkspaceDir,
@@ -17,12 +18,14 @@ import {
   resolveConfiguredModelRef,
   resolveDefaultModelForAgent,
   resolvePersistedSelectedModelRef,
+  resolveThinkingDefault,
 } from "../agents/model-selection.js";
 import {
   countActiveDescendantRuns,
   getSessionDisplaySubagentRunByChildSessionKey,
   getSubagentSessionRuntimeMs,
   getSubagentSessionStartedAt,
+  isSubagentRunLive,
   listSubagentRunsForController,
   resolveSubagentSessionStatus,
 } from "../agents/subagent-registry-read.js";
@@ -30,11 +33,8 @@ import {
   RECENT_ENDED_SUBAGENT_CHILD_SESSION_MS,
   shouldKeepSubagentRunChildLink,
 } from "../agents/subagent-run-liveness.js";
-import {
-  listThinkingLevelOptions,
-  resolveThinkingDefaultForModel,
-} from "../auto-reply/thinking.js";
-import { loadConfig } from "../config/config.js";
+import { listThinkingLevelOptions } from "../auto-reply/thinking.js";
+import { getRuntimeConfig } from "../config/config.js";
 import { resolveAgentModelFallbackValues } from "../config/model-input.js";
 import { resolveStateDir } from "../config/paths.js";
 import {
@@ -472,7 +472,7 @@ export function resolveDeletedAgentIdFromSessionKey(
 }
 
 export function loadSessionEntry(sessionKey: string) {
-  const cfg = loadConfig();
+  const cfg = getRuntimeConfig();
   const key = normalizeOptionalString(sessionKey) ?? "";
   const target = resolveGatewaySessionStoreTarget({
     cfg,
@@ -1037,6 +1037,25 @@ export function resolveGatewaySessionStoreTarget(params: {
 
 export { loadCombinedSessionStoreForGateway } from "../config/sessions/combined-store-gateway.js";
 
+function resolveGatewaySessionThinkingDefault(params: {
+  cfg: OpenClawConfig;
+  provider: string;
+  model: string;
+  agentId?: string;
+}) {
+  const agentThinkingDefault = params.agentId
+    ? resolveAgentConfig(params.cfg, params.agentId)?.thinkingDefault
+    : undefined;
+  return (
+    agentThinkingDefault ??
+    resolveThinkingDefault({
+      cfg: params.cfg,
+      provider: params.provider,
+      model: params.model,
+    })
+  );
+}
+
 export function getSessionDefaults(cfg: OpenClawConfig): GatewaySessionsDefaults {
   const resolved = resolveConfiguredModelRef({
     cfg,
@@ -1054,7 +1073,8 @@ export function getSessionDefaults(cfg: OpenClawConfig): GatewaySessionsDefaults
     contextTokens: contextTokens ?? null,
     thinkingLevels,
     thinkingOptions: thinkingLevels.map((level) => level.label),
-    thinkingDefault: resolveThinkingDefaultForModel({
+    thinkingDefault: resolveGatewaySessionThinkingDefault({
+      cfg,
       provider: resolved.provider,
       model: resolved.model,
     }),
@@ -1256,10 +1276,51 @@ export function buildGatewaySessionRow(params: {
   const subagentOwner =
     normalizeOptionalString(subagentRun?.controllerSessionKey) ||
     normalizeOptionalString(subagentRun?.requesterSessionKey);
-  const subagentStatus = subagentRun ? resolveSubagentSessionStatus(subagentRun) : undefined;
-  const subagentStartedAt = subagentRun ? getSubagentSessionStartedAt(subagentRun) : undefined;
-  const subagentEndedAt = subagentRun ? subagentRun.endedAt : undefined;
-  const subagentRuntimeMs = subagentRun ? resolveSessionRuntimeMs(subagentRun, now) : undefined;
+  const liveSubagentRunActive = isSubagentRunLive(subagentRun);
+  const persistedSessionStatus = entry?.status;
+  const persistedSessionEndedAt = entry?.endedAt;
+  const persistedSessionStartedAt = entry?.startedAt;
+  const persistedSessionRuntimeMs = entry?.runtimeMs;
+  const subagentRunState = subagentRun
+    ? liveSubagentRunActive
+      ? "active"
+      : typeof subagentRun.endedAt === "number" ||
+          persistedSessionStatus === "done" ||
+          persistedSessionStatus === "failed" ||
+          persistedSessionStatus === "killed" ||
+          persistedSessionStatus === "timeout" ||
+          typeof persistedSessionEndedAt === "number"
+        ? "historical"
+        : "interrupted"
+    : undefined;
+  const subagentStatus = subagentRun
+    ? liveSubagentRunActive
+      ? resolveSubagentSessionStatus(subagentRun)
+      : persistedSessionStatus === "running"
+        ? undefined
+        : (persistedSessionStatus ??
+          (typeof subagentRun.endedAt === "number"
+            ? resolveSubagentSessionStatus(subagentRun)
+            : undefined))
+    : undefined;
+  const subagentStartedAt = subagentRun
+    ? liveSubagentRunActive
+      ? getSubagentSessionStartedAt(subagentRun)
+      : (persistedSessionStartedAt ?? getSubagentSessionStartedAt(subagentRun))
+    : undefined;
+  const subagentEndedAt = subagentRun
+    ? liveSubagentRunActive
+      ? subagentRun.endedAt
+      : (persistedSessionEndedAt ?? subagentRun.endedAt)
+    : undefined;
+  const subagentRuntimeMs = subagentRun
+    ? liveSubagentRunActive
+      ? resolveSessionRuntimeMs(subagentRun, now)
+      : (persistedSessionRuntimeMs ??
+        (typeof subagentRun.endedAt === "number"
+          ? resolveSessionRuntimeMs(subagentRun, now)
+          : undefined))
+    : undefined;
   const selectedModel = entry?.modelOverride?.trim()
     ? resolveSessionModelRef(cfg, entry, sessionAgentId)
     : null;
@@ -1387,9 +1448,11 @@ export function buildGatewaySessionRow(params: {
     thinkingLevel: entry?.thinkingLevel,
     thinkingLevels,
     thinkingOptions: thinkingLevels.map((level) => level.label),
-    thinkingDefault: resolveThinkingDefaultForModel({
+    thinkingDefault: resolveGatewaySessionThinkingDefault({
+      cfg,
       provider: thinkingProvider,
       model: thinkingModel,
+      agentId: sessionAgentId,
     }),
     fastMode: entry?.fastMode,
     verboseLevel: entry?.verboseLevel,
@@ -1403,6 +1466,8 @@ export function buildGatewaySessionRow(params: {
     totalTokensFresh,
     estimatedCostUsd,
     status: subagentRun ? subagentStatus : entry?.status,
+    subagentRunState,
+    hasActiveSubagentRun: subagentRun ? liveSubagentRunActive : undefined,
     startedAt: subagentRun ? subagentStartedAt : entry?.startedAt,
     endedAt: subagentRun ? subagentEndedAt : entry?.endedAt,
     runtimeMs: subagentRun ? subagentRuntimeMs : entry?.runtimeMs,

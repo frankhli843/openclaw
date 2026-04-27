@@ -3,16 +3,14 @@ import {
   createEmptyChannelResult,
   createAttachedChannelResultAdapter,
 } from "openclaw/plugin-sdk/channel-send-result";
-import type { OpenClawConfig } from "openclaw/plugin-sdk/config-runtime";
+import type { OpenClawConfig } from "openclaw/plugin-sdk/config-types";
 import {
   enforceDiscordDnrWindow,
   DiscordDnrSuppressedError,
   deferDelivery,
 } from "openclaw/plugin-sdk/infra-runtime";
-import {
-  resolveOutboundSendDep,
-  type OutboundIdentity,
-} from "openclaw/plugin-sdk/outbound-runtime";
+import type { OutboundIdentity } from "openclaw/plugin-sdk/outbound-runtime";
+import { resolveOutboundSendDep } from "openclaw/plugin-sdk/outbound-send-deps";
 import { createSubsystemLogger } from "openclaw/plugin-sdk/runtime-env";
 import {
   normalizeOptionalString,

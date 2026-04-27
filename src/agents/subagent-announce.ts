@@ -23,6 +23,7 @@ import {
   resolveSubagentAnnounceTimeoutMs,
   resolveSubagentCompletionOrigin,
 } from "./subagent-announce-delivery.js";
+import type { SubagentAnnounceDeliveryResult } from "./subagent-announce-dispatch.js";
 import { resolveAnnounceOrigin } from "./subagent-announce-origin.js";
 import {
   applySubagentWaitOutcome,
@@ -42,7 +43,7 @@ import { rewakeParentAfterAnnounce } from "./subagent-announce-rewake.frankclaw.
 import {
   callGateway,
   isEmbeddedPiRunActive,
-  loadConfig,
+  getRuntimeConfig,
   waitForEmbeddedPiRunEnd,
 } from "./subagent-announce.runtime.js";
 import { getSubagentDepthFromSessionStore } from "./subagent-depth.js";
@@ -51,13 +52,13 @@ import { isAnnounceSkip } from "./tools/sessions-send-tokens.js";
 
 type SubagentAnnounceDeps = {
   callGateway: typeof callGateway;
-  loadConfig: typeof loadConfig;
+  getRuntimeConfig: typeof getRuntimeConfig;
   loadSubagentRegistryRuntime: typeof loadSubagentRegistryRuntime;
 };
 
 const defaultSubagentAnnounceDeps: SubagentAnnounceDeps = {
   callGateway,
-  loadConfig,
+  getRuntimeConfig,
   loadSubagentRegistryRuntime,
 };
 
@@ -213,7 +214,7 @@ async function wakeSubagentRunAfterDescendants(params: {
     return false;
   }
 
-  const cfg = subagentAnnounceDeps.loadConfig();
+  const cfg = subagentAnnounceDeps.getRuntimeConfig();
   const announceTimeoutMs = resolveSubagentAnnounceTimeoutMs(cfg);
   const wakeMessage = buildDescendantWakeMessage({
     findings: params.findings,
@@ -286,6 +287,7 @@ export async function runSubagentAnnounceFlow(params: {
   wakeOnDescendantSettle?: boolean;
   signal?: AbortSignal;
   bestEffortDeliver?: boolean;
+  onDeliveryResult?: (delivery: SubagentAnnounceDeliveryResult) => void;
 }): Promise<boolean> {
   let didAnnounce = false;
   const expectsCompletionMessage = params.expectsCompletionMessage === true;
@@ -642,6 +644,7 @@ export async function runSubagentAnnounceFlow(params: {
       directIdempotencyKey,
       signal: params.signal,
     });
+    params.onDeliveryResult?.(delivery);
     didAnnounce = delivery.delivered;
     if (!delivery.delivered && delivery.path === "direct" && delivery.error) {
       defaultRuntime.error?.(

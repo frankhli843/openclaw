@@ -32,7 +32,7 @@ import type {
   ChannelId,
   ChannelPlugin,
 } from "../channels/plugins/types.public.js";
-import { loadConfig } from "../config/config.js";
+import { getRuntimeConfig } from "../config/config.js";
 import {
   canonicalizeMainSessionAlias,
   resolveAgentMainSessionKey,
@@ -64,6 +64,7 @@ import {
   normalizeOptionalString,
 } from "../shared/string-coerce.js";
 import { escapeRegExp } from "../utils.js";
+import { MAX_SAFE_TIMEOUT_DELAY_MS, resolveSafeTimeoutDelayMs } from "../utils/timer-delay.js";
 import { loadOrCreateDeviceIdentity } from "./device-identity.js";
 import { formatErrorMessage, hasErrnoCode } from "./errors.js";
 import { isWithinActiveHours } from "./heartbeat-active-hours.js";
@@ -731,7 +732,7 @@ export async function runHeartbeatOnce(opts: {
   reason?: string;
   deps?: HeartbeatDeps;
 }): Promise<HeartbeatRunResult> {
-  const cfg = opts.cfg ?? loadConfig();
+  const cfg = opts.cfg ?? getRuntimeConfig();
   const explicitAgentId = typeof opts.agentId === "string" ? opts.agentId.trim() : "";
   const forcedSessionAgentId =
     explicitAgentId.length > 0 ? undefined : parseAgentSessionKey(opts.sessionKey)?.agentId;
@@ -1322,7 +1323,7 @@ export function startHeartbeatRunner(opts: {
   const runtime = opts.runtime ?? defaultRuntime;
   const runOnce = opts.runOnce ?? runHeartbeatOnce;
   const state = {
-    cfg: opts.cfg ?? loadConfig(),
+    cfg: opts.cfg ?? getRuntimeConfig(),
     runtime,
     schedulerSeed: resolveHeartbeatSchedulerSeed(opts.stableSchedulerSeed),
     agents: new Map<string, HeartbeatAgentState>(),
@@ -1330,6 +1331,7 @@ export function startHeartbeatRunner(opts: {
     stopped: false,
   };
   let initialized = false;
+  let heartbeatTimeoutOverflowWarned = false;
 
   const resolveNextDue = (
     now: number,
@@ -1384,7 +1386,15 @@ export function startHeartbeatRunner(opts: {
     if (!Number.isFinite(nextDue)) {
       return;
     }
-    const delay = Math.max(0, nextDue - now);
+    const rawDelay = Math.max(0, nextDue - now);
+    if (rawDelay > MAX_SAFE_TIMEOUT_DELAY_MS && !heartbeatTimeoutOverflowWarned) {
+      heartbeatTimeoutOverflowWarned = true;
+      log.warn("heartbeat: scheduled delay exceeds Node setTimeout cap; clamping to ~24.85d", {
+        rawDelayMs: rawDelay,
+        clampedMs: MAX_SAFE_TIMEOUT_DELAY_MS,
+      });
+    }
+    const delay = resolveSafeTimeoutDelayMs(rawDelay, { minMs: 0 });
     state.timer = setTimeout(() => {
       state.timer = null;
       requestHeartbeatNow({ reason: "interval", coalesceMs: 0 });

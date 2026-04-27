@@ -1,10 +1,10 @@
 import { Type } from "typebox";
-import { loadConfig } from "../../config/config.js";
+import { getRuntimeConfig } from "../../config/config.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { formatErrorMessage } from "../../infra/errors.js";
 import type { SsrFPolicy } from "../../infra/net/ssrf.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
-import { resolveConfiguredMediaMaxBytes } from "../../media/configured-max-bytes.js";
+import { resolveGeneratedMediaMaxBytes } from "../../media/configured-max-bytes.js";
 import {
   classifyMediaReferenceSource,
   normalizeMediaReferenceSource,
@@ -389,14 +389,14 @@ async function executeMusicGenerationJob(params: {
       progressSummary: "Saving generated music",
     });
   }
-  const configuredMediaMaxBytes = resolveConfiguredMediaMaxBytes(params.effectiveCfg);
+  const mediaMaxBytes = resolveGeneratedMediaMaxBytes(params.effectiveCfg, "audio");
   const savedTracks = await Promise.all(
     result.tracks.map((track) =>
       saveMediaBuffer(
         track.buffer,
         track.mimeType,
         "tool-music-generation",
-        configuredMediaMaxBytes,
+        mediaMaxBytes,
         params.filename || track.fileName,
       ),
     ),
@@ -493,7 +493,7 @@ export function createMusicGenerateTool(options?: {
   fsPolicy?: ToolFsPolicy;
   scheduleBackgroundWork?: MusicGenerateBackgroundScheduler;
 }): AnyAgentTool | null {
-  const cfg: OpenClawConfig = options?.config ?? loadConfig();
+  const cfg: OpenClawConfig = options?.config ?? getRuntimeConfig();
   const musicGenerationModelConfig = resolveMusicGenerationModelConfigForTool({
     cfg,
     agentDir: options?.agentDir,

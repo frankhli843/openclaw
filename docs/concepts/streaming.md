@@ -143,7 +143,7 @@ Slack-only:
 
 Legacy key migration:
 
-- Telegram: `streamMode` + boolean `streaming` auto-migrate to `streaming` enum.
+- Telegram: legacy `streamMode` and scalar/boolean `streaming` values are detected and migrated by doctor/config compatibility paths to `streaming.mode`.
 - Discord: `streamMode` + boolean `streaming` auto-migrate to `streaming` enum.
 - Slack: `streamMode` auto-migrates to `streaming.mode`; boolean `streaming` auto-migrates to `streaming.mode` plus `streaming.nativeTransport`; legacy `nativeStreaming` auto-migrates to `streaming.nativeTransport`.
 
@@ -152,6 +152,7 @@ Legacy key migration:
 Telegram:
 
 - Uses `sendMessage` + `editMessageText` preview updates across DMs and group/topics.
+- Sends a fresh final message instead of editing in place when a preview has been visible for about one minute, then cleans up the preview so Telegram's timestamp reflects reply completion.
 - Preview streaming is skipped when Telegram block streaming is explicitly enabled (to avoid double-streaming).
 - `/reasoning stream` can write reasoning to preview.
 

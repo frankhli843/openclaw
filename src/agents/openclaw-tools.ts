@@ -243,6 +243,12 @@ export function createOpenClawTools(
           nodesTool,
           createCronTool({
             agentSessionKey: options?.agentSessionKey,
+            currentDeliveryContext: {
+              channel: options?.agentChannel,
+              to: options?.currentChannelId ?? options?.agentTo,
+              accountId: options?.agentAccountId,
+              threadId: options?.currentThreadTs ?? options?.agentThreadId,
+            },
           }),
         ]),
     ...(!embedded && messageTool ? [messageTool] : []),
@@ -254,6 +260,8 @@ export function createOpenClawTools(
     createTtsTool({
       agentChannel: options?.agentChannel,
       config: resolvedConfig,
+      agentId: sessionAgentId,
+      agentAccountId: options?.agentAccountId,
     }),
     ...collectPresentOpenClawTools([imageGenerateTool, musicGenerateTool, videoGenerateTool]),
     ...(embedded
@@ -310,6 +318,7 @@ export function createOpenClawTools(
             agentGroupSpace: options?.agentGroupSpace,
             agentMemberRoleIds: options?.agentMemberRoleIds,
             sandboxed: options?.sandboxed,
+            config: resolvedConfig,
             requesterAgentIdOverride: options?.requesterAgentIdOverride,
             workspaceDir: spawnWorkspaceDir,
           }),

@@ -9,11 +9,11 @@ import {
   renderMessagePresentationFallbackText,
   resolveInteractiveTextFallback,
 } from "openclaw/plugin-sdk/interactive-runtime";
+import { sanitizeForPlainText } from "openclaw/plugin-sdk/outbound-runtime";
 import {
   resolveOutboundSendDep,
-  sanitizeForPlainText,
   type OutboundSendDeps,
-} from "openclaw/plugin-sdk/outbound-runtime";
+} from "openclaw/plugin-sdk/outbound-send-deps";
 import {
   resolvePayloadMediaUrls,
   sendPayloadMediaSequenceOrFallback,
@@ -146,6 +146,7 @@ export const telegramOutbound: ChannelOutboundAdapter = {
   deliveryMode: "direct",
   chunker: markdownToTelegramHtmlChunks,
   chunkerMode: "markdown",
+  extractMarkdownImages: true,
   textChunkLimit: TELEGRAM_TEXT_CHUNK_LIMIT,
   sanitizeText: ({ text }) => sanitizeForPlainText(text),
   shouldSkipPlainTextSanitization: ({ payload }) => Boolean(payload.channelData),

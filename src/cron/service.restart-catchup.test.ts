@@ -3,6 +3,7 @@ import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { CronService } from "./service.js";
 import { setupCronServiceSuite } from "./service.test-harness.js";
+import type { CronEvent } from "./service/state.js";
 import { createCronServiceState } from "./service/state.js";
 import { runMissedJobs } from "./service/timer.js";
 
@@ -21,6 +22,7 @@ describe("CronService restart catch-up", () => {
     storePath: string;
     enqueueSystemEvent: ReturnType<typeof vi.fn>;
     requestHeartbeatNow: ReturnType<typeof vi.fn>;
+    onEvent?: ReturnType<typeof vi.fn>;
   }) {
     return new CronService({
       storePath: params.storePath,
@@ -29,6 +31,7 @@ describe("CronService restart catch-up", () => {
       enqueueSystemEvent: params.enqueueSystemEvent as never,
       requestHeartbeatNow: params.requestHeartbeatNow as never,
       runIsolatedAgentJob: vi.fn(async () => ({ status: "ok" as const })) as never,
+      onEvent: params.onEvent as ((evt: CronEvent) => void) | undefined,
     });
   }
 
@@ -53,11 +56,13 @@ describe("CronService restart catch-up", () => {
       cron: CronService;
       enqueueSystemEvent: ReturnType<typeof vi.fn>;
       requestHeartbeatNow: ReturnType<typeof vi.fn>;
+      onEvent: ReturnType<typeof vi.fn>;
     }) => Promise<void>,
   ) {
     const store = await makeStorePath();
     const enqueueSystemEvent = vi.fn();
     const requestHeartbeatNow = vi.fn();
+    const onEvent = vi.fn();
 
     await writeStoreJobs(store.storePath, jobs);
 
@@ -65,11 +70,12 @@ describe("CronService restart catch-up", () => {
       storePath: store.storePath,
       enqueueSystemEvent,
       requestHeartbeatNow,
+      onEvent,
     });
 
     try {
       await cron.start();
-      await run({ cron, enqueueSystemEvent, requestHeartbeatNow });
+      await run({ cron, enqueueSystemEvent, requestHeartbeatNow, onEvent });
     } finally {
       cron.stop();
       await store.cleanup();
@@ -115,7 +121,7 @@ describe("CronService restart catch-up", () => {
     );
   });
 
-  it("replays interrupted recurring job on first restart (#60495)", async () => {
+  it("marks interrupted recurring jobs failed instead of replaying them on startup", async () => {
     const dueAt = Date.parse("2025-12-13T16:00:00.000Z");
     const staleRunningAt = Date.parse("2025-12-13T16:30:00.000Z");
 
@@ -137,23 +143,32 @@ describe("CronService restart catch-up", () => {
           },
         },
       ],
-      async ({ cron, enqueueSystemEvent, requestHeartbeatNow }) => {
+      async ({ cron, enqueueSystemEvent, requestHeartbeatNow, onEvent }) => {
         expect(noopLogger.warn).toHaveBeenCalledWith(
           expect.objectContaining({ jobId: "restart-stale-running" }),
-          "cron: clearing stale running marker on startup",
+          "cron: marking interrupted running job failed on startup",
         );
 
-        expect(enqueueSystemEvent).toHaveBeenCalledWith(
-          "resume stale marker",
-          expect.objectContaining({ agentId: undefined }),
-        );
-        expect(requestHeartbeatNow).toHaveBeenCalled();
+        expect(enqueueSystemEvent).not.toHaveBeenCalled();
+        expect(requestHeartbeatNow).not.toHaveBeenCalled();
 
         const listedJobs = await cron.list({ includeDisabled: true });
         const updated = listedJobs.find((job) => job.id === "restart-stale-running");
         expect(updated?.state.runningAtMs).toBeUndefined();
-        expect(updated?.state.lastStatus).toBe("ok");
-        expect(updated?.state.lastRunAtMs).toBe(Date.parse("2025-12-13T17:00:00.000Z"));
+        expect(updated?.state.lastStatus).toBe("error");
+        expect(updated?.state.lastRunStatus).toBe("error");
+        expect(updated?.state.lastRunAtMs).toBe(staleRunningAt);
+        expect(updated?.state.lastError).toBe("cron: job interrupted by gateway restart");
+        expect(updated?.state.nextRunAtMs).toBeGreaterThan(Date.parse("2025-12-13T17:00:00.000Z"));
+        expect(onEvent).toHaveBeenCalledWith(
+          expect.objectContaining({
+            action: "finished",
+            jobId: "restart-stale-running",
+            status: "error",
+            error: "cron: job interrupted by gateway restart",
+            runAtMs: staleRunningAt,
+          }),
+        );
       },
     );
   });
@@ -194,7 +209,7 @@ describe("CronService restart catch-up", () => {
     );
   });
 
-  it("does not replay interrupted one-shot jobs on startup", async () => {
+  it("marks interrupted one-shot jobs failed and disabled on startup", async () => {
     const dueAt = Date.parse("2025-12-13T16:00:00.000Z");
     const staleRunningAt = Date.parse("2025-12-13T16:30:00.000Z");
 
@@ -216,62 +231,28 @@ describe("CronService restart catch-up", () => {
           },
         },
       ],
-      async ({ cron, enqueueSystemEvent, requestHeartbeatNow }) => {
+      async ({ cron, enqueueSystemEvent, requestHeartbeatNow, onEvent }) => {
         expect(enqueueSystemEvent).not.toHaveBeenCalled();
         expect(requestHeartbeatNow).not.toHaveBeenCalled();
 
         const listedJobs = await cron.list({ includeDisabled: true });
         const updated = listedJobs.find((job) => job.id === "restart-stale-one-shot");
-        expect(updated?.state.runningAtMs).toBeUndefined();
-        // The job must be fully neutralized so no timer tick can re-arm it (#60496).
         expect(updated?.enabled).toBe(false);
+        expect(updated?.state.runningAtMs).toBeUndefined();
+        expect(updated?.state.lastStatus).toBe("error");
+        expect(updated?.state.lastRunStatus).toBe("error");
+        expect(updated?.state.lastRunAtMs).toBe(staleRunningAt);
         expect(updated?.state.nextRunAtMs).toBeUndefined();
-        expect(updated?.state.lastStatus).toBe("skipped");
-      },
-    );
-  });
-
-  it("does not re-arm interrupted one-shot via recomputeNextRuns after restart (#60496)", async () => {
-    // Reproduces the exact duplicate-replay scenario: a one-shot "at" job ran
-    // and delivered its message, but the gateway crashed before applyJobResult
-    // could persist lastStatus.  On restart the stale runningAtMs is cleared,
-    // and without the fix recomputeNextRuns would re-set nextRunAtMs to the
-    // past-due at-time, making the timer fire the job again.
-    const atTime = "2025-12-13T10:00:00.000Z";
-    const atMs = Date.parse(atTime);
-    const staleRunningAt = Date.parse("2025-12-13T10:01:00.000Z");
-
-    await withRestartedCron(
-      [
-        {
-          id: "one-shot-no-rearm",
-          name: "charlotte bloodwork reminder",
-          enabled: true,
-          createdAtMs: Date.parse("2025-12-12T22:00:00.000Z"),
-          updatedAtMs: staleRunningAt,
-          schedule: { kind: "at", at: atTime },
-          sessionTarget: "main",
-          wakeMode: "next-heartbeat",
-          payload: { kind: "systemEvent", text: "bloodwork reminder" },
-          state: {
-            // No lastStatus — gateway crashed before finalization persisted it.
-            nextRunAtMs: atMs,
-            runningAtMs: staleRunningAt,
-          },
-        },
-      ],
-      async ({ cron, enqueueSystemEvent }) => {
-        // Must not have been replayed.
-        expect(enqueueSystemEvent).not.toHaveBeenCalled();
-
-        const listedJobs = await cron.list({ includeDisabled: true });
-        const job = listedJobs.find((j) => j.id === "one-shot-no-rearm");
-        // Job must be disabled with no nextRunAtMs so no future timer tick
-        // can discover it as due.
-        expect(job?.enabled).toBe(false);
-        expect(job?.state.nextRunAtMs).toBeUndefined();
-        expect(job?.state.runningAtMs).toBeUndefined();
-        expect(job?.state.lastStatus).toBe("skipped");
+        expect(updated?.state.lastError).toBe("cron: job interrupted by gateway restart");
+        expect(onEvent).toHaveBeenCalledWith(
+          expect.objectContaining({
+            action: "finished",
+            jobId: "restart-stale-one-shot",
+            status: "error",
+            error: "cron: job interrupted by gateway restart",
+            runAtMs: staleRunningAt,
+          }),
+        );
       },
     );
   });

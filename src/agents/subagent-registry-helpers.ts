@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import { loadConfig } from "../config/config.js";
+import { getRuntimeConfig } from "../config/config.js";
 import {
   loadSessionStore,
   resolveAgentIdFromSessionKey,
@@ -129,7 +129,7 @@ export async function persistSubagentSessionTiming(entry: SubagentRunRecord) {
     return;
   }
 
-  const cfg = loadConfig();
+  const cfg = getRuntimeConfig();
   const agentId = resolveAgentIdFromSessionKey(childSessionKey);
   const storePath = resolveStorePath(cfg.session?.store, { agentId });
   const startedAt = getSubagentSessionStartedAt(entry);
@@ -184,7 +184,7 @@ export function resolveSubagentRunOrphanReason(params: {
     return "missing-session-entry";
   }
   try {
-    const cfg = loadConfig();
+    const cfg = getRuntimeConfig();
     const agentId = resolveAgentIdFromSessionKey(childSessionKey);
     const storePath = resolveStorePath(cfg.session?.store, { agentId });
     let store = params.storeCache?.get(storePath);
@@ -340,7 +340,7 @@ export function reconcileOrphanedRestoredRuns(params: {
 }
 
 export function resolveArchiveAfterMs(cfg?: OpenClawConfig) {
-  const config = cfg ?? loadConfig();
+  const config = cfg ?? getRuntimeConfig();
   const minutes = config.agents?.defaults?.subagents?.archiveAfterMinutes ?? 60;
   if (!Number.isFinite(minutes) || minutes < 0) {
     return undefined;

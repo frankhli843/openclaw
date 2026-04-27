@@ -5,10 +5,13 @@ import {
 } from "./run.suite-helpers.js";
 import {
   countActiveDescendantRunsMock,
+  dispatchCronDeliveryMock,
+  isHeartbeatOnlyResponseMock,
   listDescendantRunsForRequesterMock,
   loadRunCronIsolatedAgentTurn,
   mockRunCronFallbackPassthrough,
   pickLastNonEmptyTextFromPayloadsMock,
+  resolveCronDeliveryPlanMock,
   runEmbeddedPiAgentMock,
   runWithModelFallbackMock,
 } from "./run.test-harness.js";
@@ -96,6 +99,70 @@ describe("runCronIsolatedAgentTurn — interim ack retry", () => {
     countActiveDescendantRunsMock.mockReturnValue(0);
 
     mockRunCronFallbackPassthrough();
+    // frankclaw: orchestration loop runs a second turn after descendants settle
     await runTurnAndExpectOk(2, 2);
+  });
+
+  it("does not retry over a fatal structured failure signal", async () => {
+    usePayloadTextExtraction();
+    runEmbeddedPiAgentMock.mockResolvedValueOnce({
+      payloads: [{ text: "On it, retrying now." }],
+      meta: {
+        agentMeta: { usage: { input: 10, output: 20 } },
+        failureSignal: {
+          kind: "execution_denied",
+          source: "tool",
+          toolName: "exec",
+          code: "SYSTEM_RUN_DENIED",
+          message: "SYSTEM_RUN_DENIED: approval required",
+          fatalForCron: true,
+        },
+      },
+    });
+
+    mockRunCronFallbackPassthrough();
+    const result = await runCronIsolatedAgentTurn(makeIsolatedAgentTurnParams());
+
+    expect(result.status).toBe("error");
+    expect(result.error).toBe("SYSTEM_RUN_DENIED: approval required");
+    expect(runWithModelFallbackMock).toHaveBeenCalledTimes(1);
+    expect(runEmbeddedPiAgentMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("delivers synthesized fatal failure signals even when the original payloads are empty", async () => {
+    usePayloadTextExtraction();
+    resolveCronDeliveryPlanMock.mockReturnValue({
+      requested: true,
+      mode: "announce",
+      channel: "messagechat",
+      to: "123",
+    });
+    isHeartbeatOnlyResponseMock.mockReturnValue(true);
+    runEmbeddedPiAgentMock.mockResolvedValueOnce({
+      payloads: [],
+      meta: {
+        agentMeta: { usage: { input: 10, output: 20 } },
+        failureSignal: {
+          kind: "execution_denied",
+          source: "tool",
+          toolName: "exec",
+          code: "SYSTEM_RUN_DENIED",
+          message: "SYSTEM_RUN_DENIED: approval required",
+          fatalForCron: true,
+        },
+      },
+    });
+
+    mockRunCronFallbackPassthrough();
+    const result = await runCronIsolatedAgentTurn(makeIsolatedAgentTurnParams());
+
+    expect(result.status).toBe("error");
+    expect(result.error).toBe("SYSTEM_RUN_DENIED: approval required");
+    expect(dispatchCronDeliveryMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        skipHeartbeatDelivery: false,
+        deliveryPayloads: [{ text: "SYSTEM_RUN_DENIED: approval required", isError: true }],
+      }),
+    );
   });
 });

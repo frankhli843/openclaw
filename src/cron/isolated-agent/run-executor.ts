@@ -66,6 +66,7 @@ export function createCronPromptExecutor(params: {
   agentId: string;
   agentDir: string;
   agentSessionKey: string;
+  runSessionKey: string;
   workspaceDir: string;
   lane?: string;
   resolvedVerboseLevel: VerboseLevel;
@@ -89,6 +90,7 @@ export function createCronPromptExecutor(params: {
   cronSession: MutableCronSession;
   abortSignal?: AbortSignal;
   abortReason: () => string;
+  onExecutionStarted?: () => void;
 }) {
   const sessionFile =
     params.cronSession.sessionEntry.sessionFile?.trim() ||
@@ -130,9 +132,10 @@ export function createCronPromptExecutor(params: {
             : await getCliSessionId(params.cronSession.sessionEntry, providerOverride);
           const result = await runCliAgent({
             sessionId: params.cronSession.sessionEntry.sessionId,
-            sessionKey: params.agentSessionKey,
+            sessionKey: params.runSessionKey,
             agentId: params.agentId,
             trigger: "cron",
+            jobId: params.job.id,
             sessionFile,
             workspaceDir: params.workspaceDir,
             config: params.cfgWithAgentDefaults,
@@ -145,6 +148,8 @@ export function createCronPromptExecutor(params: {
             cliSessionId,
             skillsSnapshot: params.skillsSnapshot,
             messageChannel: params.messageChannel,
+            abortSignal: params.abortSignal,
+            onExecutionStarted: params.onExecutionStarted,
             bootstrapPromptWarningSignaturesSeen,
             bootstrapPromptWarningSignature,
             senderIsOwner: true,
@@ -154,7 +159,7 @@ export function createCronPromptExecutor(params: {
           );
           return result;
         }
-        const { resolveFastModeState, resolveNestedAgentLane, runEmbeddedPiAgent } =
+        const { resolveCronAgentLane, resolveFastModeState, runEmbeddedPiAgent } =
           await loadCronEmbeddedRuntime();
         const currentChannelId = await resolveCurrentChannelTarget({
           channel: params.messageChannel,
@@ -163,9 +168,10 @@ export function createCronPromptExecutor(params: {
         });
         const result = await runEmbeddedPiAgent({
           sessionId: params.cronSession.sessionEntry.sessionId,
-          sessionKey: params.agentSessionKey,
+          sessionKey: params.runSessionKey,
           agentId: params.agentId,
           trigger: "cron",
+          jobId: params.job.id,
           cleanupBundleMcpOnRunEnd: params.job.sessionTarget === "isolated",
           allowGatewaySubagentBinding: true,
           senderIsOwner: false,
@@ -180,7 +186,7 @@ export function createCronPromptExecutor(params: {
           config: params.cfgWithAgentDefaults,
           skillsSnapshot: params.skillsSnapshot,
           prompt: promptText,
-          lane: resolveNestedAgentLane(params.lane),
+          lane: resolveCronAgentLane(params.lane),
           provider: providerOverride,
           model: modelOverride,
           authProfileId: params.liveSelection.authProfileId,
@@ -212,6 +218,7 @@ export function createCronPromptExecutor(params: {
           forceMessageTool: params.toolPolicy.forceMessageTool,
           allowTransientCooldownProbe: runOptions?.allowTransientCooldownProbe,
           abortSignal: params.abortSignal,
+          onExecutionStarted: params.onExecutionStarted,
           bootstrapPromptWarningSignaturesSeen,
           bootstrapPromptWarningSignature,
         });
@@ -248,6 +255,7 @@ export async function executeCronRun(params: {
   agentId: string;
   agentDir: string;
   agentSessionKey: string;
+  runSessionKey: string;
   workspaceDir: string;
   lane?: string;
   resolvedDelivery: {
@@ -271,6 +279,7 @@ export async function executeCronRun(params: {
   abortSignal?: AbortSignal;
   abortReason: () => string;
   isAborted: () => boolean;
+  onExecutionStarted?: () => void;
   thinkLevel: ThinkLevel | undefined;
   timeoutMs: number;
   suppressExecNotifyOnExit: boolean;
@@ -281,7 +290,7 @@ export async function executeCronRun(params: {
     normalizeVerboseLevel(params.agentVerboseDefault) ??
     "off";
   registerAgentRunContext(params.cronSession.sessionEntry.sessionId, {
-    sessionKey: params.agentSessionKey,
+    sessionKey: params.runSessionKey,
     verboseLevel: resolvedVerboseLevel,
   });
   const executor = createCronPromptExecutor({
@@ -291,6 +300,7 @@ export async function executeCronRun(params: {
     agentId: params.agentId,
     agentDir: params.agentDir,
     agentSessionKey: params.agentSessionKey,
+    runSessionKey: params.runSessionKey,
     workspaceDir: params.workspaceDir,
     lane: params.lane,
     resolvedVerboseLevel,
@@ -306,6 +316,7 @@ export async function executeCronRun(params: {
     cronSession: params.cronSession,
     abortSignal: params.abortSignal,
     abortReason: params.abortReason,
+    onExecutionStarted: params.onExecutionStarted,
   });
 
   const runStartedAt = params.runStartedAt ?? Date.now();
@@ -375,13 +386,14 @@ export async function executeCronRun(params: {
       }
       const r = result as {
         payloads?: Array<{ text?: string; isError?: boolean }>;
-        meta?: { error?: unknown; finalAssistantVisibleText?: string };
+        meta?: { error?: unknown; failureSignal?: { fatalForCron?: boolean }; finalAssistantVisibleText?: string };
         didSendViaMessagingTool?: boolean;
       };
       const payloads = r.payloads ?? [];
-      const { deliveryPayloadHasStructuredContent, outputText } = resolveCronPayloadOutcome({
+      const { deliveryPayloadHasStructuredContent, hasFatalErrorPayload, outputText } = resolveCronPayloadOutcome({
         payloads,
         runLevelError: r.meta?.error,
+        failureSignal: r.meta?.failureSignal,
         finalAssistantVisibleText: r.meta?.finalAssistantVisibleText,
         preferFinalAssistantVisibleText: channelOutputPolicy.preferFinalAssistantVisibleText,
       });
@@ -393,6 +405,7 @@ export async function executeCronRun(params: {
       const isEmptyOrInterim = !text || isLikelyInterimCronMessage(text);
       return (
         !r.meta?.error &&
+        !hasFatalErrorPayload &&
         !r.didSendViaMessagingTool &&
         !deliveryPayloadHasStructuredContent &&
         !payloads.some((payload) => payload?.isError === true) &&

@@ -32,6 +32,8 @@ import { createSubsystemLogger } from "../../logging/subsystem.js";
 import type { OutboundMediaAccess } from "../../media/load-options.js";
 import { resolveAgentScopedOutboundMediaAccess } from "../../media/read-capability.js";
 import { getGlobalHookRunner } from "../../plugins/hook-runner-global.js";
+import { diagnosticErrorCategory } from "../diagnostic-error-metadata.js";
+import { emitDiagnosticEvent, type DiagnosticMessageDeliveryKind } from "../diagnostic-events.js";
 import { formatErrorMessage } from "../errors.js";
 import { throwIfAborted } from "./abort.js";
 import type { OutboundDeliveryResult } from "./deliver-types.js";
@@ -149,6 +151,24 @@ type ChannelHandlerParams = {
 };
 
 // Channel docking: outbound delivery delegates to plugin.outbound adapters.
+async function resolveChannelOutboundDirectiveOptions(params: {
+  cfg: OpenClawConfig;
+  channel: Exclude<OutboundChannel, "none">;
+}): Promise<{ extractMarkdownImages?: boolean }> {
+  let outbound = await loadChannelOutboundAdapter(params.channel);
+  if (!outbound) {
+    const { bootstrapOutboundChannelPlugin } = await loadChannelBootstrapRuntime();
+    bootstrapOutboundChannelPlugin({
+      channel: params.channel,
+      cfg: params.cfg,
+    });
+    outbound = await loadChannelOutboundAdapter(params.channel);
+  }
+  return {
+    extractMarkdownImages: outbound?.extractMarkdownImages === true ? true : undefined,
+  };
+}
+
 async function createChannelHandler(params: ChannelHandlerParams): Promise<ChannelHandler> {
   let outbound = await loadChannelOutboundAdapter(params.channel);
   if (!outbound) {
@@ -372,6 +392,73 @@ type MessageSentEvent = {
   error?: string;
   messageId?: string;
 };
+
+function sessionKeyForDeliveryDiagnostics(params: {
+  mirror?: DeliveryMirror;
+  session?: OutboundSessionContext;
+}): string | undefined {
+  return params.mirror?.sessionKey ?? params.session?.key ?? params.session?.policyKey;
+}
+
+function deliveryKindForPayload(
+  payload: ReplyPayload,
+  payloadSummary: NormalizedOutboundPayload,
+): DiagnosticMessageDeliveryKind {
+  if (payloadSummary.mediaUrls.length > 0 || payload.mediaUrl || payload.mediaUrls?.length) {
+    return "media";
+  }
+  if (payload.presentation || payload.interactive || payload.channelData || payload.audioAsVoice) {
+    return "other";
+  }
+  return "text";
+}
+
+function emitMessageDeliveryStarted(params: {
+  channel: Exclude<OutboundChannel, "none">;
+  deliveryKind: DiagnosticMessageDeliveryKind;
+  sessionKey?: string;
+}): void {
+  emitDiagnosticEvent({
+    type: "message.delivery.started",
+    channel: params.channel,
+    deliveryKind: params.deliveryKind,
+    ...(params.sessionKey ? { sessionKey: params.sessionKey } : {}),
+  });
+}
+
+function emitMessageDeliveryCompleted(params: {
+  channel: Exclude<OutboundChannel, "none">;
+  deliveryKind: DiagnosticMessageDeliveryKind;
+  durationMs: number;
+  resultCount: number;
+  sessionKey?: string;
+}): void {
+  emitDiagnosticEvent({
+    type: "message.delivery.completed",
+    channel: params.channel,
+    deliveryKind: params.deliveryKind,
+    durationMs: params.durationMs,
+    resultCount: params.resultCount,
+    ...(params.sessionKey ? { sessionKey: params.sessionKey } : {}),
+  });
+}
+
+function emitMessageDeliveryError(params: {
+  channel: Exclude<OutboundChannel, "none">;
+  deliveryKind: DiagnosticMessageDeliveryKind;
+  durationMs: number;
+  error: unknown;
+  sessionKey?: string;
+}): void {
+  emitDiagnosticEvent({
+    type: "message.delivery.error",
+    channel: params.channel,
+    deliveryKind: params.deliveryKind,
+    durationMs: params.durationMs,
+    errorCategory: diagnosticErrorCategory(params.error),
+    ...(params.sessionKey ? { sessionKey: params.sessionKey } : {}),
+  });
+}
 
 function normalizeEmptyPayloadForDelivery(payload: ReplyPayload): ReplyPayload | null {
   const text = typeof payload.text === "string" ? payload.text : "";
@@ -783,11 +870,13 @@ async function deliverOutboundPayloadsCore(
   params: DeliverOutboundPayloadsCoreParams,
 ): Promise<OutboundDeliveryResult[]> {
   const { cfg, channel, to, payloads } = params;
+  const directiveOptions = await resolveChannelOutboundDirectiveOptions({ cfg, channel });
   const outboundPayloadPlan = createOutboundPayloadPlan(payloads, {
     cfg,
     sessionKey: params.session?.policyKey ?? params.session?.key,
     surface: channel,
     conversationType: params.session?.conversationType,
+    extractMarkdownImages: directiveOptions.extractMarkdownImages,
   });
   const accountId = params.accountId;
   const deps = params.deps;
@@ -882,6 +971,7 @@ async function deliverOutboundPayloadsCore(
     mirrorGroupId,
   });
   const hasMessageSendingHooks = hookRunner?.hasHooks("message_sending") ?? false;
+  const diagnosticSessionKey = sessionKeyForDeliveryDiagnostics(params);
   if (hasMessageSentHooks && params.session?.agentId && !sessionKeyForInternalHooks) {
     log.warn(
       "deliverOutboundPayloads: session.agentId present without session key; internal message:sent hook will be skipped",
@@ -894,6 +984,47 @@ async function deliverOutboundPayloadsCore(
   }
   for (const payload of normalizedPayloads) {
     let payloadSummary = buildPayloadSummary(payload);
+    let deliveryKind: DiagnosticMessageDeliveryKind = "other";
+    let deliveryStartedAt = 0;
+    let deliveryStarted = false;
+    let deliveryFinished = false;
+    const startDeliveryDiagnostics = (kind: DiagnosticMessageDeliveryKind) => {
+      deliveryKind = kind;
+      deliveryStartedAt = Date.now();
+      deliveryStarted = true;
+      deliveryFinished = false;
+      emitMessageDeliveryStarted({
+        channel,
+        deliveryKind,
+        sessionKey: diagnosticSessionKey,
+      });
+    };
+    const completeDeliveryDiagnostics = (resultCount: number) => {
+      if (!deliveryStarted) {
+        return;
+      }
+      deliveryFinished = true;
+      emitMessageDeliveryCompleted({
+        channel,
+        deliveryKind,
+        durationMs: Date.now() - deliveryStartedAt,
+        resultCount,
+        sessionKey: diagnosticSessionKey,
+      });
+    };
+    const errorDeliveryDiagnostics = (err: unknown) => {
+      if (!deliveryStarted || deliveryFinished) {
+        return;
+      }
+      deliveryFinished = true;
+      emitMessageDeliveryError({
+        channel,
+        deliveryKind,
+        durationMs: Date.now() - deliveryStartedAt,
+        error: err,
+        sessionKey: diagnosticSessionKey,
+      });
+    };
     try {
       throwIfAborted(abortSignal);
 
@@ -923,6 +1054,7 @@ async function deliverOutboundPayloadsCore(
         continue;
       }
       payloadSummary = buildPayloadSummary(effectivePayload);
+      startDeliveryDiagnostics(deliveryKindForPayload(effectivePayload, payloadSummary));
 
       params.onPayload?.(payloadSummary);
       const replyToResolution = resolveCurrentReplyTo(effectivePayload);
@@ -966,6 +1098,7 @@ async function deliverOutboundPayloadsCore(
           target: deliveryTarget,
           results: [delivery],
         });
+        completeDeliveryDiagnostics(1);
         emitMessageSent({
           success: true,
           content: payloadSummary.hookContent ?? payloadSummary.text,
@@ -1000,6 +1133,7 @@ async function deliverOutboundPayloadsCore(
           target: deliveryTarget,
           results: deliveredResults,
         });
+        completeDeliveryDiagnostics(deliveredResults.length);
         emitMessageSent({
           success: results.length > beforeCount,
           content: payloadSummary.hookContent ?? payloadSummary.text,
@@ -1040,6 +1174,7 @@ async function deliverOutboundPayloadsCore(
           target: deliveryTarget,
           results: deliveredResults,
         });
+        completeDeliveryDiagnostics(deliveredResults.length);
         emitMessageSent({
           success: results.length > beforeCount,
           content: payloadSummary.hookContent ?? payloadSummary.text,
@@ -1081,12 +1216,14 @@ async function deliverOutboundPayloadsCore(
         target: deliveryTarget,
         results: results.slice(beforeCount),
       });
+      completeDeliveryDiagnostics(results.length - beforeCount);
       emitMessageSent({
         success: true,
         content: payloadSummary.hookContent ?? payloadSummary.text,
         messageId: lastMessageId,
       });
     } catch (err) {
+      errorDeliveryDiagnostics(err);
       emitMessageSent({
         success: false,
         content: payloadSummary.hookContent ?? payloadSummary.text,

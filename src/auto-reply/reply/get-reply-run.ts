@@ -27,10 +27,11 @@ import { normalizeOptionalString } from "../../shared/string-coerce.js";
 import { isReasoningTagProvider } from "../../utils/provider-utils.js";
 import { hasControlCommand } from "../command-detection.js";
 import { resolveEnvelopeFormatOptions } from "../envelope.js";
-// frankclaw addition: [Doramon note to self] prefix detection + behavior overlay
+import { HEARTBEAT_TRANSCRIPT_PROMPT } from "../heartbeat.js";
+// frankclaw: [Doramon note to self] prefix detection + behavior overlay
 // so bot-authored self-nudges get summarized + iterated on instead of silently dropped.
 import { isNoteToSelf, noteToSelfPromptOverlay } from "../note-to-self.frankclaw.js";
-// frankclaw addition: scoped prompt injections for specific channels/threads/groups.
+// frankclaw: scoped prompt injections for specific channels/threads/groups.
 import { resolveScopedPromptForContext } from "../scoped-prompt.frankclaw.js";
 import type { MsgContext, TemplateContext } from "../templating.js";
 import {
@@ -50,7 +51,12 @@ import type { buildCommandContext } from "./commands.js";
 import type { InlineDirectives } from "./directive-handling.js";
 import { shouldUseReplyFastTestRuntime } from "./get-reply-fast-path.js";
 import { resolvePreparedReplyQueueState } from "./get-reply-run-queue.js";
-import { buildDirectChatContext, buildGroupChatContext, buildGroupIntro } from "./groups.js";
+import {
+  buildDirectChatContext,
+  buildGroupChatContext,
+  buildGroupIntro,
+  resolveGroupSilentReplyBehavior,
+} from "./groups.js";
 import { hasInboundMedia } from "./inbound-media.js";
 import { buildInboundMetaSystemPrompt, buildInboundUserContextPrefix } from "./inbound-meta.js";
 import type { createModelSelectionState } from "./model-selection.js";
@@ -168,6 +174,13 @@ function stripPromptThinkingDirectives(body: string): string {
         .trimEnd(),
     )
     .join("\n");
+}
+
+function hasInboundHistoryBody(ctx: TemplateContext): boolean {
+  return (
+    Array.isArray(ctx.InboundHistory) &&
+    ctx.InboundHistory.some((entry) => entry.body.replaceAll("\u0000", "").trim().length > 0)
+  );
 }
 
 type RunPreparedReplyParams = {
@@ -344,6 +357,14 @@ export async function runPreparedReply(
         silentReplyRewrite: silentReplySettings.rewrite,
       })
     : "";
+  const allowEmptyAssistantReplyAsSilent =
+    isGroupChat &&
+    resolveGroupSilentReplyBehavior({
+      sessionEntry,
+      defaultActivation,
+      silentReplyPolicy: silentReplySettings.policy,
+      silentReplyRewrite: silentReplySettings.rewrite,
+    }).allowEmptyAssistantReplyAsSilent;
   const groupSystemPrompt = normalizeOptionalString(sessionCtx.GroupSystemPrompt) ?? "";
   const inboundMetaPrompt = buildInboundMetaSystemPrompt(
     isNewSession ? sessionCtx : { ...sessionCtx, ThreadStarterBody: undefined },
@@ -475,7 +496,10 @@ export async function runPreparedReply(
     : [noteToSelfBlock, scopedPromptBlock, inboundUserContext, baseBodyFinal]
         .filter(Boolean)
         .join("\n\n");
-  const hasUserBody = baseBodyFinal.trim().length > 0 || softResetTail.length > 0;
+  const hasUserBody =
+    baseBodyFinal.trim().length > 0 ||
+    softResetTail.length > 0 ||
+    hasInboundHistoryBody(sessionCtx);
   const hasMediaAttachment = hasInboundMedia(sessionCtx) || (opts?.images?.length ?? 0) > 0;
   if (!hasUserBody && !hasMediaAttachment) {
     // Skip onReplyStart when typing is suppressed (e.g. sendPolicy deny) —
@@ -495,7 +519,13 @@ export async function runPreparedReply(
   const effectiveBaseBody = hasUserBody
     ? baseBodyForPrompt
     : [inboundUserContext, "[User sent media without caption]"].filter(Boolean).join("\n\n");
-  const transcriptBodyBase = hasUserBody ? baseBodyFinal : "[User sent media without caption]";
+  const transcriptBodyBase = isHeartbeat
+    ? HEARTBEAT_TRANSCRIPT_PROMPT
+    : isBareSessionReset
+      ? softResetTail
+      : hasUserBody
+        ? baseBodyFinal
+        : "[User sent media without caption]";
   let prefixedBodyBase = await applySessionHints({
     baseBody: effectiveBaseBody,
     abortedLastRun,
@@ -828,6 +858,7 @@ export async function runPreparedReply(
       extraSystemPrompt: extraSystemPromptParts.join("\n\n") || undefined,
       extraSystemPromptStatic: extraSystemPromptStaticParts.join("\n\n"),
       skipProviderRuntimeHints: useFastReplyRuntime,
+      allowEmptyAssistantReplyAsSilent,
       ...(!useFastReplyRuntime &&
       isReasoningTagProvider(provider, {
         config: cfg,
