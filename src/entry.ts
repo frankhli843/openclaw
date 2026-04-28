@@ -2,6 +2,7 @@
 import { spawn } from "node:child_process";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import { applyAcpProtocolModeBootstrap } from "./cli/acp-protocol-mode-bootstrap.frankclaw.js";
 import { isRootHelpInvocation } from "./cli/argv.js";
 import { parseCliContainerArgs, resolveCliContainerTarget } from "./cli/container-target.js";
 import { applyCliProfileEnv, parseCliProfileArgs } from "./cli/profile.js";
@@ -92,6 +93,8 @@ if (
   ensureOpenClawExecMarkerOnProcess();
   installProcessWarningFilter();
   normalizeEnv();
+  // frankclaw: keep stdout clean for ACP protocol JSON when invoked as `openclaw acp ...`.
+  applyAcpProtocolModeBootstrap();
   enableOpenClawCompileCache({
     installRoot,
   });
