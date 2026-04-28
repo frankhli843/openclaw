@@ -54,18 +54,22 @@ function createTaskRegistryMaintenanceHarness(params: {
   tasks: TaskRecord[];
   sessionStore?: Record<string, SessionEntry>;
   acpEntry?: AcpSessionStoreEntry["entry"];
+  acpMeta?: AcpSessionStoreEntry["acp"];
   activeCronJobIds?: string[];
   activeRunIds?: string[];
+  gatewayBootTimeMs?: number;
   cronStore?: CronStoreFile;
   cronRunLogEntries?: Record<string, CronRunLogEntry[]>;
   cronRuntimeAuthoritative?: boolean;
 }) {
   const sessionStore = params.sessionStore ?? {};
   const acpEntry = params.acpEntry;
+  const acpMeta = params.acpMeta;
   const activeCronJobIds = new Set(params.activeCronJobIds ?? []);
   const activeRunIds = new Set(params.activeRunIds ?? []);
   const cronRunLogEntries = params.cronRunLogEntries ?? {};
   const currentTasks = new Map(params.tasks.map((task) => [task.taskId, { ...task }]));
+  const gatewayBootTimeMs = params.gatewayBootTimeMs ?? Date.now() - 60_000;
 
   const runtime: TaskRegistryMaintenanceRuntime = {
     readAcpSessionEntry: () =>
@@ -76,6 +80,7 @@ function createTaskRegistryMaintenanceHarness(params: {
             sessionKey: "",
             storeSessionKey: "",
             entry: acpEntry,
+            acp: acpMeta,
             storeReadFailed: false,
           } satisfies AcpSessionStoreEntry)
         : ({
@@ -149,6 +154,7 @@ function createTaskRegistryMaintenanceHarness(params: {
       currentTasks.set(patch.taskId, next);
       return next;
     },
+    getGatewayBootTimeMs: () => gatewayBootTimeMs,
     isCronRuntimeAuthoritative: () => params.cronRuntimeAuthoritative ?? true,
     resolveCronStorePath: () => "/tmp/openclaw-test-cron/jobs.json",
     loadCronStoreSync: () => params.cronStore ?? { version: 1, jobs: [] },
@@ -370,5 +376,92 @@ describe("task-registry maintenance issue #60299", () => {
         now: expect.any(Number),
       }),
     );
+  });
+});
+
+describe("task-registry maintenance: ACP boot-time liveness check", () => {
+  it("marks ACP task lost when session entry has lastActivityAt before gateway boot", async () => {
+    const now = Date.now();
+    const gatewayBootTimeMs = now - 30_000; // gateway booted 30s ago
+    const task = makeStaleTask({
+      runtime: "acp",
+      childSessionKey: "agent:claude:acp:stale-session-uuid",
+    });
+
+    const { currentTasks } = createTaskRegistryMaintenanceHarness({
+      tasks: [task],
+      acpEntry: { sessionId: "stale-session", updatedAt: now - GRACE_EXPIRED_MS },
+      acpMeta: {
+        backend: "claude",
+        agent: "claude",
+        runtimeSessionName: "test",
+        mode: "oneshot",
+        state: "running",
+        lastActivityAt: gatewayBootTimeMs - 60_000, // activity from BEFORE boot
+      },
+      gatewayBootTimeMs,
+    });
+
+    expect(await runTaskRegistryMaintenance()).toMatchObject({ reconciled: 1 });
+    expect(currentTasks.get(task.taskId)).toMatchObject({ status: "lost" });
+  });
+
+  it("keeps ACP task alive when session entry has lastActivityAt after gateway boot", async () => {
+    const now = Date.now();
+    const gatewayBootTimeMs = now - 300_000; // gateway booted 5min ago
+    const task = makeStaleTask({
+      runtime: "acp",
+      childSessionKey: "agent:claude:acp:fresh-session-uuid",
+    });
+
+    const { currentTasks } = createTaskRegistryMaintenanceHarness({
+      tasks: [task],
+      acpEntry: { sessionId: "fresh-session", updatedAt: now },
+      acpMeta: {
+        backend: "claude",
+        agent: "claude",
+        runtimeSessionName: "test",
+        mode: "oneshot",
+        state: "running",
+        lastActivityAt: gatewayBootTimeMs + 10_000, // activity AFTER boot
+      },
+      gatewayBootTimeMs,
+    });
+
+    expect(await runTaskRegistryMaintenance()).toMatchObject({ reconciled: 0 });
+    expect(currentTasks.get(task.taskId)).toMatchObject({ status: "running" });
+  });
+
+  it("keeps ACP task alive when session entry has no acp metadata (no lastActivityAt)", async () => {
+    const now = Date.now();
+    const task = makeStaleTask({
+      runtime: "acp",
+      childSessionKey: "agent:claude:acp:no-meta-uuid",
+    });
+
+    const { currentTasks } = createTaskRegistryMaintenanceHarness({
+      tasks: [task],
+      acpEntry: { sessionId: "no-meta-session", updatedAt: now },
+      // acpMeta is undefined -- no lastActivityAt to check
+      gatewayBootTimeMs: now - 30_000,
+    });
+
+    expect(await runTaskRegistryMaintenance()).toMatchObject({ reconciled: 0 });
+    expect(currentTasks.get(task.taskId)).toMatchObject({ status: "running" });
+  });
+
+  it("marks ACP task lost when session entry is missing from store", async () => {
+    const task = makeStaleTask({
+      runtime: "acp",
+      childSessionKey: "agent:claude:acp:missing-uuid",
+    });
+
+    const { currentTasks } = createTaskRegistryMaintenanceHarness({
+      tasks: [task],
+      // acpEntry is undefined -- entry not found in store
+    });
+
+    expect(await runTaskRegistryMaintenance()).toMatchObject({ reconciled: 1 });
+    expect(currentTasks.get(task.taskId)).toMatchObject({ status: "lost" });
   });
 });

@@ -32,7 +32,6 @@ const runtime = createOpenAICodexProviderRuntime({
   refreshOpenAICodexToken: refreshOpenAICodexTokenFromPi,
 });
 
-
 export async function getOAuthApiKey(
   ...args: Parameters<typeof getOAuthApiKeyFromPi>
 ): Promise<Awaited<ReturnType<typeof getOAuthApiKeyFromPi>>> {

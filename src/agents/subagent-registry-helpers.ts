@@ -9,8 +9,8 @@ import {
   updateSessionStore,
   type SessionEntry,
 } from "../config/sessions.js";
-import { callGateway } from "../gateway/call.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
+import { callGateway } from "../gateway/call.js";
 import { defaultRuntime } from "../runtime.js";
 import { normalizeLowercaseStringOrEmpty } from "../shared/string-coerce.js";
 import { withSubagentOutcomeTiming } from "./subagent-announce-output.js";

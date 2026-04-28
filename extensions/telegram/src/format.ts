@@ -434,7 +434,6 @@ export function splitTelegramHtmlChunks(html: string, limit: number): string[] {
   return chunks.length > 0 ? chunks : [html];
 }
 
-
 function renderTelegramChunkHtml(ir: MarkdownIR): string {
   return wrapFileReferencesInHtml(renderTelegramHtml(ir));
 }

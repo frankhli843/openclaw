@@ -386,17 +386,22 @@ export async function executeCronRun(params: {
       }
       const r = result as {
         payloads?: Array<{ text?: string; isError?: boolean }>;
-        meta?: { error?: unknown; failureSignal?: { fatalForCron?: boolean }; finalAssistantVisibleText?: string };
+        meta?: {
+          error?: unknown;
+          failureSignal?: { fatalForCron?: boolean };
+          finalAssistantVisibleText?: string;
+        };
         didSendViaMessagingTool?: boolean;
       };
       const payloads = r.payloads ?? [];
-      const { deliveryPayloadHasStructuredContent, hasFatalErrorPayload, outputText } = resolveCronPayloadOutcome({
-        payloads,
-        runLevelError: r.meta?.error,
-        failureSignal: r.meta?.failureSignal,
-        finalAssistantVisibleText: r.meta?.finalAssistantVisibleText,
-        preferFinalAssistantVisibleText: channelOutputPolicy.preferFinalAssistantVisibleText,
-      });
+      const { deliveryPayloadHasStructuredContent, hasFatalErrorPayload, outputText } =
+        resolveCronPayloadOutcome({
+          payloads,
+          runLevelError: r.meta?.error,
+          failureSignal: r.meta?.failureSignal,
+          finalAssistantVisibleText: r.meta?.finalAssistantVisibleText,
+          preferFinalAssistantVisibleText: channelOutputPolicy.preferFinalAssistantVisibleText,
+        });
       // frankclaw: empty text (e.g. from sessions_yield producing only tool
       // calls with no visible text) is not substantive output. Treat it as
       // interim so the orchestration loop waits for descendants rather than

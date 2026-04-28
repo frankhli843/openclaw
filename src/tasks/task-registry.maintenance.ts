@@ -35,6 +35,16 @@ const TASK_RETENTION_MS = 7 * 24 * 60 * 60_000;
 const TASK_SWEEP_INTERVAL_MS = 60_000;
 
 /**
+ * Returns the approximate epoch (ms) at which the current gateway process
+ * started.  ACP session store entries whose `lastActivityAt` is older than
+ * this are from a previous gateway lifecycle and their backing process is
+ * definitely dead.
+ */
+function defaultGetGatewayBootTimeMs(): number {
+  return Date.now() - Math.round(process.uptime() * 1000);
+}
+
+/**
  * Number of tasks to process before yielding to the event loop.
  * Keeps the main thread responsive during large sweeps.
  */
@@ -62,6 +72,7 @@ type TaskRegistryMaintenanceRuntime = {
   maybeDeliverTaskTerminalUpdate: typeof maybeDeliverTaskTerminalUpdate;
   resolveTaskForLookupToken: typeof resolveTaskForLookupToken;
   setTaskCleanupAfterById: typeof setTaskCleanupAfterById;
+  getGatewayBootTimeMs: () => number;
   isCronRuntimeAuthoritative: () => boolean;
   resolveCronStorePath: typeof resolveCronStorePath;
   loadCronStoreSync: typeof loadCronStoreSync;
@@ -85,6 +96,7 @@ const defaultTaskRegistryMaintenanceRuntime: TaskRegistryMaintenanceRuntime = {
   maybeDeliverTaskTerminalUpdate,
   resolveTaskForLookupToken,
   setTaskCleanupAfterById,
+  getGatewayBootTimeMs: defaultGetGatewayBootTimeMs,
   isCronRuntimeAuthoritative: () => configuredCronRuntimeAuthoritative,
   resolveCronStorePath: () => configuredCronStorePath ?? resolveCronStorePath(),
   loadCronStoreSync,
@@ -335,7 +347,23 @@ function hasBackingSession(task: TaskRecord): boolean {
     if (acpEntry.storeReadFailed) {
       return false;
     }
-    return Boolean(acpEntry.entry);
+    if (!acpEntry.entry) {
+      return false;
+    }
+    // [frankclaw] Stale ACP session entries persist on disk across gateway
+    // restarts.  If the entry's lastActivityAt is from before the current
+    // process booted, the ACP runtime that owned this session is dead.
+    // Without this check, tasks from a previous gateway lifecycle appear
+    // alive indefinitely (the entry exists but no process is managing it).
+    // See: Apr 27 gemma4-reddit-synth incident (task marked lost 4.6 days late).
+    const lastActivity = acpEntry.acp?.lastActivityAt;
+    if (
+      typeof lastActivity === "number" &&
+      lastActivity < taskRegistryMaintenanceRuntime.getGatewayBootTimeMs()
+    ) {
+      return false;
+    }
+    return true;
   }
   if (task.runtime === "subagent" || task.runtime === "cli") {
     if (task.runtime === "cli") {

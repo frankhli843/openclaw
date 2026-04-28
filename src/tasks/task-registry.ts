@@ -1124,6 +1124,12 @@ export async function maybeDeliverTaskTerminalUpdate(taskId: string): Promise<Ta
         if (latest.terminalOutcome === "blocked") {
           queueBlockedTaskFollowup(latest);
         }
+        // [frankclaw] Stamp lastNotifiedEventAt so future dedup checks know
+        // the terminal notification was already delivered.
+        upsertTaskDeliveryState({
+          taskId,
+          lastNotifiedEventAt: Date.now(),
+        });
         return updateTask(taskId, {
           deliveryStatus: "session_queued",
           lastEventAt: Date.now(),
@@ -1161,6 +1167,12 @@ export async function maybeDeliverTaskTerminalUpdate(taskId: string): Promise<Ta
       if (latest.terminalOutcome === "blocked") {
         queueBlockedTaskFollowup(latest);
       }
+      // [frankclaw] Stamp lastNotifiedEventAt so future dedup checks know
+      // the terminal notification was already delivered.
+      upsertTaskDeliveryState({
+        taskId,
+        lastNotifiedEventAt: Date.now(),
+      });
       return updateTask(taskId, {
         deliveryStatus: "delivered",
         lastEventAt: Date.now(),

@@ -1,9 +1,9 @@
-import { resolveChunkMode, resolveTextChunkLimit } from "../../auto-reply/chunk.js";
-import type { ReplyPayload } from "../../auto-reply/types.js";
 import {
   hasInternalRuntimeContext,
   stripInternalRuntimeContext,
 } from "../../agents/internal-runtime-context.js";
+import { resolveChunkMode, resolveTextChunkLimit } from "../../auto-reply/chunk.js";
+import type { ReplyPayload } from "../../auto-reply/types.js";
 import { loadChannelOutboundAdapter } from "../../channels/plugins/outbound/load.js";
 import type {
   ChannelOutboundAdapter,
