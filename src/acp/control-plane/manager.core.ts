@@ -1536,8 +1536,11 @@ export class AcpSessionManager {
         );
         return result;
       } catch (err) {
+        const errMessage = err instanceof Error ? err.message : String(err);
+        const errStack =
+          err instanceof Error ? err.stack?.split("\n").slice(0, 3).join(" | ") : "none";
         acpDiag(
-          `ENSURE_SESSION_FAIL session=${params.sessionKey} elapsed=${Date.now() - ensureStartMs}ms error=${err instanceof Error ? err.message : String(err)}`,
+          `ENSURE_SESSION_FAIL session=${params.sessionKey} elapsed=${Date.now() - ensureStartMs}ms error=${errMessage} stack=${errStack}`,
         );
         throw err;
       }
