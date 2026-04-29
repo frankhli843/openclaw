@@ -817,12 +817,23 @@ export class AcpSessionManager {
             acpDiag(
               `RUN_TURN_HANDLE_OK session=${sessionKey} backend=${handle.backend || "?"} runtimeSession=${handle.runtimeSessionName || "?"}`,
             );
-            await this.applyRuntimeControls({
-              sessionKey,
-              runtime,
-              handle,
-              meta,
-            });
+            // frankclaw: make applyRuntimeControls non-fatal for ACP turns.
+            // The nightly merge introduced a code path where setConfigOption
+            // fails with "Internal error" for oneshot sessions because the
+            // original client connection is closed before controls are applied.
+            // Rather than aborting the turn, log the error and continue.
+            try {
+              await this.applyRuntimeControls({
+                sessionKey,
+                runtime,
+                handle,
+                meta,
+              });
+            } catch (controlError) {
+              acpDiag(
+                `RUN_TURN_CONTROLS_FAILED session=${sessionKey} error=${controlError instanceof Error ? controlError.message : String(controlError)} (continuing with turn)`,
+              );
+            }
 
             await this.setSessionState({
               cfg: input.cfg,
