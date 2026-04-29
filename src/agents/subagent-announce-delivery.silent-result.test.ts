@@ -56,7 +56,7 @@ describe("completion direct announce delivery gating", () => {
     sendMessage.mockResolvedValue(undefined);
     deliveryTesting.setDepsForTest({
       callGateway,
-      loadConfig: () => ({}) as never,
+      getRuntimeConfig: () => ({}) as never,
       sendMessage,
     });
   });

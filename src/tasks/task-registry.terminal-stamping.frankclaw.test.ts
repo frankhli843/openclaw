@@ -35,7 +35,12 @@ describe("task-registry terminal delivery stamping (frankclaw regression)", () =
         deleteTaskWithDeliveryState: vi.fn(),
       },
     });
-    const sendMessage = vi.fn(async () => ({ via: "direct" as const }));
+    const sendMessage = vi.fn(async () => ({
+      channel: "notifychat",
+      to: "notifychat:room-1",
+      via: "direct" as const,
+      mediaUrl: null,
+    }));
     setTaskRegistryDeliveryRuntimeForTests({ sendMessage });
 
     const created = createTaskRecord({
@@ -113,7 +118,12 @@ describe("task-registry terminal delivery stamping (frankclaw regression)", () =
         deleteTaskWithDeliveryState: vi.fn(),
       },
     });
-    const sendMessage = vi.fn(async () => ({ via: "direct" as const }));
+    const sendMessage = vi.fn(async () => ({
+      channel: "notifychat",
+      to: "notifychat:room-1",
+      via: "direct" as const,
+      mediaUrl: null,
+    }));
     setTaskRegistryDeliveryRuntimeForTests({ sendMessage });
 
     const first = createTaskRecord({

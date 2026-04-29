@@ -35,6 +35,7 @@ import type {
   AcpRuntimeSessionMode,
   AcpRuntimeStatus,
 } from "../runtime/types.js";
+import { acpDiag } from "./acp-diag.frankclaw.js"; // frankclaw: ACP diagnostic logging
 import { reconcileManagerRuntimeSessionIdentifiers } from "./manager.identity-reconcile.js";
 import {
   applyManagerRuntimeControls,
@@ -1483,21 +1484,38 @@ export class AcpSessionManager {
       mode === "persistent" &&
       previousIdentity != null &&
       !identityHasStableSessionId(previousIdentity);
-    const ensureSession = async (resumeSessionId?: string) =>
-      await withAcpRuntimeErrorBoundary({
-        run: async () =>
-          await runtime.ensureSession({
-            sessionKey: params.sessionKey,
-            agent,
-            mode,
-            ...(resumeSessionId ? { resumeSessionId } : {}),
-            ...(model ? { model } : {}),
-            ...(thinking ? { thinking } : {}),
-            cwd,
-          }),
-        fallbackCode: "ACP_SESSION_INIT_FAILED",
-        fallbackMessage: "Could not initialize ACP session runtime.",
-      });
+    const ensureSession = async (resumeSessionId?: string) => {
+      // frankclaw: log session creation attempt
+      acpDiag(
+        `ENSURE_SESSION session=${params.sessionKey} agent=${agent} mode=${mode} cwd=${cwd} resume=${resumeSessionId || "none"} backend=${configuredBackend || "default"}`,
+      );
+      const ensureStartMs = Date.now();
+      try {
+        const result = await withAcpRuntimeErrorBoundary({
+          run: async () =>
+            await runtime.ensureSession({
+              sessionKey: params.sessionKey,
+              agent,
+              mode,
+              ...(resumeSessionId ? { resumeSessionId } : {}),
+              ...(model ? { model } : {}),
+              ...(thinking ? { thinking } : {}),
+              cwd,
+            }),
+          fallbackCode: "ACP_SESSION_INIT_FAILED",
+          fallbackMessage: "Could not initialize ACP session runtime.",
+        });
+        acpDiag(
+          `ENSURE_SESSION_OK session=${params.sessionKey} elapsed=${Date.now() - ensureStartMs}ms handle=${result.sessionKey}`,
+        );
+        return result;
+      } catch (err) {
+        acpDiag(
+          `ENSURE_SESSION_FAIL session=${params.sessionKey} elapsed=${Date.now() - ensureStartMs}ms error=${err instanceof Error ? err.message : String(err)}`,
+        );
+        throw err;
+      }
+    };
     let ensured: AcpRuntimeHandle;
     if (shouldPrepareFreshPersistentSession) {
       await runtime.prepareFreshSession?.({

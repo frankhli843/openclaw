@@ -32,6 +32,7 @@ import {
   resolveTaskForLookupToken,
   setTaskCleanupAfterById,
 } from "./runtime-internal.js";
+import { guardCloseAcpSession } from "./task-maintenance-close-guard.frankclaw.js"; // frankclaw: suppress close-retry spam
 import {
   configureTaskAuditTaskProvider,
   listTaskAuditFindings,
@@ -103,9 +104,10 @@ type TaskRegistryMaintenanceRuntime = {
 const defaultTaskRegistryMaintenanceRuntime: TaskRegistryMaintenanceRuntime = {
   listAcpSessionEntries,
   readAcpSessionEntry,
-  closeAcpSession: async ({ cfg, sessionKey, reason }) => {
+  closeAcpSession: guardCloseAcpSession(async ({ cfg, sessionKey, reason }) => {
+    // frankclaw: suppress close-retry spam
     await getAcpSessionManager().closeSession({
-      cfg,
+      cfg: cfg as OpenClawConfig,
       sessionKey,
       reason,
       discardPersistentState: true,
@@ -113,7 +115,7 @@ const defaultTaskRegistryMaintenanceRuntime: TaskRegistryMaintenanceRuntime = {
       allowBackendUnavailable: true,
       requireAcpSession: false,
     });
-  },
+  }),
   listSessionBindingsBySession: (sessionKey) =>
     getSessionBindingService().listBySession(sessionKey),
   unbindSessionBindings: (input) => getSessionBindingService().unbind(input),
