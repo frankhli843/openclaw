@@ -97,7 +97,14 @@ function makePluginOwnedTempDir(pluginDir, label) {
 function assertPathIsNotSymlink(targetPath, label) {
   try {
     if (fs.lstatSync(targetPath).isSymbolicLink()) {
-      throw new Error(`refusing to ${label} via symlinked path: ${targetPath}`);
+      // frankclaw: remove stale symlinks left by previous build runs or
+      // cache-based staging instead of refusing to proceed. The symlinks
+      // typically point to .local/bundled-plugin-runtime-deps/ cache entries
+      // from a prior build. Since we're about to replace the path with a fresh
+      // real directory, removing the symlink is the correct behavior. Without
+      // this, the build fails on every rebuild after the first run.
+      fs.unlinkSync(targetPath);
+      return;
     }
   } catch (error) {
     if (error?.code === "ENOENT") {

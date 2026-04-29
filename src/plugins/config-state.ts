@@ -44,7 +44,15 @@ const BUILT_IN_PLUGIN_ALIAS_LOOKUP = new Map<string, string>([
   ...BUILT_IN_PLUGIN_ALIAS_FALLBACKS.map(([, pluginId]) => [pluginId, pluginId] as const),
 ]);
 
+// frankclaw: cache the alias lookup so normalizePluginId doesn't re-scan the
+// filesystem on every call. The upstream design avoids persistent metadata
+// caches, but without this the gateway startup path calls
+// listBundledPluginMetadata hundreds of times synchronously, blocking the
+// event loop for 20+ minutes on large plugin sets.
+let _bundledAliasCache: ReadonlyMap<string, string> | null = null;
+
 function getBundledPluginAliasLookup(): ReadonlyMap<string, string> {
+  if (_bundledAliasCache) return _bundledAliasCache;
   const lookup = new Map<string, string>();
   for (const plugin of listBundledPluginMetadata({ includeChannelConfigs: false })) {
     const pluginId = normalizeOptionalLowercaseString(plugin.manifest.id);
@@ -67,6 +75,7 @@ function getBundledPluginAliasLookup(): ReadonlyMap<string, string> {
   for (const [alias, pluginId] of BUILT_IN_PLUGIN_ALIAS_FALLBACKS) {
     lookup.set(alias, pluginId);
   }
+  _bundledAliasCache = lookup;
   return lookup;
 }
 

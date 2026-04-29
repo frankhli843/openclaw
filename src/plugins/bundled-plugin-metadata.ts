@@ -175,6 +175,14 @@ function collectBundledPluginMetadata(
   return entries;
 }
 
+// frankclaw: cache listBundledPluginMetadata results per parameter combination.
+// The upstream code calls this function hundreds of times during gateway startup
+// and message processing. Each call does a full synchronous filesystem scan
+// (readdir, lstat, readFileSync on every bundled plugin). Without caching, this
+// blocks the event loop for 20+ minutes on startup. The bundled plugin set does
+// not change during process lifetime, so caching is safe.
+const _bundledMetadataCache = new Map<string, readonly BundledPluginMetadata[]>();
+
 export function listBundledPluginMetadata(params?: {
   rootDir?: string;
   scanDir?: string;
@@ -186,7 +194,12 @@ export function listBundledPluginMetadata(params?: {
   const includeChannelConfigs = params?.includeChannelConfigs ?? !RUNNING_FROM_BUILT_ARTIFACT;
   const includeSyntheticChannelConfigs =
     params?.includeSyntheticChannelConfigs ?? includeChannelConfigs;
-  return Object.freeze(
+
+  const cacheKey = `${rootDir}|${scanDir ?? ""}|${includeChannelConfigs}|${includeSyntheticChannelConfigs}`;
+  const cached = _bundledMetadataCache.get(cacheKey);
+  if (cached) return cached;
+
+  const result = Object.freeze(
     collectBundledPluginMetadata(
       rootDir,
       includeChannelConfigs,
@@ -194,6 +207,8 @@ export function listBundledPluginMetadata(params?: {
       scanDir,
     ),
   );
+  _bundledMetadataCache.set(cacheKey, result);
+  return result;
 }
 
 export function findBundledPluginMetadataById(
