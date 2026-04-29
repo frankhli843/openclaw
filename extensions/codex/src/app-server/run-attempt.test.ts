@@ -7,19 +7,19 @@ import {
   queueAgentHarnessMessage,
   type EmbeddedRunAttemptParams,
 } from "openclaw/plugin-sdk/agent-harness";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { __testing as nativeHookRelayTesting } from "../../../../src/agents/harness/native-hook-relay.js";
-import { buildAgentRuntimePlan } from "../../../../src/agents/runtime-plan/build.js";
 import {
+  buildAgentRuntimePlan,
+  nativeHookRelayTesting,
   onAgentEvent,
   resetAgentEventsForTest,
   type AgentEventPayload,
-} from "../../../../src/infra/agent-events.js";
+} from "openclaw/plugin-sdk/agent-harness-runtime";
 import {
   initializeGlobalHookRunner,
   resetGlobalHookRunner,
-} from "../../../../src/plugins/hook-runner-global.js";
-import { createMockPluginRegistry } from "../../../../src/plugins/hooks.test-helpers.js";
+} from "openclaw/plugin-sdk/hook-runtime";
+import { createMockPluginRegistry } from "openclaw/plugin-sdk/plugin-test-runtime";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CODEX_GPT5_BEHAVIOR_CONTRACT } from "../../prompt-overlay.js";
 import * as elicitationBridge from "./elicitation-bridge.js";
 import type { CodexServerNotification } from "./protocol.js";
@@ -170,9 +170,19 @@ function createAppServerHarness(
     request,
     requests,
     async waitForMethod(method: string) {
-      await vi.waitFor(() => expect(requests.some((entry) => entry.method === method)).toBe(true), {
-        interval: 1,
-      });
+      await vi.waitFor(
+        () => {
+          if (!requests.some((entry) => entry.method === method)) {
+            const mockMethods = request.mock.calls.map(([calledMethod]) => calledMethod);
+            throw new Error(
+              `expected app-server method ${method}; saw ${requests
+                .map((entry) => entry.method)
+                .join(", ")}; mock saw ${mockMethods.join(", ")}`,
+            );
+          }
+        },
+        { interval: 1, timeout: 30_000 },
+      );
     },
     async notify(notification: CodexServerNotification) {
       await notify(notification);

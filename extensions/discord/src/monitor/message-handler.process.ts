@@ -16,7 +16,10 @@ import {
   resolveEnvelopeFormatOptions,
 } from "openclaw/plugin-sdk/channel-inbound";
 import { deliverFinalizableDraftPreview } from "openclaw/plugin-sdk/channel-lifecycle";
-import { createChannelReplyPipeline } from "openclaw/plugin-sdk/channel-reply-pipeline";
+import {
+  createChannelReplyPipeline,
+  resolveChannelSourceReplyDeliveryMode,
+} from "openclaw/plugin-sdk/channel-reply-pipeline";
 import {
   resolveChannelStreamingBlockEnabled,
   resolveChannelStreamingPreviewToolProgress,
@@ -213,6 +216,12 @@ export async function processDiscordMessage(
   if (boundThreadId && typeof threadBindings.touchThread === "function") {
     threadBindings.touchThread({ threadId: boundThreadId });
   }
+  const { createReplyDispatcherWithTyping, dispatchInboundMessage } = await loadReplyRuntime();
+  const sourceReplyDeliveryMode = resolveChannelSourceReplyDeliveryMode({
+    cfg,
+    ctx: { ChatType: isGuildMessage ? "channel" : undefined },
+  });
+  const sourceRepliesAreToolOnly = sourceReplyDeliveryMode === "message_tool_only";
   const ackReaction = resolveAckReaction(cfg, route.agentId, {
     channel: "discord",
     accountId,
@@ -233,7 +242,7 @@ export async function processDiscordMessage(
         shouldBypassMention,
       }),
     );
-  const shouldSendAckReaction = shouldAckReaction();
+  const shouldSendAckReaction = !sourceRepliesAreToolOnly && shouldAckReaction();
   const statusReactionsEnabled =
     shouldSendAckReaction && cfg.messages?.statusReactions?.enabled !== false;
   const feedbackRest = createDiscordRestClient({
@@ -280,8 +289,6 @@ export async function processDiscordMessage(
     reactionAdapter: discordAdapter,
     target: `${messageChannelId}/${message.id}`,
   });
-  const { createReplyDispatcherWithTyping, dispatchInboundMessage } = await loadReplyRuntime();
-
   const fromLabel = isDirectMessage
     ? buildDirectLabel(author)
     : buildGuildLabel({
@@ -631,7 +638,8 @@ export async function processDiscordMessage(
   const accountBlockStreamingEnabled =
     resolveChannelStreamingBlockEnabled(discordConfig) ??
     cfg.agents?.defaults?.blockStreamingDefault === "on";
-  const canStreamDraft = discordStreamMode !== "off" && !accountBlockStreamingEnabled;
+  const canStreamDraft =
+    !sourceRepliesAreToolOnly && discordStreamMode !== "off" && !accountBlockStreamingEnabled;
   const draftReplyToMessageId = () => replyReference.peek();
   const deliverChannelId = deliverTarget.startsWith("channel:")
     ? deliverTarget.slice("channel:".length)
@@ -1007,11 +1015,13 @@ export async function processDiscordMessage(
         ...replyOptions,
         abortSignal,
         skillFilter: channelConfig?.skills,
-        disableBlockStreaming:
-          disableBlockStreamingForDraft ??
-          (typeof resolvedBlockStreamingEnabled === "boolean"
-            ? !resolvedBlockStreamingEnabled
-            : undefined),
+        sourceReplyDeliveryMode,
+        disableBlockStreaming: sourceRepliesAreToolOnly
+          ? true
+          : (disableBlockStreamingForDraft ??
+            (typeof resolvedBlockStreamingEnabled === "boolean"
+              ? !resolvedBlockStreamingEnabled
+              : undefined)),
         onPartialReply: draftStream ? (payload) => updateDraftFromPartial(payload.text) : undefined,
         onAssistantMessageStart: draftStream
           ? () => {

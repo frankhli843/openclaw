@@ -4,26 +4,26 @@
 # Sourced by scripts/e2e/bundled-channel-runtime-deps-docker.sh.
 
 run_disabled_config_scenario() {
-  local run_log
-  run_log="$(docker_e2e_run_log bundled-channel-disabled-config)"
+  local state_script_b64
+  state_script_b64="$(docker_e2e_test_state_shell_b64 bundled-channel-disabled-config empty)"
 
   echo "Running bundled channel disabled-config runtime deps Docker E2E..."
-  if ! timeout "$DOCKER_RUN_TIMEOUT" docker run --rm \
+  run_logged_print bundled-channel-disabled-config timeout "$DOCKER_RUN_TIMEOUT" docker run --rm \
     -e COREPACK_ENABLE_DOWNLOAD_PROMPT=0 \
+    -e "OPENCLAW_TEST_STATE_SCRIPT_B64=$state_script_b64" \
     "${DOCKER_E2E_PACKAGE_ARGS[@]}" \
-    -i "$IMAGE_NAME" bash -s >"$run_log" 2>&1 <<'EOF'
+    "${DOCKER_E2E_HARNESS_ARGS[@]}" \
+    -i "$IMAGE_NAME" bash -s <<'EOF'
 set -euo pipefail
 
-export HOME="$(mktemp -d "/tmp/openclaw-bundled-channel-disabled-config.XXXXXX")"
+source scripts/lib/openclaw-e2e-instance.sh
+source scripts/e2e/lib/bundled-channel/common.sh
+openclaw_e2e_eval_test_state_from_b64 "${OPENCLAW_TEST_STATE_SCRIPT_B64:?missing OPENCLAW_TEST_STATE_SCRIPT_B64}"
 export NPM_CONFIG_PREFIX="$HOME/.npm-global"
 export PATH="$NPM_CONFIG_PREFIX/bin:$PATH"
 export OPENCLAW_NO_ONBOARD=1
 export OPENCLAW_PLUGIN_STAGE_DIR="$HOME/.openclaw/plugin-runtime-deps"
 mkdir -p "$OPENCLAW_PLUGIN_STAGE_DIR"
-
-package_root() {
-  printf "%s/openclaw" "$(npm root -g)"
-}
 
 assert_dep_absent_everywhere() {
   local channel="$1"
@@ -96,7 +96,7 @@ echo "Installing mounted OpenClaw package..."
 package_tgz="${OPENCLAW_CURRENT_PACKAGE_TGZ:?missing OPENCLAW_CURRENT_PACKAGE_TGZ}"
 npm install -g "$package_tgz" --no-fund --no-audit >/tmp/openclaw-disabled-config-install.log 2>&1
 
-root="$(package_root)"
+root="$(bundled_channel_package_root)"
 test -d "$root/dist/extensions/telegram"
 test -d "$root/dist/extensions/discord"
 test -d "$root/dist/extensions/slack"
@@ -109,7 +109,15 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const configPath = path.join(process.env.HOME, ".openclaw", "openclaw.json");
+const stateDir = path.dirname(configPath);
 const config = {
+  gateway: {
+    mode: "local",
+    auth: {
+      mode: "token",
+      token: "disabled-config-runtime-deps-token",
+    },
+  },
   plugins: {
     enabled: true,
     entries: {
@@ -136,8 +144,10 @@ const config = {
     },
   },
 };
-fs.mkdirSync(path.dirname(configPath), { recursive: true });
+fs.mkdirSync(path.join(stateDir, "agents", "main", "sessions"), { recursive: true });
 fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, "utf8");
+fs.chmodSync(stateDir, 0o700);
+fs.chmodSync(configPath, 0o600);
 NODE
 
 if ! openclaw doctor --non-interactive >/tmp/openclaw-disabled-config-doctor.log 2>&1; then
@@ -150,7 +160,7 @@ assert_dep_absent_everywhere telegram grammy "$root"
 assert_dep_absent_everywhere slack @slack/web-api "$root"
 assert_dep_absent_everywhere discord discord-api-types "$root"
 
-if grep -Eq "(used by .*\\b(telegram|slack|discord)\\b|\\[plugins\\] (telegram|slack|discord) installed bundled runtime deps( in [0-9]+ms)?:)" /tmp/openclaw-disabled-config-doctor.log; then
+if grep -Eq "(grammy|@slack/web-api|discord-api-types)" /tmp/openclaw-disabled-config-doctor.log; then
   echo "doctor installed runtime deps for an explicitly disabled channel/plugin" >&2
   cat /tmp/openclaw-disabled-config-doctor.log >&2
   exit 1
@@ -158,12 +168,4 @@ fi
 
 echo "bundled channel disabled-config runtime deps Docker E2E passed"
 EOF
-  then
-    docker_e2e_print_log "$run_log"
-    rm -f "$run_log"
-    exit 1
-  fi
-
-  docker_e2e_print_log "$run_log"
-  rm -f "$run_log"
 }

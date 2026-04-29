@@ -5,11 +5,13 @@ import { isAcpRuntimeSpawnAvailable } from "../acp/runtime/availability.js";
 import type { SessionEntry } from "../config/sessions/types.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import type { SubagentSpawnPreparation } from "../context-engine/types.js";
+import { stringifyRouteThreadId } from "../plugin-sdk/channel-route.js";
 import { listRegisteredPluginAgentPromptGuidance } from "../plugins/command-registry-state.js";
 import type { SubagentLifecycleHookRunner } from "../plugins/hooks.js";
 import { isValidAgentId, normalizeAgentId, parseAgentSessionKey } from "../routing/session-key.js";
 import { normalizeOptionalString } from "../shared/string-coerce.js";
 import type { DeliveryContext } from "../utils/delivery-context.types.js";
+import { resolveAgentDir } from "./agent-scope-config.js";
 import type { BootstrapContextMode } from "./bootstrap-files.js";
 import {
   mapToolContextToSpawnedRunMetadata,
@@ -195,8 +197,11 @@ function buildDirectChildSessionPatch(patch: Record<string, unknown>): Partial<S
     const { provider, model } = splitModelRef(patch.model.trim());
     if (model) {
       entry.model = model;
+      entry.modelOverride = model;
+      entry.modelOverrideSource = patch.modelOverrideSource === "auto" ? "auto" : "user";
       if (provider) {
         entry.modelProvider = provider;
+        entry.providerOverride = provider;
       }
     }
   }
@@ -752,6 +757,7 @@ async function spawnSubagentDirectCore(
     depth: childDepth,
     maxSpawnDepth,
   });
+  const targetAgentDir = resolveAgentDir(cfg, targetAgentId);
   const targetAgentConfig = resolveAgentConfig(cfg, targetAgentId);
   const plan = resolveSubagentModelAndThinkingPlan({
     cfg,
@@ -1041,7 +1047,9 @@ async function spawnSubagentDirectCore(
         to: childSessionOrigin?.to ?? undefined,
         accountId: childSessionOrigin?.accountId ?? undefined,
         threadId:
-          childSessionOrigin?.threadId != null ? String(childSessionOrigin.threadId) : undefined,
+          childSessionOrigin?.threadId != null
+            ? stringifyRouteThreadId(childSessionOrigin.threadId)
+            : undefined,
         idempotencyKey: childIdem,
         deliver: deliverInitialChildRunDirectly,
         lane: AGENT_LANE_SUBAGENT,
@@ -1139,6 +1147,7 @@ async function spawnSubagentDirectCore(
       cleanup,
       label: label || undefined,
       model: resolvedModel,
+      agentDir: targetAgentDir,
       workspaceDir: spawnedMetadata.workspaceDir,
       runTimeoutSeconds,
       expectsCompletionMessage: shouldAnnounceCompletion,

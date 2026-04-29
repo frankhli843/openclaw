@@ -75,6 +75,7 @@ export function createSubagentRegistryLifecycleController(params: {
   notifyContextEngineSubagentEnded(args: {
     childSessionKey: string;
     reason: "completed" | "deleted";
+    agentDir?: string;
     workspaceDir?: string;
   }): Promise<void>;
   resumeSubagentRun(runId: string): void;
@@ -428,6 +429,7 @@ export function createSubagentRegistryLifecycleController(params: {
       void params.notifyContextEngineSubagentEnded({
         childSessionKey: cleanupParams.entry.childSessionKey,
         reason: "deleted",
+        agentDir: cleanupParams.entry.agentDir,
         workspaceDir: cleanupParams.entry.workspaceDir,
       });
       params.runs.delete(cleanupParams.runId);
@@ -438,6 +440,7 @@ export function createSubagentRegistryLifecycleController(params: {
     void params.notifyContextEngineSubagentEnded({
       childSessionKey: cleanupParams.entry.childSessionKey,
       reason: "completed",
+      agentDir: cleanupParams.entry.agentDir,
       workspaceDir: cleanupParams.entry.workspaceDir,
     });
     cleanupParams.entry.cleanupCompletedAt = cleanupParams.completedAt;
@@ -710,6 +713,10 @@ export function createSubagentRegistryLifecycleController(params: {
     }
     if (entry.endedReason !== completeParams.reason) {
       entry.endedReason = completeParams.reason;
+      mutated = true;
+    }
+    if (entry.pauseReason !== undefined) {
+      entry.pauseReason = undefined;
       mutated = true;
     }
 

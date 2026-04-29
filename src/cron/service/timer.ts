@@ -74,6 +74,7 @@ type ResolvedFailureAlert = {
 type TimedCronRunOutcome = CronRunOutcome &
   CronRunTelemetry & {
     jobId: string;
+    job: CronJob;
     taskRunId?: string;
     delivered?: boolean;
     deliveryAttempted?: boolean;
@@ -678,6 +679,21 @@ function applyOutcomeToStoredJob(state: CronServiceState, result: TimedCronRunOu
   const jobs = store.jobs;
   const job = jobs.find((entry) => entry.id === result.jobId);
   if (!job) {
+    if (result.status === "ok") {
+      applyJobResult(state, result.job, {
+        status: result.status,
+        error: result.error,
+        delivered: result.delivered,
+        startedAt: result.startedAt,
+        endedAt: result.endedAt,
+      });
+      emitJobFinished(state, result.job, result, result.startedAt);
+      state.deps.log.info(
+        { jobId: result.jobId },
+        "cron: finalized successful run after job was removed during execution",
+      );
+      return;
+    }
     state.deps.log.warn(
       { jobId: result.jobId },
       "cron: applyOutcomeToStoredJob — job not found after forceReload, result discarded",
@@ -698,7 +714,7 @@ function applyOutcomeToStoredJob(state: CronServiceState, result: TimedCronRunOu
 
   if (shouldDelete) {
     store.jobs = jobs.filter((entry) => entry.id !== job.id);
-    emit(state, { jobId: job.id, action: "removed" });
+    emit(state, { jobId: job.id, action: "removed", job });
   }
 }
 
@@ -826,7 +842,7 @@ export async function onTimer(state: CronServiceState) {
       const startedAt = state.deps.nowMs();
       job.state.runningAtMs = startedAt;
       markCronJobActive(job.id);
-      emit(state, { jobId: job.id, action: "started", runAtMs: startedAt });
+      emit(state, { jobId: job.id, action: "started", job, runAtMs: startedAt });
       const jobTimeoutMs = resolveCronJobTimeoutMs(job);
       const taskRunId = tryCreateCronTaskRun({ state, job, startedAt });
 
@@ -835,6 +851,7 @@ export async function onTimer(state: CronServiceState) {
         return {
           jobId: id,
           scheduledAtMs,
+          job,
           taskRunId,
           ...result,
           startedAt,
@@ -849,6 +866,7 @@ export async function onTimer(state: CronServiceState) {
         return {
           jobId: id,
           scheduledAtMs,
+          job,
           taskRunId,
           status: "error",
           error: errorText,
@@ -1132,11 +1150,17 @@ async function runStartupCatchupCandidate(
     job: candidate.job,
     startedAt,
   });
-  emit(state, { jobId: candidate.job.id, action: "started", runAtMs: startedAt });
+  emit(state, {
+    jobId: candidate.job.id,
+    action: "started",
+    job: candidate.job,
+    runAtMs: startedAt,
+  });
   try {
     const result = await executeJobCoreWithTimeout(state, candidate.job);
     return {
       jobId: candidate.jobId,
+      job: candidate.job,
       taskRunId,
       status: result.status,
       error: result.error,
@@ -1153,6 +1177,7 @@ async function runStartupCatchupCandidate(
   } catch (err) {
     return {
       jobId: candidate.jobId,
+      job: candidate.job,
       taskRunId,
       status: "error",
       error: normalizeCronRunErrorText(err),
@@ -1431,7 +1456,7 @@ export async function executeJob(
   job.state.runningAtMs = startedAt;
   job.state.lastError = undefined;
   markCronJobActive(job.id);
-  emit(state, { jobId: job.id, action: "started", runAtMs: startedAt });
+  emit(state, { jobId: job.id, action: "started", job, runAtMs: startedAt });
 
   let coreResult: {
     status: CronRunStatus;
@@ -1458,7 +1483,7 @@ export async function executeJob(
 
   if (shouldDelete && state.store) {
     state.store.jobs = state.store.jobs.filter((j) => j.id !== job.id);
-    emit(state, { jobId: job.id, action: "removed" });
+    emit(state, { jobId: job.id, action: "removed", job });
   }
   clearCronJobActive(job.id);
 }
@@ -1477,6 +1502,7 @@ function emitJobFinished(
   emit(state, {
     jobId: job.id,
     action: "finished",
+    job,
     status: result.status,
     error: result.error,
     summary: result.summary,
