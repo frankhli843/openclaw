@@ -9,10 +9,18 @@
  *   acpDiag("TURN_START session=... req=... mode=...");
  */
 import { appendFileSync, mkdirSync, statSync, renameSync, unlinkSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { resolveStateDir } from "../../config/paths.js";
 
-const ACP_DIAG_LOG = join(resolveStateDir(process.env), "acp-diag.log");
+// frankclaw: hardcode the workspace state dir path to avoid resolveStateDir
+// returning the base openclaw dir (~/.openclaw) instead of the workspace state
+// dir (~/.openclaw/workspace/state). The config/paths.js resolveStateDir
+// resolves to the base dir, not the workspace state dir.
+const ACP_DIAG_LOG = join(
+  process.env.OPENCLAW_WORKSPACE || join(homedir(), ".openclaw", "workspace"),
+  "state",
+  "acp-diag.log",
+);
 const ACP_DIAG_MAX_BYTES = 2 * 1024 * 1024; // 2MB max
 
 export function acpDiag(msg: string): void {

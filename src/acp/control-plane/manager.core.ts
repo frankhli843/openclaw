@@ -804,6 +804,8 @@ export class AcpSessionManager {
           let retryFreshHandle = false;
           let skipPostTurnCleanup = false;
           try {
+            // frankclaw: log runTurn entry point
+            acpDiag(`RUN_TURN_ENTRY session=${sessionKey} attempt=${attempt} mode=${input.mode}`);
             const ensured = await this.ensureRuntimeHandle({
               cfg: input.cfg,
               sessionKey,
@@ -812,6 +814,9 @@ export class AcpSessionManager {
             runtime = ensured.runtime;
             handle = ensured.handle;
             meta = ensured.meta;
+            acpDiag(
+              `RUN_TURN_HANDLE_OK session=${sessionKey} backend=${handle.backend || "?"} runtimeSession=${handle.runtimeSessionName || "?"}`,
+            );
             await this.applyRuntimeControls({
               sessionKey,
               runtime,
@@ -940,6 +945,10 @@ export class AcpSessionManager {
             });
             return;
           } catch (error) {
+            // frankclaw: log the full error before it gets normalized
+            acpDiag(
+              `RUN_TURN_CATCH session=${sessionKey} activeTurnStarted=${activeTurnStarted} sawTurnOutput=${sawTurnOutput} error=${error instanceof Error ? error.message : String(error)} stack=${error instanceof Error ? (error.stack || "").split("\n").slice(0, 3).join(" | ") : "none"}`,
+            );
             const acpError = toAcpRuntimeError({
               error,
               fallbackCode: activeTurnStarted ? "ACP_TURN_FAILED" : "ACP_SESSION_INIT_FAILED",
