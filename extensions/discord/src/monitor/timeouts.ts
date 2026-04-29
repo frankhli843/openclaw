@@ -1,21 +1,18 @@
-const MAX_DISCORD_TIMEOUT_MS = 2_147_483_647;
-
+// Compatibility constants for existing imports. Discord no longer enforces
+// channel-owned listener or inbound run timeouts.
 export const DISCORD_DEFAULT_LISTENER_TIMEOUT_MS = 120_000;
 export const DISCORD_DEFAULT_INBOUND_WORKER_TIMEOUT_MS = 30 * 60_000;
+
 export const DISCORD_ATTACHMENT_IDLE_TIMEOUT_MS = 60_000;
 export const DISCORD_ATTACHMENT_TOTAL_TIMEOUT_MS = 120_000;
+
+const MAX_DISCORD_TIMEOUT_MS = 2_147_483_647;
 
 function clampDiscordTimeoutMs(timeoutMs: number, minimumMs: number): number {
   return Math.max(minimumMs, Math.min(Math.floor(timeoutMs), MAX_DISCORD_TIMEOUT_MS));
 }
 
-export function normalizeDiscordListenerTimeoutMs(raw: number | undefined): number {
-  if (!Number.isFinite(raw) || (raw ?? 0) <= 0) {
-    return DISCORD_DEFAULT_LISTENER_TIMEOUT_MS;
-  }
-  return clampDiscordTimeoutMs(raw!, 1_000);
-}
-
+// frankclaw: re-added for durable inbound worker (inbound-worker.durable.frankclaw.ts)
 export function normalizeDiscordInboundWorkerTimeoutMs(
   raw: number | undefined,
 ): number | undefined {
@@ -28,45 +25,15 @@ export function normalizeDiscordInboundWorkerTimeoutMs(
   return clampDiscordTimeoutMs(raw, 1);
 }
 
-export function isAbortError(error: unknown): boolean {
+// frankclaw: re-added for durable inbound worker
+function isAbortError(error: unknown): boolean {
   if (typeof error !== "object" || error === null) {
     return false;
   }
   return "name" in error && String((error as { name?: unknown }).name) === "AbortError";
 }
 
-export function mergeAbortSignals(
-  signals: Array<AbortSignal | undefined>,
-): AbortSignal | undefined {
-  const activeSignals = signals.filter((signal): signal is AbortSignal => Boolean(signal));
-  if (activeSignals.length === 0) {
-    return undefined;
-  }
-  if (activeSignals.length === 1) {
-    return activeSignals[0];
-  }
-  if (typeof AbortSignal.any === "function") {
-    return AbortSignal.any(activeSignals);
-  }
-  const fallbackController = new AbortController();
-  for (const signal of activeSignals) {
-    if (signal.aborted) {
-      fallbackController.abort();
-      return fallbackController.signal;
-    }
-  }
-  const abortFallback = () => {
-    fallbackController.abort();
-    for (const signal of activeSignals) {
-      signal.removeEventListener("abort", abortFallback);
-    }
-  };
-  for (const signal of activeSignals) {
-    signal.addEventListener("abort", abortFallback, { once: true });
-  }
-  return fallbackController.signal;
-}
-
+// frankclaw: re-added for durable inbound worker
 export async function runDiscordTaskWithTimeout(params: {
   run: (abortSignal: AbortSignal | undefined) => Promise<void>;
   timeoutMs?: number;
@@ -119,4 +86,36 @@ export async function runDiscordTaskWithTimeout(params: {
       clearTimeout(timeoutHandle);
     }
   }
+}
+
+export function mergeAbortSignals(
+  signals: Array<AbortSignal | undefined>,
+): AbortSignal | undefined {
+  const activeSignals = signals.filter((signal): signal is AbortSignal => Boolean(signal));
+  if (activeSignals.length === 0) {
+    return undefined;
+  }
+  if (activeSignals.length === 1) {
+    return activeSignals[0];
+  }
+  if (typeof AbortSignal.any === "function") {
+    return AbortSignal.any(activeSignals);
+  }
+  const fallbackController = new AbortController();
+  for (const signal of activeSignals) {
+    if (signal.aborted) {
+      fallbackController.abort();
+      return fallbackController.signal;
+    }
+  }
+  const abortFallback = () => {
+    fallbackController.abort();
+    for (const signal of activeSignals) {
+      signal.removeEventListener("abort", abortFallback);
+    }
+  };
+  for (const signal of activeSignals) {
+    signal.addEventListener("abort", abortFallback, { once: true });
+  }
+  return fallbackController.signal;
 }

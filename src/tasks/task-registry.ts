@@ -323,6 +323,16 @@ function persistTaskDeliveryStateDelete(taskId: string) {
   });
 }
 
+function clearTaskRegistryMemory(): void {
+  tasks.clear();
+  taskDeliveryStates.clear();
+  taskIdsByRunId.clear();
+  taskIdsByOwnerKey.clear();
+  taskIdsByParentFlowId.clear();
+  taskIdsByRelatedSessionKey.clear();
+  tasksWithPendingDelivery.clear();
+}
+
 function ensureDeliveryStatus(params: {
   ownerKey: string;
   scopeKind: TaskScopeKind;
@@ -807,6 +817,18 @@ function mergeExistingTaskForCreate(
   return updateTask(existing.taskId, patch) ?? cloneTaskRecord(existing);
 }
 
+function resolveTaskAgentId(params: {
+  explicitAgentId?: string;
+  ownerKey: string;
+  requesterSessionKey: string;
+}): string | undefined {
+  return (
+    normalizeOptionalString(params.explicitAgentId) ??
+    parseAgentSessionKey(params.ownerKey)?.agentId ??
+    parseAgentSessionKey(params.requesterSessionKey)?.agentId
+  );
+}
+
 function taskTerminalDeliveryIdempotencyKey(task: TaskRecord): string {
   const outcome = task.status === "succeeded" ? (task.terminalOutcome ?? "default") : "default";
   return `task-terminal:${task.taskId}:${task.status}:${outcome}`;
@@ -948,6 +970,12 @@ function restoreTaskRegistryOnce() {
 export function ensureTaskRegistryReady() {
   restoreTaskRegistryOnce();
   ensureListener();
+}
+
+export function reloadTaskRegistryFromStore(): void {
+  clearTaskRegistryMemory();
+  restoreAttempted = false;
+  restoreTaskRegistryOnce();
 }
 
 function updateTask(taskId: string, patch: Partial<TaskRecord>): TaskRecord | null {
@@ -1495,6 +1523,11 @@ export function createTaskRecord(params: {
     requesterSessionKey,
     ownerKey: params.ownerKey,
   });
+  const agentId = resolveTaskAgentId({
+    explicitAgentId: params.agentId,
+    ownerKey,
+    requesterSessionKey,
+  });
   assertTaskOwner({
     ownerKey,
     scopeKind,
@@ -1515,7 +1548,7 @@ export function createTaskRecord(params: {
     task: params.task,
   });
   if (existing) {
-    return mergeExistingTaskForCreate(existing, params);
+    return mergeExistingTaskForCreate(existing, { ...params, agentId });
   }
   const now = Date.now();
   const taskId = crypto.randomUUID();
@@ -1544,7 +1577,7 @@ export function createTaskRecord(params: {
     childSessionKey: params.childSessionKey,
     parentFlowId: normalizeOptionalString(params.parentFlowId),
     parentTaskId: normalizeOptionalString(params.parentTaskId),
-    agentId: normalizeOptionalString(params.agentId),
+    agentId,
     runId: normalizeOptionalString(params.runId),
     label: normalizeOptionalString(params.label),
     task: params.task,
@@ -2075,13 +2108,7 @@ export function deleteTaskRecordById(taskId: string): boolean {
 }
 
 export function resetTaskRegistryForTests(opts?: { persist?: boolean }) {
-  tasks.clear();
-  taskDeliveryStates.clear();
-  taskIdsByRunId.clear();
-  taskIdsByOwnerKey.clear();
-  taskIdsByParentFlowId.clear();
-  taskIdsByRelatedSessionKey.clear();
-  tasksWithPendingDelivery.clear();
+  clearTaskRegistryMemory();
   restoreAttempted = false;
   resetTaskRegistryRuntimeForTests();
   if (listenerStop) {

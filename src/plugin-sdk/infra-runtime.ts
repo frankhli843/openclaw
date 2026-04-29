@@ -1,32 +1,10 @@
-import {
-  drainPendingDeliveries as coreDrainPendingDeliveries,
-  type DeliverFn,
-} from "../infra/outbound/delivery-queue.js";
+/**
+ * @deprecated Compatibility shim only. Keep old plugins working, but do not
+ * add new imports here and do not use this subpath from repo code.
+ * Prefer focused openclaw/plugin-sdk/<domain> runtime subpaths instead.
+ */
 
-// Public runtime/transport helpers for plugins that need shared infra behavior.
-
-type OutboundDeliverRuntimeModule = typeof import("../infra/outbound/deliver-runtime.js");
-type DrainPendingDeliveriesOptions = Omit<
-  Parameters<typeof coreDrainPendingDeliveries>[0],
-  "deliver"
-> & {
-  deliver?: DeliverFn;
-};
-
-let outboundDeliverRuntimePromise: Promise<OutboundDeliverRuntimeModule> | null = null;
-
-async function loadOutboundDeliverRuntime(): Promise<OutboundDeliverRuntimeModule> {
-  outboundDeliverRuntimePromise ??= import("../infra/outbound/deliver-runtime.js");
-  return await outboundDeliverRuntimePromise;
-}
-
-export async function drainPendingDeliveries(opts: DrainPendingDeliveriesOptions): Promise<void> {
-  const deliver = opts.deliver ?? (await loadOutboundDeliverRuntime()).deliverOutboundPayloads;
-  await coreDrainPendingDeliveries({
-    ...opts,
-    deliver,
-  });
-}
+export * from "./delivery-queue-runtime.js";
 
 export * from "../infra/backoff.js";
 export * from "../infra/channel-activity.js";
@@ -71,7 +49,33 @@ export * from "../infra/net/ssrf.js";
 export * from "../infra/outbound/identity.js";
 export * from "../infra/outbound/direct-action-context.frankclaw.js";
 export * from "../infra/outbound/discord-dnr.js";
-export * from "../infra/outbound/delivery-queue.js";
+// frankclaw: exclude drainPendingDeliveries (already re-exported via delivery-queue-runtime.js above)
+export {
+  ackDelivery,
+  enqueueDelivery,
+  ensureQueueDir,
+  failDelivery,
+  loadPendingDelivery,
+  loadPendingDeliveries,
+  moveToFailed,
+  _isRecoveryInProgress,
+  computeBackoffMs,
+  isEntryEligibleForRecoveryRetry,
+  isPermanentDeliveryError,
+  MAX_RETRIES,
+  recoverPendingDeliveries,
+  withActiveDeliveryClaim,
+  deferDelivery,
+} from "../infra/outbound/delivery-queue.js";
+export type {
+  QueuedDelivery,
+  QueuedDeliveryPayload,
+  ActiveDeliveryClaimResult,
+  DeliverFn,
+  PendingDeliveryDrainDecision,
+  RecoveryLogger,
+  RecoverySummary,
+} from "../infra/outbound/delivery-queue.js";
 export * from "../infra/outbound/sanitize-text.js";
 export * from "../infra/parse-finite-number.js";
 export * from "../infra/outbound/send-deps.js";

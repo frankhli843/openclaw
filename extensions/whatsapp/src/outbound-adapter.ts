@@ -6,6 +6,7 @@ import {
   WhatsAppDnrSuppressedError,
 } from "../../../src/infra/outbound/discord-dnr.js";
 import { createWhatsAppOutboundBase } from "./outbound-base.js";
+import { normalizeWhatsAppPayloadText } from "./outbound-media-contract.js";
 import { resolveWhatsAppOutboundTarget } from "./resolve-outbound-target.js";
 
 const dnrLog = createSubsystemLogger("whatsapp-dnr");
@@ -19,8 +20,8 @@ function loadWhatsAppSendModule(): Promise<WhatsAppSendModule> {
   return whatsAppSendModulePromise;
 }
 
-function trimLeadingWhitespace(text: string | undefined): string {
-  return text?.trimStart() ?? "";
+function normalizeOutboundText(text: string | undefined): string {
+  return normalizeWhatsAppPayloadText(text);
 }
 
 // frankclaw: enforce WhatsApp DNR quiet hours before sending
@@ -47,7 +48,7 @@ export const whatsappOutbound: ChannelOutboundAdapter = createWhatsAppOutboundBa
     }
     return await (
       await loadWhatsAppSendModule()
-    ).sendMessageWhatsApp(to, trimLeadingWhitespace(text), {
+    ).sendMessageWhatsApp(to, normalizeOutboundText(text), {
       ...options,
     });
   },
@@ -56,6 +57,6 @@ export const whatsappOutbound: ChannelOutboundAdapter = createWhatsAppOutboundBa
   shouldLogVerbose: () => shouldLogVerbose(),
   resolveTarget: ({ to, allowFrom, mode }) =>
     resolveWhatsAppOutboundTarget({ to, allowFrom, mode }),
-  normalizeText: trimLeadingWhitespace,
+  normalizeText: normalizeOutboundText,
   skipEmptyText: true,
 });
