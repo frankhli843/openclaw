@@ -1285,6 +1285,16 @@ describe("processDiscordMessage DNR preview suppression", () => {
     vi.spyOn(infraRuntimeModule, "enforceDiscordDnrWindow").mockImplementation(() => {});
   }
 
+  beforeEach(() => {
+    // Drain stale mockReturnValueOnce entries left by earlier tests that set
+    // createDiscordDraftStream.mockReturnValueOnce but never triggered a call
+    // (e.g. tests using createBaseContext where canStreamDraft is false).
+    // mockClear() in the global beforeEach only clears call/result tracking,
+    // not the once-queue.
+    createDiscordDraftStream.mockReset();
+    createDiscordDraftStream.mockImplementation(() => createMockDraftStream());
+  });
+
   afterEach(() => {
     disableDnr();
   });
@@ -1300,11 +1310,14 @@ describe("processDiscordMessage DNR preview suppression", () => {
       return { queuedFinal: true, counts: { final: 1, tool: 0, block: 0 } };
     });
 
-    const ctx = await createBaseContext({
+    const ctx = await createAutomaticSourceDeliveryContext({
       discordConfig: { streamMode: "partial", maxLinesPerMessage: 5 },
     });
 
     await processDiscordMessage(ctx as any);
+
+    // Wait for detached deliver callback to settle (sendFinalReply uses void)
+    await new Promise((resolve) => setTimeout(resolve, 100));
 
     // Preview edit should NOT have been called
     expect(editMessageDiscord).not.toHaveBeenCalled();
@@ -1326,7 +1339,7 @@ describe("processDiscordMessage DNR preview suppression", () => {
       return createNoQueuedDispatchResult();
     });
 
-    const ctx = await createBaseContext({
+    const ctx = await createAutomaticSourceDeliveryContext({
       discordConfig: { streamMode: "partial" },
     });
 
@@ -1347,7 +1360,7 @@ describe("processDiscordMessage DNR preview suppression", () => {
       return { queuedFinal: true, counts: { final: 1, tool: 0, block: 0 } };
     });
 
-    const ctx = await createBaseContext({
+    const ctx = await createAutomaticSourceDeliveryContext({
       discordConfig: { streamMode: "partial", maxLinesPerMessage: 5 },
     });
 

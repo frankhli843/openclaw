@@ -41,6 +41,8 @@ import {
 import { buildDiscordMessageProcessContext } from "./message-handler.context.js";
 import { createDiscordDraftPreviewController } from "./message-handler.draft-preview.js";
 import type { DiscordMessagePreflightContext } from "./message-handler.preflight.js";
+// frankclaw: bed-emoji reaction helper for DNR quiet hours
+import { reactDiscordDnrBedEmoji } from "./message-handler.process.dnr.frankclaw.js";
 import { resolveForwardedMediaList, resolveMediaList } from "./message-utils.js";
 import { deliverDiscordReply } from "./reply-delivery.js";
 import {
@@ -312,6 +314,25 @@ export async function processDiscordMessage(
     observer?.onFinalReplyStart?.();
   };
 
+  // frankclaw: track whether deliverDiscordReply reported a DNR suppression so
+  // we can react with 🛏️ after the dispatch settles.
+  let dnrSuppressedDuringDelivery = false;
+  // frankclaw: helper that consults enforceDiscordDnrWindow for the delivery
+  // target. Used to (a) skip preview-edit finalization during quiet hours and
+  // (b) gate onPartialReply draft-stream updates. Inlined here so vi.spyOn on
+  // the infra-runtime module export propagates through this file's binding.
+  const isDnrActive = (): boolean => {
+    try {
+      enforceDiscordDnrWindow({ channel: "discord", to: deliverTarget });
+      return false;
+    } catch (err) {
+      if (err instanceof DiscordDnrSuppressedError) {
+        return true;
+      }
+      throw err;
+    }
+  };
+
   const { dispatcher, replyOptions, markDispatchIdle, markRunComplete } =
     createReplyDispatcherWithTyping({
       ...replyPipeline,
@@ -326,7 +347,19 @@ export async function processDiscordMessage(
           return;
         }
         const draftStream = draftPreview.draftStream;
-        if (draftStream && isFinal) {
+        // frankclaw: during DNR quiet hours, the preview-edit finalization path
+        // would call editMessageDiscord directly and bypass the DNR enforcement
+        // inside deliverDiscordReply. Stop and clear any pending preview, then
+        // fall through to standard delivery, which queues + returns
+        // dnrSuppressed=true for the bed-emoji reaction below.
+        if (draftStream && isFinal && isDnrActive()) {
+          draftPreview.markFinalDeliveryHandled();
+          await draftStream.stop();
+          if (!draftPreview.finalizedViaPreviewMessage) {
+            await draftStream.clear();
+          }
+          // fall through to the standard deliverDiscordReply path below
+        } else if (draftStream && isFinal) {
           draftPreview.markFinalDeliveryHandled();
           const reply = resolveSendableOutboundReplyParts(payload);
           const hasMedia = reply.hasMedia;
@@ -375,7 +408,8 @@ export async function processDiscordMessage(
               }
               const replyToId = replyReference.use();
               notifyFinalReplyStart();
-              await deliverDiscordReply({
+              // frankclaw: capture dnrSuppressed flag for post-dispatch 🛏️ reaction
+              const deliverResult = await deliverDiscordReply({
                 cfg,
                 replies: [payload],
                 target: deliverTarget,
@@ -393,6 +427,9 @@ export async function processDiscordMessage(
                 threadBindings,
                 mediaLocalRoots,
               });
+              if (deliverResult?.dnrSuppressed) {
+                dnrSuppressedDuringDelivery = true;
+              }
               replyReference.markSent();
               observer?.onFinalReplyDelivered?.();
               return true;
@@ -420,7 +457,8 @@ export async function processDiscordMessage(
         if (isFinal) {
           notifyFinalReplyStart();
         }
-        await deliverDiscordReply({
+        // frankclaw: capture dnrSuppressed flag for post-dispatch 🛏️ reaction
+        const standardDeliverResult = await deliverDiscordReply({
           cfg,
           replies: [payload],
           target: deliverTarget,
@@ -438,6 +476,9 @@ export async function processDiscordMessage(
           threadBindings,
           mediaLocalRoots,
         });
+        if (standardDeliverResult?.dnrSuppressed) {
+          dnrSuppressedDuringDelivery = true;
+        }
         replyReference.markSent();
         if (isFinal) {
           observer?.onFinalReplyDelivered?.();
@@ -529,8 +570,15 @@ export async function processDiscordMessage(
                     (typeof resolvedBlockStreamingEnabled === "boolean"
                       ? !resolvedBlockStreamingEnabled
                       : undefined)),
+                // frankclaw: drop preview partial-stream updates during DNR
+                // quiet hours so we don't leak preview message edits.
                 onPartialReply: draftPreview.draftStream
-                  ? (payload) => draftPreview.updateFromPartial(payload.text)
+                  ? (payload) => {
+                      if (isDnrActive()) {
+                        return;
+                      }
+                      draftPreview.updateFromPartial(payload.text);
+                    }
                   : undefined,
                 onAssistantMessageStart: draftPreview.draftStream
                   ? draftPreview.handleAssistantMessageBoundary
@@ -675,6 +723,17 @@ export async function processDiscordMessage(
   }
   if (dispatchAborted) {
     return;
+  }
+
+  // frankclaw: if any deliverDiscordReply call returned dnrSuppressed=true (a
+  // queued-for-later reply during quiet hours), react with 🛏️ so the sender
+  // knows their message was received but deferred until the next open window.
+  if (dnrSuppressedDuringDelivery) {
+    await reactDiscordDnrBedEmoji({
+      channelId: messageChannelId,
+      messageId: message.id,
+      rest: feedbackRest,
+    });
   }
 
   const finalDispatchResult = dispatchResult;
