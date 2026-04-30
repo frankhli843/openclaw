@@ -37,6 +37,7 @@ import {
   setTaskCleanupAfterById,
 } from "./runtime-internal.js";
 import { guardCloseAcpSession } from "./task-maintenance-close-guard.frankclaw.js"; // frankclaw: suppress close-retry spam
+import { maybePurgeOldTaskRecords } from "./task-registry-autopurge.frankclaw.js"; // frankclaw: auto-purge old records
 import {
   configureTaskAuditTaskProvider,
   listTaskAuditFindings,
@@ -809,8 +810,20 @@ export async function runTaskRegistryMaintenance(): Promise<TaskRegistryMaintena
   let recovered = 0;
   let cleanupStamped = 0;
   let pruned = 0;
+  // frankclaw: auto-purge old completed records before the sweep.
+  // Keeps the task list small so the O(n) sweep stays fast.
+  maybePurgeOldTaskRecords({
+    listTaskRecords: taskRegistryMaintenanceRuntime.listTaskRecords,
+    deleteTaskRecordById: taskRegistryMaintenanceRuntime.deleteTaskRecordById,
+  });
+
   const tasks = taskRegistryMaintenanceRuntime.listTaskRecords();
   const cronRecoveryContext = createCronRecoveryContext();
+  // frankclaw: pre-compute the active child session set ONCE instead of
+  // calling listTaskRecords() inside the loop for every task (O(n²) → O(n)).
+  // The original code called listTaskRecords() on line 865 inside the for-loop,
+  // causing 8000+ clones × 8000 comparisons per sweep = 100% CPU.
+  const tasksForCleanup = tasks;
   let processed = 0;
   for (const task of tasks) {
     const current = taskRegistryMaintenanceRuntime.getTaskById(task.taskId);
@@ -862,7 +875,7 @@ export async function runTaskRegistryMaintenance(): Promise<TaskRegistryMaintena
       }
       continue;
     }
-    await cleanupTerminalAcpSession(current, taskRegistryMaintenanceRuntime.listTaskRecords());
+    await cleanupTerminalAcpSession(current, tasksForCleanup);
     if (
       shouldPruneTerminalTask(current, now) &&
       taskRegistryMaintenanceRuntime.deleteTaskRecordById(current.taskId)
