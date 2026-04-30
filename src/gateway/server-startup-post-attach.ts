@@ -411,6 +411,23 @@ export async function startGatewaySidecars(params: {
     })().catch((err) => {
       params.log.warn(`acp startup identity reconcile failed: ${String(err)}`);
     });
+    // frankclaw: prune ACP-keyed sessions that were left half-created by a
+    // failed sessions_spawn (no acp meta + empty/missing transcript). Runs
+    // once at startup and then on a 15-min recurring timer. See
+    // src/acp/control-plane/acp-orphan-sweeper.frankclaw.ts.
+    void (async () => {
+      const { runAcpOrphanSweep, scheduleAcpOrphanSweeper } =
+        await import("../acp/control-plane/acp-orphan-sweeper.frankclaw.js");
+      const sweep = await runAcpOrphanSweep({ cfg: params.cfg });
+      if (sweep.candidates > 0) {
+        params.log.warn(
+          `acp orphan sweep (startup): scanned=${sweep.scanned} deleted=${sweep.deleted} failed=${sweep.failed} skipped=${sweep.skipped}`,
+        );
+      }
+      scheduleAcpOrphanSweeper({ cfg: params.cfg });
+    })().catch((err) => {
+      params.log.warn(`acp orphan sweep failed: ${String(err)}`);
+    });
   }
 
   await measureStartup(params.startupTrace, "sidecars.memory", async () => {

@@ -64,6 +64,9 @@ import {
   normalizeDeliveryContext,
   resolveConversationDeliveryTarget,
 } from "../utils/delivery-context.js";
+// frankclaw: spawn-stage diagnostics + orphan-session safety net (closes the
+// "sessions.patch succeeded server-side after client timeout" race window).
+import { acpSpawnDiag, forceDeleteOrphanAcpSession } from "./acp-spawn-diag.frankclaw.js";
 // frankclaw addition: redirect ACP spawn chatter from Discord channels to #logs
 import {
   postAcpSpawnKickoffLog,
@@ -1308,7 +1311,15 @@ export async function spawnAcpDirect(
   let binding: SessionBindingRecord | null = null;
   let sessionCreated = false;
   let initializedRuntime: AcpSpawnRuntimeCloseHandle | undefined;
+  // frankclaw: announce the start of the spawn flow so acp-diag.log shows which
+  // stage a hang or timeout died in. Cheap, marker-only.
+  acpSpawnDiag("ENTER", sessionKey, {
+    agent: targetAgentId,
+    mode: runtimeMode,
+    thread: requestThreadBinding,
+  });
   try {
+    acpSpawnDiag("PATCH_START", sessionKey);
     await callGateway({
       method: "sessions.patch",
       params: {
@@ -1320,6 +1331,8 @@ export async function spawnAcpDirect(
       timeoutMs: 10_000,
     });
     sessionCreated = true;
+    acpSpawnDiag("PATCH_OK", sessionKey);
+    acpSpawnDiag("INIT_START", sessionKey);
     const initializedSession = await initializeAcpSpawnRuntime({
       cfg,
       sessionKey,
@@ -1332,8 +1345,10 @@ export async function spawnAcpDirect(
       cwd: runtimeCwd,
     });
     initializedRuntime = initializedSession.runtimeCloseHandle;
+    acpSpawnDiag("INIT_OK", sessionKey);
 
     if (preparedBinding) {
+      acpSpawnDiag("BIND_START", sessionKey);
       ({ binding } = await bindPreparedAcpThread({
         cfg,
         sessionKey,
@@ -1342,8 +1357,13 @@ export async function spawnAcpDirect(
         preparedBinding,
         initializedRuntime: initializedSession,
       }));
+      acpSpawnDiag("BIND_OK", sessionKey);
     }
   } catch (err) {
+    const errorSummary = summarizeError(err);
+    acpSpawnDiag(sessionCreated ? "CATCH_INIT" : "CATCH_PRECREATE", sessionKey, {
+      error: errorSummary,
+    });
     await cleanupFailedAcpSpawn({
       cfg,
       sessionKey,
@@ -1351,10 +1371,20 @@ export async function spawnAcpDirect(
       deleteTranscript: true,
       runtimeCloseHandle: initializedRuntime,
     });
+    // frankclaw: safety net for the case where sessions.patch succeeded
+    // server-side AFTER our client-side 10s timeout fired. The cleanup above
+    // would have skipped the delete because sessionCreated is still false.
+    // sessions.delete is idempotent (deleted:false on miss), so the redundant
+    // call when sessionCreated=true is harmless.
+    await forceDeleteOrphanAcpSession({
+      sessionKey,
+      reason: sessionCreated ? "spawn_init_failed" : "spawn_pre_create_failed",
+      errorSummary,
+    });
     return createAcpSpawnFailure({
       status: "error",
       errorCode: isSessionBindingError(err) ? "thread_binding_invalid" : "spawn_failed",
-      error: isSessionBindingError(err) ? err.message : summarizeError(err),
+      error: isSessionBindingError(err) ? err.message : errorSummary,
     });
   }
 
@@ -1417,6 +1447,7 @@ export async function spawnAcpDirect(
   }
 
   try {
+    acpSpawnDiag("DISPATCH_START", sessionKey, { runId: childIdem });
     const response = await callGateway({
       method: "agent",
       params: {
@@ -1439,13 +1470,16 @@ export async function spawnAcpDirect(
     if (responseRunId) {
       childRunId = responseRunId;
     }
+    acpSpawnDiag("DISPATCH_OK", sessionKey, { runId: childRunId });
   } catch (err) {
+    const errorSummary = summarizeError(err);
+    acpSpawnDiag("CATCH_DISPATCH", sessionKey, { error: errorSummary });
     // frankclaw: write dispatch failure marker for diagnostics
     await writeAcpDispatchFailureMarker({
       sessionKey,
       agentId: targetAgentId,
       runId: childIdem,
-      error: summarizeError(err),
+      error: errorSummary,
     });
     parentRelay?.dispose();
     await cleanupFailedAcpSpawn({
@@ -1454,10 +1488,16 @@ export async function spawnAcpDirect(
       shouldDeleteSession: true,
       deleteTranscript: true,
     });
+    // frankclaw: safety net in case cleanup's sessions.delete also timed out.
+    await forceDeleteOrphanAcpSession({
+      sessionKey,
+      reason: "spawn_dispatch_failed",
+      errorSummary,
+    });
     return createAcpSpawnFailure({
       status: "error",
       errorCode: "dispatch_failed",
-      error: summarizeError(err),
+      error: errorSummary,
       childSessionKey: sessionKey,
     });
   }
