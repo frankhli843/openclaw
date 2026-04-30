@@ -110,6 +110,11 @@ function loadCommandPollBackoffRuntime() {
   return commandPollBackoffRuntimePromise;
 }
 
+// frankclaw: force-abort stuck embedded runs after 10 min. Without this,
+// sessions with active_embedded_run are skipped by recovery forever,
+// blocking the entire session queue (WhatsApp, Discord, cron all wait).
+const STUCK_SESSION_FORCE_ABORT_MS = 600_000; // 10 min
+
 function recoverStuckSession(params: {
   sessionId?: string;
   sessionKey?: string;
@@ -118,7 +123,12 @@ function recoverStuckSession(params: {
 }) {
   stuckSessionRecoveryRuntimePromise ??= import("./diagnostic-stuck-session-recovery.runtime.js");
   void stuckSessionRecoveryRuntimePromise
-    .then(({ recoverStuckDiagnosticSession }) => recoverStuckDiagnosticSession(params))
+    .then(({ recoverStuckDiagnosticSession }) =>
+      recoverStuckDiagnosticSession({
+        ...params,
+        allowActiveAbort: params.ageMs > STUCK_SESSION_FORCE_ABORT_MS,
+      }),
+    )
     .catch((err) => {
       diag.warn(`stuck session recovery unavailable: ${String(err)}`);
     });
