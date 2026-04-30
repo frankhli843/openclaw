@@ -6,7 +6,7 @@
  * - Retryable failure detection for deferred retry system
  * - Context overflow silent reset
  */
-import { sendMessageWhatsApp } from "../../channel-web.js";
+import { sendWebChannelMessage } from "../../plugins/runtime/runtime-web-channel-plugin.js";
 import { defaultRuntime } from "../../runtime.js";
 import { SILENT_REPLY_TOKEN } from "../tokens.js";
 import type { ReplyPayload } from "../types.js";
@@ -38,7 +38,7 @@ export async function maybeRedirectErrorToLogsGroup(params: {
 
   const sessionInfo = params.sessionKey ?? "unknown session";
   const logMessage = `⚠️ Error in ${sessionInfo}\n${params.fallbackText}`;
-  sendMessageWhatsApp(logsGroup, logMessage, { verbose: false }).catch((err) => {
+  sendWebChannelMessage(logsGroup, logMessage, { verbose: false }).catch((err) => {
     defaultRuntime.error(`Failed to send error to logs group: ${err}`);
   });
 
@@ -68,7 +68,7 @@ export function maybeRedirectCompactionResetToLogsGroup(params: {
     return null;
   }
 
-  sendMessageWhatsApp(
+  sendWebChannelMessage(
     logsGroup,
     `${params.resetText}\nSession: ${params.sessionKey ?? "unknown"}`,
     { verbose: false },
