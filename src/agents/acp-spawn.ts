@@ -1328,7 +1328,13 @@ export async function spawnAcpDirect(
         ...subagentEnvelopeState.childSessionPatch,
         ...(params.label ? { label: params.label } : {}),
       },
-      timeoutMs: 10_000,
+      // frankclaw: bumped from 10s -> 30s so cron-origin spawns survive gateway
+      // event-loop spikes (long-running parent sessions can stall the in-process
+      // RPC layer just long enough to trip the previous 10s window). The orphan
+      // safety net at the bottom of the catch block already handles the case
+      // where the gateway persisted the patch after our client timed out, and
+      // its own SAFETY_NET_TIMEOUT_MS is 30s so they stay aligned.
+      timeoutMs: 30_000,
     });
     sessionCreated = true;
     acpSpawnDiag("PATCH_OK", sessionKey);
@@ -1464,7 +1470,11 @@ export async function spawnAcpDirect(
         ...(params.runTimeoutSeconds != null ? { timeout: params.runTimeoutSeconds } : {}),
         label: params.label || undefined,
       },
-      timeoutMs: 10_000,
+      // frankclaw: bumped from 10s -> 30s for the same reason as sessions.patch
+      // above. Dispatch is the second hop where the gateway must accept and
+      // route the agent run; under load, 10s is too tight and 30s lines up with
+      // the spawn safety net.
+      timeoutMs: 30_000,
     });
     const responseRunId = normalizeOptionalString(response?.runId);
     if (responseRunId) {

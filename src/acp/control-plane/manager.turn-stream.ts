@@ -32,6 +32,13 @@ export async function consumeAcpTurnStream(params: {
     `TURN_START session=${params.turn.handle.sessionKey} req=${params.turn.requestId} mode=${params.turn.mode}`,
   );
   let eventCount = 0;
+  // frankclaw: track tool_call count separately so we can spot "trivial
+  // end_turn" workers — turns that complete cleanly at the protocol level
+  // without invoking any tools, which is the failure mode we hit on
+  // 2026-04-30 when oneshot CC ACP workers ended in 12s with 7 events and
+  // produced no result file. Emitting the count on TURN_DONE lets detectors
+  // scan acp-diag.log for `tools=0` cases.
+  let toolCallCount = 0;
 
   for await (const event of params.runtime.runTurn(params.turn)) {
     eventCount++; // frankclaw: count events
@@ -40,10 +47,27 @@ export async function consumeAcpTurnStream(params: {
     }
     if (event.type === "done") {
       sawTerminalEvent = true;
-      // frankclaw: log turn completion
+      const elapsedMs = Date.now() - turnStartMs;
+      const stopReason = (event as { stopReason?: string }).stopReason;
+      // frankclaw: log turn completion (kept single-line for grep/detectors)
       acpDiag(
-        `TURN_DONE session=${params.turn.handle.sessionKey} events=${eventCount} elapsed=${Date.now() - turnStartMs}ms stopReason=${(event as { stopReason?: string }).stopReason}`,
+        `TURN_DONE session=${params.turn.handle.sessionKey} events=${eventCount} elapsed=${elapsedMs}ms stopReason=${stopReason} tools=${toolCallCount}`,
       );
+      // frankclaw: anomaly marker for the "SDK turn ended cleanly but did no
+      // real work" failure mode. 0 tool calls + < 30s + end_turn for a
+      // request that was supposed to do work is almost always a runtime
+      // controls failure or directive-only short-circuit. Cron orchestrators
+      // can grep for TURN_ANOMALY_TRIVIAL_END to know to surface a worker
+      // failure instead of waiting on an artifact that will never arrive.
+      // Threshold rationale: real work needs to read at least one file or
+      // run at least one shell, both of which are tool calls. 30s is well
+      // above directive-only ack latency (typically < 5s) and well below
+      // the smallest legitimate turn that does meaningful work.
+      if (stopReason === "end_turn" && toolCallCount === 0 && elapsedMs < 30_000) {
+        acpDiag(
+          `TURN_ANOMALY_TRIVIAL_END session=${params.turn.handle.sessionKey} req=${params.turn.requestId} mode=${params.turn.mode} events=${eventCount} elapsed=${elapsedMs}ms tools=0 stopReason=end_turn`,
+        );
+      }
     } else if (event.type === "error") {
       streamError = new AcpRuntimeError(
         normalizeAcpErrorCode(event.code),
@@ -55,6 +79,10 @@ export async function consumeAcpTurnStream(params: {
       );
     } else if (event.type === "text_delta" || event.type === "tool_call") {
       sawOutput = true;
+      // frankclaw: track tool_call count for TURN_DONE/TURN_ANOMALY logs.
+      if (event.type === "tool_call") {
+        toolCallCount++;
+      }
       await params.onOutputEvent?.(event);
     }
     await params.onEvent?.(event);
