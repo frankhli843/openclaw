@@ -9,18 +9,29 @@
  *   acpDiag("TURN_START session=... req=... mode=...");
  */
 import { appendFileSync, mkdirSync, statSync, renameSync, unlinkSync } from "node:fs";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 // frankclaw: hardcode the workspace state dir path to avoid resolveStateDir
 // returning the base openclaw dir (~/.openclaw) instead of the workspace state
 // dir (~/.openclaw/workspace/state). The config/paths.js resolveStateDir
 // resolves to the base dir, not the workspace state dir.
-const ACP_DIAG_LOG = join(
-  process.env.OPENCLAW_WORKSPACE || join(homedir(), ".openclaw", "workspace"),
-  "state",
-  "acp-diag.log",
-);
+//
+// frankclaw: when running under vitest the same source is exercised by tests
+// that deliberately throw acpx-exit / NO_SESSION errors, which would write
+// TURN_THROW lines into the production state/acp-diag.log and trip the
+// check-acp-bootstrap.py heartbeat detector. Route diag output to a tmp file
+// so test runs cannot pollute production state. OPENCLAW_ACP_DIAG_LOG also
+// allows callers (e.g. self-tests for this module) to override the path.
+const ACP_DIAG_LOG =
+  process.env.OPENCLAW_ACP_DIAG_LOG ||
+  (process.env.VITEST || process.env.VITEST_WORKER_ID
+    ? join(tmpdir(), `acp-diag-vitest-${process.pid}.log`)
+    : join(
+        process.env.OPENCLAW_WORKSPACE || join(homedir(), ".openclaw", "workspace"),
+        "state",
+        "acp-diag.log",
+      ));
 const ACP_DIAG_MAX_BYTES = 2 * 1024 * 1024; // 2MB max
 
 export function acpDiag(msg: string): void {
