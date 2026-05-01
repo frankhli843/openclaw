@@ -513,3 +513,136 @@ describe("task-registry maintenance: ACP boot-time liveness check", () => {
     expect(currentTasks.get(task.taskId)).toMatchObject({ status: "lost" });
   });
 });
+
+describe("task-registry maintenance: subagent/CLI ACP boot-time liveness check", () => {
+  it("marks subagent task lost when its ACP child session lastActivityAt is before gateway boot", async () => {
+    const now = Date.now();
+    const gatewayBootTimeMs = now - 30_000;
+    const childSessionKey = "agent:claude:acp:stale-shared-uuid";
+    const task = makeStaleTask({
+      runtime: "subagent",
+      childSessionKey,
+    });
+
+    const { currentTasks } = createTaskRegistryMaintenanceHarness({
+      tasks: [task],
+      sessionStore: { [childSessionKey]: { sessionId: childSessionKey, updatedAt: now } },
+      acpEntry: { sessionId: "stale-shared-uuid", updatedAt: now - GRACE_EXPIRED_MS },
+      acpMeta: {
+        backend: "claude",
+        agent: "claude",
+        runtimeSessionName: "test",
+        mode: "oneshot",
+        state: "running",
+        lastActivityAt: gatewayBootTimeMs - 60_000,
+      },
+      gatewayBootTimeMs,
+    });
+
+    expect(await runTaskRegistryMaintenance()).toMatchObject({ reconciled: 1 });
+    expect(currentTasks.get(task.taskId)).toMatchObject({ status: "lost" });
+  });
+
+  it("keeps subagent task running when its ACP child session lastActivityAt is after gateway boot", async () => {
+    const now = Date.now();
+    const gatewayBootTimeMs = now - 300_000;
+    const childSessionKey = "agent:claude:acp:fresh-shared-uuid";
+    const task = makeStaleTask({
+      runtime: "subagent",
+      childSessionKey,
+    });
+
+    const { currentTasks } = createTaskRegistryMaintenanceHarness({
+      tasks: [task],
+      sessionStore: { [childSessionKey]: { sessionId: childSessionKey, updatedAt: now } },
+      acpEntry: { sessionId: "fresh-shared-uuid", updatedAt: now },
+      acpMeta: {
+        backend: "claude",
+        agent: "claude",
+        runtimeSessionName: "test",
+        mode: "oneshot",
+        state: "running",
+        lastActivityAt: gatewayBootTimeMs + 10_000,
+      },
+      gatewayBootTimeMs,
+    });
+
+    expect(await runTaskRegistryMaintenance()).toMatchObject({ reconciled: 0 });
+    expect(currentTasks.get(task.taskId)).toMatchObject({ status: "running" });
+  });
+
+  it("marks CLI task lost when its ACP child session lastActivityAt is before gateway boot", async () => {
+    const now = Date.now();
+    const gatewayBootTimeMs = now - 30_000;
+    const childSessionKey = "agent:claude:acp:stale-cli-uuid";
+    const task = makeStaleTask({
+      runtime: "cli",
+      childSessionKey,
+    });
+
+    const { currentTasks } = createTaskRegistryMaintenanceHarness({
+      tasks: [task],
+      sessionStore: { [childSessionKey]: { sessionId: childSessionKey, updatedAt: now } },
+      acpEntry: { sessionId: "stale-cli-uuid", updatedAt: now - GRACE_EXPIRED_MS },
+      acpMeta: {
+        backend: "claude",
+        agent: "claude",
+        runtimeSessionName: "test",
+        mode: "oneshot",
+        state: "running",
+        lastActivityAt: gatewayBootTimeMs - 60_000,
+      },
+      gatewayBootTimeMs,
+    });
+
+    expect(await runTaskRegistryMaintenance()).toMatchObject({ reconciled: 1 });
+    expect(currentTasks.get(task.taskId)).toMatchObject({ status: "lost" });
+  });
+
+  it("falls back to session-store check when subagent task has non-ACP child session key", async () => {
+    const now = Date.now();
+    const childSessionKey = "agent:main:subagent:plain-child";
+    const task = makeStaleTask({
+      runtime: "subagent",
+      childSessionKey,
+    });
+
+    const { currentTasks } = createTaskRegistryMaintenanceHarness({
+      tasks: [task],
+      sessionStore: { [childSessionKey]: { sessionId: childSessionKey, updatedAt: now } },
+      acpEntry: { sessionId: "should-be-ignored", updatedAt: now },
+      acpMeta: {
+        backend: "claude",
+        agent: "claude",
+        runtimeSessionName: "test",
+        mode: "oneshot",
+        state: "running",
+        lastActivityAt: 0,
+      },
+      gatewayBootTimeMs: now - 30_000,
+    });
+
+    expect(await runTaskRegistryMaintenance()).toMatchObject({ reconciled: 0 });
+    expect(currentTasks.get(task.taskId)).toMatchObject({ status: "running" });
+  });
+
+  it("falls through to session-store check when ACP entry has no metadata (no lastActivityAt to compare)", async () => {
+    const now = Date.now();
+    const childSessionKey = "agent:claude:acp:no-meta-uuid";
+    const task = makeStaleTask({
+      runtime: "subagent",
+      childSessionKey,
+    });
+
+    const { currentTasks } = createTaskRegistryMaintenanceHarness({
+      tasks: [task],
+      sessionStore: { [childSessionKey]: { sessionId: childSessionKey, updatedAt: now } },
+      acpEntry: { sessionId: "no-meta-session", updatedAt: now },
+      // acpMeta omitted: no lastActivityAt available
+      gatewayBootTimeMs: now - 30_000,
+    });
+
+    expect(await runTaskRegistryMaintenance()).toMatchObject({ reconciled: 0 });
+    expect(currentTasks.get(task.taskId)).toMatchObject({ status: "running" });
+  });
+});
