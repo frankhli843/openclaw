@@ -180,7 +180,14 @@ export async function buildDiscordMessageProcessContext(params: {
   let parentSessionKey: string | undefined;
   let modelParentSessionKey: string | undefined;
   if (threadChannel) {
-    const includeThreadStarter = channelConfig?.includeThreadStarter !== false;
+    // frankclaw: thread-starter injection is force-disabled (2026-04-18, Frank directive).
+    // Long-running threads otherwise re-inject a stale starter on every turn.
+    // Use the scoped-prompt registry for per-thread context instead.
+    // Root incident: 2026-04-18 thread 1493276394732519577 (`F28B Integration v4
+    // Metric Deltas`) kept anchoring the LLM on the Apr 13 starter five days
+    // after iteration had moved on. The upstream `channelConfig.includeThreadStarter`
+    // knob is intentionally ignored here — frankclaw policy is OFF, full stop.
+    const includeThreadStarter = false;
     if (includeThreadStarter) {
       const starter = await resolveDiscordThreadStarter({
         channel: threadChannel,

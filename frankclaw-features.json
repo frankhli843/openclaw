@@ -38,17 +38,19 @@
     },
     {
       "name": "Discord DNR quiet hours (actions)",
-      "description": "Enforces quiet hours on Discord action-based sends (sendMessage/threadCreate/threadReply)",
+      "description": "Enforces quiet hours on Discord action-based sends (sendMessage/threadCreate/threadReply). Helper lives in runtime.messaging.send-dnr.frankclaw.ts; call sites are in runtime.messaging.send.ts after the upstream split (commit 5201c42251).",
       "static": [
         {
-          "file": "extensions/discord/src/actions/runtime.messaging.ts",
+          "file": "extensions/discord/src/actions/runtime.messaging.send-dnr.frankclaw.ts",
           "pattern": "enforceDiscordDnrWindow",
-          "minCount": 1
+          "minCount": 1,
+          "note": "Helper definition: isDiscordActionDnrSuppressed wraps enforceDiscordDnrWindow and returns true on DiscordDnrSuppressedError."
         },
         {
-          "file": "extensions/discord/src/actions/runtime.messaging.ts",
+          "file": "extensions/discord/src/actions/runtime.messaging.send.ts",
           "pattern": "isDiscordActionDnrSuppressed",
-          "minCount": 1
+          "minCount": 3,
+          "note": "Must be called by sendMessage, threadCreate, and threadReply (3 call sites). Lower count means a code path bypasses DNR enforcement."
         }
       ],
       "tests": ["src/infra/outbound/discord-dnr.test.ts"],
@@ -296,12 +298,13 @@
     },
     {
       "name": "Discord autoThread",
-      "description": "Auto-creates threads for all Discord replies when autoThread config is enabled",
+      "description": "Auto-creates threads for all Discord replies when autoThread config is enabled. Implementation lives in threading.auto-thread.ts after the upstream threading split (commit 7e1acf2f1e); threading.ts is now a re-export barrel.",
       "static": [
         {
-          "file": "extensions/discord/src/monitor/threading.ts",
+          "file": "extensions/discord/src/monitor/threading.auto-thread.ts",
           "pattern": "autoThread",
-          "minCount": 1
+          "minCount": 3,
+          "note": "Implementation: must reference autoThread config flag (channelConfig?.autoThread), the autoThreadName option, and the autoThreadContext return value."
         }
       ],
       "tests": ["extensions/discord/src/monitor/discord-auto-thread-config.frankclaw.test.ts"],
@@ -1254,7 +1257,7 @@
     },
     {
       "name": "Discord thread starter injection disabled",
-      "description": "Frankclaw disables upstream's Discord thread-starter context injection (message-handler.process.ts). Upstream fetches the parent-channel message that created a Discord thread and injects it as `[Thread starter - for context]` on every inbound turn. For long-running threads this becomes a stale anchor \u2014 e.g. a thread kicked off days ago with `start that F28B v4 training pass` kept anchoring the LLM on F28B+v4 even after 5 days of iteration had moved to v6/v10. Session history already carries recent state; the starter body just fought recency signals and misled the agent on ambiguous prompts. We leave `threadStarterBody` declared (undefined) so downstream template gates keep compiling, but we neither call Discord REST nor populate the field. The upstream `channelConfig.includeThreadStarter` knob is intentionally ignored \u2014 frankclaw policy is OFF, full stop. Root incident: 2026-04-18 Discord thread 1493276394732519577 (`F28B Integration v4 Metric Deltas`).",
+      "description": "Frankclaw disables upstream's Discord thread-starter context injection. Upstream fetches the parent-channel message that created a Discord thread and injects it as `[Thread starter - for context]` on every inbound turn. For long-running threads this becomes a stale anchor \u2014 e.g. a thread kicked off days ago with `start that F28B v4 training pass` kept anchoring the LLM on F28B+v4 even after 5 days of iteration had moved to v6/v10. Session history already carries recent state; the starter body just fought recency signals and misled the agent on ambiguous prompts. We leave `threadStarterBody` declared (undefined) so downstream template gates keep compiling, but we neither call Discord REST nor populate the field. The upstream `channelConfig.includeThreadStarter` knob is intentionally ignored \u2014 frankclaw policy is OFF, full stop. Root incident: 2026-04-18 Discord thread 1493276394732519577 (`F28B Integration v4 Metric Deltas`). After the Apr 29 upstream kernel-turn refactor (commit 9a9cd0c0ab) the includeThreadStarter logic moved from message-handler.process.ts to message-handler.context.ts.",
       "category": "discord-context",
       "tests": [
         "extensions/discord/src/monitor.tool-result.accepts-guild-messages-mentionpatterns-match.e2e.test.ts"
@@ -1264,12 +1267,12 @@
       ],
       "static": [
         {
-          "file": "extensions/discord/src/monitor/message-handler.process.ts",
+          "file": "extensions/discord/src/monitor/message-handler.context.ts",
           "pattern": "frankclaw: thread-starter injection is force-disabled",
           "minCount": 1
         },
         {
-          "file": "extensions/discord/src/monitor/message-handler.process.ts",
+          "file": "extensions/discord/src/monitor/message-handler.context.ts",
           "pattern": "const includeThreadStarter = false",
           "minCount": 1
         }
