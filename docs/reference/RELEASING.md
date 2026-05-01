@@ -194,7 +194,9 @@ Validation` or from the `main`/release workflow ref so workflow logic and
     `openclaw/releases-private/.github/workflows/openclaw-npm-dist-tags.yml`
     for security, because `npm dist-tag add` still needs `NPM_TOKEN` while the
     public repo keeps OIDC-only publish
-  - public `macOS Release` is validation-only
+  - public `macOS Release` is validation-only; when a tag lives only on a
+    release branch but the workflow is dispatched from `main`, set
+    `public_release_branch=release/YYYY.M.D`
   - real private mac publish must pass successful private mac
     `preflight_run_id` and `validate_run_id`
   - the real publish paths promote prepared artifacts instead of rebuilding
@@ -238,7 +240,7 @@ gh workflow run full-release-validation.yml \
   -f ref=release/YYYY.M.D \
   -f provider=openai \
   -f mode=both \
-  -f release_profile=full \
+  -f release_profile=stable \
   -f evidence_package_spec=openclaw@YYYY.M.D-beta.N
 ```
 
@@ -253,6 +255,9 @@ summary shows `normal_ci` and `release_checks` as successful, and any optional
 `npm_telegram` child is either successful or intentionally skipped. The final
 verifier summary includes slowest-job tables for each child run, so the release
 manager can see the current critical path without downloading logs.
+See [Full release validation](/reference/full-release-validation) for the
+complete stage matrix, exact workflow job names, stable versus full profile
+differences, artifacts, and focused rerun handles.
 Child workflows are dispatched from the trusted ref that runs `Full Release
 Validation`, normally `--ref main`, even when the target `ref` points at an
 older release branch or tag. There is no separate Full Release Validation
