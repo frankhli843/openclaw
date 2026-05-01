@@ -414,6 +414,31 @@ function hasBackingSession(task: TaskRecord): boolean {
         return false;
       }
     }
+    // [frankclaw] When the child session key is an ACP session, also check
+    // the ACP session entry's lastActivityAt against gateway boot time.
+    // Without this, subagent/CLI tasks whose backing ACP session died before
+    // the current gateway boot appear alive indefinitely because the session
+    // store entry persists on disk.
+    // See: May 1 2026 task-registry bloat incident (250 delivery-gap subagent
+    // tasks stuck running for 5 days because they shared a single stale ACP
+    // session entry).
+    if (childSessionKey.includes(":acp:")) {
+      const acpEntry = taskRegistryMaintenanceRuntime.readAcpSessionEntry({
+        sessionKey: childSessionKey,
+      });
+      if (acpEntry?.storeReadFailed) {
+        return false;
+      }
+      if (acpEntry?.entry) {
+        const lastActivity = acpEntry.acp?.lastActivityAt;
+        if (
+          typeof lastActivity === "number" &&
+          lastActivity < taskRegistryMaintenanceRuntime.getGatewayBootTimeMs()
+        ) {
+          return false;
+        }
+      }
+    }
     const agentId = taskRegistryMaintenanceRuntime.parseAgentSessionKey(childSessionKey)?.agentId;
     const storePath = taskRegistryMaintenanceRuntime.resolveStorePath(undefined, { agentId });
     const store = taskRegistryMaintenanceRuntime.loadSessionStore(storePath);
