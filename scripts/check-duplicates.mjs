@@ -13,6 +13,7 @@ const targets = [
   "packages",
   "ui",
   "apps",
+  "config",
   "docs",
   "qa",
   "security",

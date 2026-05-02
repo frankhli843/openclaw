@@ -462,6 +462,33 @@
       "e2eTests": ["test/frankclaw-features-e2e.test.ts"]
     },
     {
+      "name": "Cron jobs.json file-race tripwire",
+      "description": "Refuses to silently drop jobs from jobs.json by force-reloading state.store from disk before mutate (add/update/remove) and refusing to persist if disk has IDs not in lastLoadedDiskJobIds (cross-process write detection). Closes the 2026-05-02 silent corruption class-of-bug.",
+      "static": [
+        {
+          "file": "src/cron/service/ops.ts",
+          "pattern": "forceReload: true",
+          "minCount": 3,
+          "note": "add/update/remove must force-reload before mutate"
+        },
+        {
+          "file": "src/cron/service/store.ts",
+          "pattern": "assertNoUnexpectedDiskDrops",
+          "minCount": 1,
+          "note": "persist tripwire that refuses to silently drop jobs"
+        },
+        {
+          "file": "src/cron/service/state.ts",
+          "pattern": "lastLoadedDiskJobIds",
+          "minCount": 1,
+          "note": "snapshot of disk job IDs used by the tripwire"
+        }
+      ],
+      "tests": ["src/cron/service/ops.update-fileraced.test.ts"],
+      "runtime": [],
+      "e2eTests": ["test/frankclaw-features-e2e.test.ts"]
+    },
+    {
       "name": "Delivery queue (frankclaw)",
       "description": "Frankclaw delivery queue with enqueue-before-defer pattern for reliable deferred delivery",
       "static": [

@@ -289,6 +289,42 @@ describe("sessions_spawn tool", () => {
     );
   });
 
+  it("passes ACP env overrides through to spawnAcpDirect", async () => {
+    registerAcpBackendForTest();
+    const tool = createSessionsSpawnTool({
+      agentSessionKey: "agent:main:main",
+    });
+
+    await tool.execute("call-acp-env", {
+      runtime: "acp",
+      task: "do thing",
+      agentId: "claude",
+      env: { CLAUDE_CONFIG_DIR: "/tmp/claude-profile-a" },
+    });
+
+    expect(hoisted.spawnAcpDirectMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        task: "do thing",
+        agentId: "claude",
+        env: { CLAUDE_CONFIG_DIR: "/tmp/claude-profile-a" },
+      }),
+      expect.any(Object),
+    );
+  });
+
+  it("rejects env overrides for native subagent spawns", async () => {
+    const tool = createSessionsSpawnTool({
+      agentSessionKey: "agent:main:main",
+    });
+
+    await expect(
+      tool.execute("call-subagent-env", {
+        task: "do thing",
+        env: { CLAUDE_CONFIG_DIR: "/tmp/claude-profile-a" },
+      }),
+    ).rejects.toThrow("env is only supported for runtime='acp'");
+  });
+
   it("passes inherited workspaceDir from tool context, not from tool args", async () => {
     const tool = createSessionsSpawnTool({
       agentSessionKey: "agent:main:main",

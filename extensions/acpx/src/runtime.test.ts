@@ -262,6 +262,60 @@ describe("AcpxRuntime fresh reset wrapper", () => {
     );
   });
 
+  it("prefixes ACP agent commands with session env overrides", async () => {
+    const baseStore: TestSessionStore = {
+      load: vi.fn(async () => undefined),
+      save: vi.fn(async () => {}),
+    };
+    const { runtime, delegate } = makeRuntime(baseStore, {
+      agentRegistry: {
+        resolve: (agentName: string) =>
+          agentName === "claude"
+            ? "claude-agent-acp --permission-mode bypassPermissions"
+            : agentName,
+        list: () => ["claude", "codex", "openclaw"],
+      },
+    });
+    const ensure = vi.spyOn(delegate, "ensureSession").mockResolvedValue({
+      sessionKey: "agent:claude:acp:test",
+      backend: "acpx",
+      runtimeSessionName: "claude",
+    });
+    const scopedAgentRegistry = (
+      runtime as unknown as { scopedAgentRegistry: { resolve(agentName: string): string } }
+    ).scopedAgentRegistry;
+    const runtimeEnvOverrideScope = (
+      runtime as unknown as {
+        runtimeEnvOverrideScope: { run<T>(env: Record<string, string>, fn: () => T): T };
+      }
+    ).runtimeEnvOverrideScope;
+
+    await runtime.ensureSession({
+      sessionKey: "agent:claude:acp:test",
+      agent: "claude",
+      mode: "persistent",
+      env: { CLAUDE_CONFIG_DIR: "/tmp/claude profile/a" },
+    });
+
+    expect(ensure).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agent: "claude",
+      }),
+    );
+    expect(
+      __testing.appendRuntimeEnvOverrides("claude-agent-acp", {
+        CLAUDE_CONFIG_DIR: "/tmp/claude profile/a",
+      }),
+    ).toBe("env CLAUDE_CONFIG_DIR='/tmp/claude profile/a' claude-agent-acp");
+    expect(
+      runtimeEnvOverrideScope.run({ CLAUDE_CONFIG_DIR: "/tmp/claude profile/a" }, () =>
+        scopedAgentRegistry.resolve("claude"),
+      ),
+    ).toBe(
+      "env CLAUDE_CONFIG_DIR='/tmp/claude profile/a' claude-agent-acp --permission-mode bypassPermissions",
+    );
+  });
+
   it("maps explicit Codex ACP thinking to startup reasoning effort", async () => {
     const baseStore: TestSessionStore = {
       load: vi.fn(async () => undefined),

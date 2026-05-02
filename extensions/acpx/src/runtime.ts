@@ -83,6 +83,8 @@ type CodexAcpModelOverride = {
   reasoningEffort?: string;
 };
 
+type RuntimeEnvOverride = Record<string, string>;
+
 function normalizeAgentName(value: string | undefined): string | undefined {
   const normalized = value?.trim().toLowerCase();
   return normalized ? normalized : undefined;
@@ -335,13 +337,29 @@ function appendCodexAcpConfigOverrides(command: string, override: CodexAcpModelO
   return `${command} ${configArgs.map((arg) => `-c ${quoteShellArg(arg)}`).join(" ")}`;
 }
 
+function appendRuntimeEnvOverrides(command: string, env: RuntimeEnvOverride | undefined): string {
+  const entries = Object.entries(env ?? {})
+    .filter(([key, value]) => key.trim() && value.trim())
+    .toSorted(([a], [b]) => a.localeCompare(b));
+  if (entries.length === 0) {
+    return command;
+  }
+  const assignments = entries.map(([key, value]) => `${key}=${quoteShellArg(value)}`);
+  return `env ${assignments.join(" ")} ${command}`;
+}
+
 function createModelScopedAgentRegistry(params: {
   agentRegistry: AcpAgentRegistry;
   scope: AsyncLocalStorage<CodexAcpModelOverride | undefined>;
+  envScope: AsyncLocalStorage<RuntimeEnvOverride | undefined>;
 }): AcpAgentRegistry {
   return {
     resolve(agentName: string): string | undefined {
-      const command = params.agentRegistry.resolve(agentName);
+      let command = params.agentRegistry.resolve(agentName);
+      const env = params.envScope.getStore();
+      if (env && typeof command === "string") {
+        command = appendRuntimeEnvOverrides(command, env);
+      }
       const override = params.scope.getStore();
       if (
         !override ||
@@ -399,6 +417,9 @@ export class AcpxRuntime implements AcpRuntime {
   private readonly codexAcpModelOverrideScope = new AsyncLocalStorage<
     CodexAcpModelOverride | undefined
   >();
+  private readonly runtimeEnvOverrideScope = new AsyncLocalStorage<
+    RuntimeEnvOverride | undefined
+  >();
   private readonly delegate: BaseAcpxRuntime;
   private readonly bridgeSafeDelegate: BaseAcpxRuntime;
   private readonly probeDelegate: BaseAcpxRuntime;
@@ -412,6 +433,7 @@ export class AcpxRuntime implements AcpRuntime {
     this.scopedAgentRegistry = createModelScopedAgentRegistry({
       agentRegistry: this.agentRegistry,
       scope: this.codexAcpModelOverrideScope,
+      envScope: this.runtimeEnvOverrideScope,
     });
     const sharedOptions = {
       ...options,
@@ -490,18 +512,18 @@ export class AcpxRuntime implements AcpRuntime {
         ? normalizeCodexAcpModelOverride(input.model, input.thinking)
         : undefined;
 
-    if (!codexModelOverride) {
-      return delegate.ensureSession(input);
-    }
+    const envOverride = input.env && Object.keys(input.env).length > 0 ? input.env : undefined;
 
     const normalizedInput = {
       ...input,
-      ...(codexAcpSessionModelId(codexModelOverride)
+      ...(codexModelOverride && codexAcpSessionModelId(codexModelOverride)
         ? { model: codexAcpSessionModelId(codexModelOverride) }
         : {}),
     };
-    return this.codexAcpModelOverrideScope.run(codexModelOverride, () =>
-      delegate.ensureSession(normalizedInput),
+    return this.runtimeEnvOverrideScope.run(envOverride, () =>
+      this.codexAcpModelOverrideScope.run(codexModelOverride, () =>
+        delegate.ensureSession(normalizedInput),
+      ),
     );
   }
 
@@ -604,6 +626,7 @@ export {
 
 export const __testing = {
   appendCodexAcpConfigOverrides,
+  appendRuntimeEnvOverrides,
   assertSupportedRuntimeSessionMode,
   codexAcpSessionModelId,
   isCodexAcpCommand,

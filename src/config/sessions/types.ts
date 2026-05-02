@@ -66,6 +66,12 @@ export type AcpSessionRuntimeOptions = {
   permissionProfile?: string;
   /** ACP runtime config option: per-turn timeout in seconds. */
   timeoutSeconds?: number;
+  /**
+   * Environment overrides required at ACP session creation time.
+   * frankclaw: used by the todo-loop auth scheduler to pin Claude ACP workers
+   * to an isolated CLAUDE_CONFIG_DIR.
+   */
+  env?: Record<string, string>;
   /** Backend-specific option bag mapped through session/set_config_option. */
   backendExtras?: Record<string, string>;
 };

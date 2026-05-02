@@ -13,11 +13,15 @@ const MAX_PERMISSION_PROFILE_LENGTH = 80;
 const MAX_CWD_LENGTH = 4096;
 const MIN_TIMEOUT_SECONDS = 1;
 const MAX_TIMEOUT_SECONDS = 24 * 60 * 60;
+const MAX_ENV_KEY_LENGTH = 80;
+const MAX_ENV_VALUE_LENGTH = 4096;
+const MAX_ENV_OVERRIDES = 16;
 const MAX_BACKEND_OPTION_KEY_LENGTH = 64;
 const MAX_BACKEND_OPTION_VALUE_LENGTH = 512;
 const MAX_BACKEND_EXTRAS = 32;
 
 const SAFE_OPTION_KEY_RE = /^[a-z0-9][a-z0-9._:-]*$/i;
+const SAFE_ENV_KEY_RE = /^[A-Z_][A-Z0-9_]*$/i;
 
 function failInvalidOption(message: string): never {
   throw new AcpRuntimeError("ACP_INVALID_RUNTIME_OPTION", message);
@@ -144,6 +148,34 @@ export function validateRuntimeConfigOptionInput(
   };
 }
 
+function validateRuntimeEnvInput(rawEnv: unknown): Record<string, string> | undefined {
+  if (!rawEnv || typeof rawEnv !== "object" || Array.isArray(rawEnv)) {
+    failInvalidOption("Runtime env must be a key/value object.");
+  }
+  const entries = Object.entries(rawEnv);
+  if (entries.length > MAX_ENV_OVERRIDES) {
+    failInvalidOption(`Runtime env must include at most ${MAX_ENV_OVERRIDES} entries.`);
+  }
+  const env: Record<string, string> = {};
+  for (const [rawKey, rawValue] of entries) {
+    const key = validateBoundedText({
+      value: rawKey,
+      field: "Runtime env key",
+      maxLength: MAX_ENV_KEY_LENGTH,
+    });
+    if (!SAFE_ENV_KEY_RE.test(key)) {
+      failInvalidOption("Runtime env keys must use shell-style names like CLAUDE_CONFIG_DIR.");
+    }
+    const value = validateBoundedText({
+      value: rawValue,
+      field: `Runtime env ${key}`,
+      maxLength: MAX_ENV_VALUE_LENGTH,
+    });
+    env[key] = value;
+  }
+  return Object.keys(env).length > 0 ? env : undefined;
+}
+
 export function validateRuntimeOptionPatch(
   patch: Partial<AcpSessionRuntimeOptions> | undefined,
 ): Partial<AcpSessionRuntimeOptions> {
@@ -158,6 +190,7 @@ export function validateRuntimeOptionPatch(
     "cwd",
     "permissionProfile",
     "timeoutSeconds",
+    "env",
     "backendExtras",
   ]);
   for (const key of Object.keys(rawPatch)) {
@@ -209,6 +242,13 @@ export function validateRuntimeOptionPatch(
       next.timeoutSeconds = validateRuntimeTimeoutSecondsInput(rawPatch.timeoutSeconds);
     }
   }
+  if (Object.hasOwn(rawPatch, "env")) {
+    if (rawPatch.env === undefined) {
+      next.env = undefined;
+    } else {
+      next.env = validateRuntimeEnvInput(rawPatch.env);
+    }
+  }
   if (Object.hasOwn(rawPatch, "backendExtras")) {
     const rawExtras = rawPatch.backendExtras;
     if (rawExtras === undefined) {
@@ -240,6 +280,10 @@ export function normalizeRuntimeOptions(
   const thinking = normalizeText(options?.thinking);
   const cwd = normalizeText(options?.cwd);
   const permissionProfile = normalizeText(options?.permissionProfile);
+  const envEntries = Object.entries(options?.env ?? {})
+    .map(([key, value]) => [normalizeText(key), normalizeText(value)] as const)
+    .filter(([key, value]) => Boolean(key && value)) as Array<[string, string]>;
+  const env = envEntries.length > 0 ? Object.fromEntries(envEntries.toSorted()) : undefined;
   let timeoutSeconds: number | undefined;
   if (typeof options?.timeoutSeconds === "number" && Number.isFinite(options.timeoutSeconds)) {
     const rounded = Math.round(options.timeoutSeconds);
@@ -259,6 +303,7 @@ export function normalizeRuntimeOptions(
     ...(cwd ? { cwd } : {}),
     ...(permissionProfile ? { permissionProfile } : {}),
     ...(typeof timeoutSeconds === "number" ? { timeoutSeconds } : {}),
+    ...(env ? { env } : {}),
     ...(backendExtras ? { backendExtras } : {}),
   };
 }
@@ -309,6 +354,7 @@ export function buildRuntimeControlSignature(options: AcpSessionRuntimeOptions):
     thinking: normalized.thinking ?? null,
     permissionProfile: normalized.permissionProfile ?? null,
     timeoutSeconds: normalized.timeoutSeconds ?? null,
+    env: Object.entries(normalized.env ?? {}).toSorted(([a], [b]) => a.localeCompare(b)),
     backendExtras: extras,
   });
 }

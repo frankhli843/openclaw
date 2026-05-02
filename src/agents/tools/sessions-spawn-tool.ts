@@ -111,6 +111,12 @@ function createSessionsSpawnToolSchema(params: { acpAvailable: boolean }) {
     model: Type.Optional(Type.String()),
     thinking: Type.Optional(Type.String()),
     cwd: Type.Optional(Type.String()),
+    env: Type.Optional(
+      Type.Record(Type.String(), Type.String(), {
+        description:
+          "ACP-only environment overrides for session creation. Values are persisted in session metadata; use for non-secret selectors such as CLAUDE_CONFIG_DIR.",
+      }),
+    ),
     runTimeoutSeconds: Type.Optional(Type.Number({ minimum: 0 })),
     // Back-compat: older callers used timeoutSeconds for this tool.
     timeoutSeconds: Type.Optional(Type.Number({ minimum: 0 })),
@@ -220,6 +226,10 @@ export function createSessionsSpawnTool(
       const modelOverride = readStringParam(params, "model");
       const thinkingOverrideRaw = readStringParam(params, "thinking");
       const cwd = readStringParam(params, "cwd");
+      const envOverride =
+        params.env && typeof params.env === "object" && !Array.isArray(params.env)
+          ? (params.env as Record<string, string>)
+          : undefined;
       const mode = params.mode === "run" || params.mode === "session" ? params.mode : undefined;
       const cleanup =
         params.cleanup === "keep" || params.cleanup === "delete" ? params.cleanup : "keep";
@@ -242,6 +252,9 @@ export function createSessionsSpawnTool(
       }
       if (runtime === "acp" && context === "fork") {
         throw new Error('context="fork" is only supported for runtime="subagent".');
+      }
+      if (runtime !== "acp" && envOverride) {
+        throw new Error("env is only supported for runtime='acp'.");
       }
       // Back-compat: older callers used timeoutSeconds for this tool.
       const timeoutSecondsCandidate =
@@ -284,6 +297,7 @@ export function createSessionsSpawnTool(
             thinking: thinkingOverrideRaw,
             runTimeoutSeconds,
             cwd,
+            env: envOverride,
             mode: mode === "run" || mode === "session" ? mode : undefined,
             thread,
             sandbox,
