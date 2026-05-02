@@ -245,6 +245,7 @@ export function createMockCronStateForJobs(params: {
     timer: null,
     storeLoadedAtMs: nowMs,
     storeFileMtimeMs: null,
+    lastLoadedDiskJobIds: null,
     op: Promise.resolve(),
     warnedDisabled: false,
     warnedMissingSessionTargetJobIds: new Set<string>(),

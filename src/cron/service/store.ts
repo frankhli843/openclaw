@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { parseJsonWithJson5Fallback } from "../../utils/parse-json-compat.js";
 import { normalizeCronJobIdentityFields } from "../normalize-job-identity.js";
 import { normalizeCronJobInput } from "../normalize.js";
 import { cronSchedulingInputsEqual } from "../schedule-identity.js";
@@ -129,6 +130,17 @@ export async function ensureLoaded(
   };
   state.storeLoadedAtMs = state.deps.nowMs();
   state.storeFileMtimeMs = fileMtimeMs;
+  // frankclaw: snapshot the set of job IDs we just observed on disk. Used by
+  // persist() as a tripwire against cross-process / file-race drops where the
+  // in-memory store is stale relative to disk and a write would silently
+  // overwrite externally-added jobs (#openclaw-jobs-json-corruption,
+  // 2026-05-02 incident).
+  state.lastLoadedDiskJobIds = new Set<string>();
+  for (const job of jobs) {
+    if (typeof job.id === "string" && job.id.length > 0) {
+      state.lastLoadedDiskJobIds.add(job.id);
+    }
+  }
 
   if (!opts?.skipRecompute) {
     recomputeNextRuns(state);
@@ -153,7 +165,111 @@ export async function persist(state: CronServiceState, opts?: { skipBackup?: boo
   if (!state.store) {
     return;
   }
+  // frankclaw: tripwire against the file-race silent-drop class-of-bug
+  // (2026-05-02). Refuse to write a snapshot that would drop jobs which were
+  // added to disk after our last forceReload. See assertNoUnexpectedDiskDrops
+  // for the full check.
+  await assertNoUnexpectedDiskDrops(state);
   await saveCronStore(state.deps.storePath, state.store, opts);
   // Update file mtime after save to prevent immediate reload
   state.storeFileMtimeMs = await getFileMtimeMs(state.deps.storePath);
+  // After successful save, the disk snapshot now matches in-memory; refresh
+  // lastLoadedDiskJobIds so the next persist's tripwire is anchored to the
+  // jobs we just wrote.
+  if (state.store) {
+    const refreshed = new Set<string>();
+    for (const job of state.store.jobs) {
+      if (typeof job.id === "string" && job.id.length > 0) {
+        refreshed.add(job.id);
+      }
+    }
+    state.lastLoadedDiskJobIds = refreshed;
+  }
+}
+
+// frankclaw: read the on-disk jobs.json and verify that we are not about to
+// silently drop jobs that appeared on disk since our last load. This catches:
+//   1. Cross-process writers (manual file edits, external scripts, a second
+//      gateway) that added jobs between our load and our persist.
+//   2. Future regressions that bypass the forceReload-before-mutate rule and
+//      end up with a stale state.store relative to disk.
+// Explicit removals (cron.remove, deleteAfterRun) are allowed because they
+// remove the job ID from BOTH state.store.jobs AND the comparison via
+// lastLoadedDiskJobIds. Only IDs that exist on disk RIGHT NOW but were never
+// in lastLoadedDiskJobIds count as "unexpected" drops.
+async function assertNoUnexpectedDiskDrops(state: CronServiceState): Promise<void> {
+  const storePath = state.deps.storePath;
+  let raw: string;
+  try {
+    raw = await fs.promises.readFile(storePath, "utf-8");
+  } catch (err) {
+    if ((err as { code?: string }).code === "ENOENT") {
+      // First write: nothing on disk yet, nothing to drop.
+      return;
+    }
+    // Unreadable for some other reason: do not block writes, the existing
+    // saveCronStore atomic-write path will surface the failure.
+    return;
+  }
+  let parsed: unknown;
+  try {
+    parsed = parseJsonWithJson5Fallback(raw);
+  } catch {
+    // Unparseable disk content: saveCronStore will overwrite anyway.
+    return;
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return;
+  }
+  const parsedRecord = parsed as { jobs?: unknown };
+  if (!Array.isArray(parsedRecord.jobs)) {
+    return;
+  }
+  const diskIds = new Set<string>();
+  for (const entry of parsedRecord.jobs) {
+    if (entry && typeof entry === "object") {
+      const id = (entry as { id?: unknown; jobId?: unknown }).id;
+      const legacyId = (entry as { id?: unknown; jobId?: unknown }).jobId;
+      if (typeof id === "string" && id.length > 0) {
+        diskIds.add(id);
+      } else if (typeof legacyId === "string" && legacyId.length > 0) {
+        diskIds.add(legacyId);
+      }
+    }
+  }
+  const memIds = new Set<string>();
+  for (const job of state.store?.jobs ?? []) {
+    if (typeof job.id === "string" && job.id.length > 0) {
+      memIds.add(job.id);
+    }
+  }
+  const lastLoaded = state.lastLoadedDiskJobIds;
+  const unexpected: string[] = [];
+  for (const id of diskIds) {
+    if (memIds.has(id)) continue;
+    // ID exists on disk but not in memory. Allowed if we last saw it on disk
+    // (explicit removal in this op) or if we have no last-loaded snapshot
+    // (e.g. fresh state created without ensureLoaded — defensive default to
+    // not block). Disallowed when the ID is "new" to disk vs our last load,
+    // which means another writer added it and we'd overwrite.
+    if (!lastLoaded || lastLoaded.has(id)) continue;
+    unexpected.push(id);
+  }
+  if (unexpected.length === 0) {
+    return;
+  }
+  state.deps.log.error(
+    {
+      storePath,
+      diskCount: diskIds.size,
+      memoryCount: memIds.size,
+      unexpected: unexpected.slice(0, 16),
+    },
+    "cron: refusing to persist; would silently drop jobs that appeared on disk since last load",
+  );
+  const preview = unexpected.slice(0, 5).join(", ");
+  const more = unexpected.length > 5 ? `, ... (${unexpected.length - 5} more)` : "";
+  throw new Error(
+    `cron: refusing to persist jobs.json; would drop ${unexpected.length} job(s) added on disk since last load: ${preview}${more}. Force-reload before persisting (the in-memory store is stale).`,
+  );
 }

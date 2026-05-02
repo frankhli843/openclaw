@@ -463,7 +463,7 @@
     },
     {
       "name": "Cron jobs.json file-race tripwire",
-      "description": "Refuses to silently drop jobs from jobs.json by force-reloading state.store from disk before mutate (add/update/remove) and refusing to persist if disk has IDs not in lastLoadedDiskJobIds (cross-process write detection). Closes the 2026-05-02 silent corruption class-of-bug.",
+      "description": "Refuses to silently drop jobs from jobs.json by force-reloading state.store from disk before mutate (add/update/remove), holding a same-directory jobs.json lock during read-modify-write, fsyncing atomic writes before rename, and refusing to persist if disk has IDs not in lastLoadedDiskJobIds (cross-process write detection). Closes the 2026-05-02 silent corruption class-of-bug.",
       "static": [
         {
           "file": "src/cron/service/ops.ts",
@@ -482,6 +482,18 @@
           "pattern": "lastLoadedDiskJobIds",
           "minCount": 1,
           "note": "snapshot of disk job IDs used by the tripwire"
+        },
+        {
+          "file": "src/cron/service/locked.ts",
+          "pattern": "acquireFileLock",
+          "minCount": 1,
+          "note": "same-directory jobs.json.lock serializes read-modify-write across patched processes"
+        },
+        {
+          "file": "src/cron/store.ts",
+          "pattern": "fsyncDirectory",
+          "minCount": 1,
+          "note": "atomic writes fsync tempfile before rename and fsync containing directory after rename"
         }
       ],
       "tests": ["src/cron/service/ops.update-fileraced.test.ts"],

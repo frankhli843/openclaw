@@ -315,7 +315,11 @@ export async function listPage(state: CronServiceState, opts?: CronListPageOptio
 export async function add(state: CronServiceState, input: CronJobCreate) {
   return await locked(state, async () => {
     warnIfDisabled(state, "add");
-    await ensureLoaded(state);
+    // frankclaw: force-reload before mutate so concurrent writers (other
+    // processes, manual file edits) do not get silently dropped when we
+    // persist. See ops.update-fileraced.test.ts for the regression and
+    // assertNoUnexpectedDiskDrops in service/store.ts for the tripwire.
+    await ensureLoaded(state, { forceReload: true });
     const job = createJob(state, input);
     state.store?.jobs.push(job);
 
@@ -350,7 +354,11 @@ export async function add(state: CronServiceState, input: CronJobCreate) {
 export async function update(state: CronServiceState, id: string, patch: CronJobPatch) {
   return await locked(state, async () => {
     warnIfDisabled(state, "update");
-    await ensureLoaded(state, { skipRecompute: true });
+    // frankclaw: force-reload before mutate. The fast-path in ensureLoaded
+    // would otherwise reuse a potentially stale state.store, and persist()
+    // would overwrite externally-added jobs on disk. See
+    // ops.update-fileraced.test.ts for the regression case.
+    await ensureLoaded(state, { forceReload: true, skipRecompute: true });
     const job = findJobOrThrow(state, id);
     const now = state.deps.nowMs();
     const nextJob = structuredClone(job);
@@ -412,7 +420,9 @@ export async function update(state: CronServiceState, id: string, patch: CronJob
 export async function remove(state: CronServiceState, id: string) {
   return await locked(state, async () => {
     warnIfDisabled(state, "remove");
-    await ensureLoaded(state);
+    // frankclaw: force-reload before mutate so we never persist a stale
+    // snapshot that drops jobs added on disk by another writer.
+    await ensureLoaded(state, { forceReload: true });
     const before = state.store?.jobs.length ?? 0;
     if (!state.store) {
       return { ok: false, removed: false } as const;

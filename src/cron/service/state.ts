@@ -154,6 +154,14 @@ export type CronServiceState = {
   warnedMissingSessionTargetJobIds: Set<string>;
   storeLoadedAtMs: number | null;
   storeFileMtimeMs: number | null;
+  /**
+   * frankclaw: snapshot of job IDs observed on disk during the most recent
+   * `ensureLoaded` (or successful `persist`). Used by `persist`'s tripwire
+   * to refuse writing a snapshot that would silently drop jobs added to
+   * disk by another writer since our last load. See
+   * `assertNoUnexpectedDiskDrops` in service/store.ts.
+   */
+  lastLoadedDiskJobIds: Set<string> | null;
 };
 
 export function createCronServiceState(deps: CronServiceDeps): CronServiceState {
@@ -168,6 +176,7 @@ export function createCronServiceState(deps: CronServiceDeps): CronServiceState 
     warnedMissingSessionTargetJobIds: new Set<string>(),
     storeLoadedAtMs: null,
     storeFileMtimeMs: null,
+    lastLoadedDiskJobIds: null,
   };
 }
 

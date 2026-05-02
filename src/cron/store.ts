@@ -332,9 +332,45 @@ async function atomicWrite(filePath: string, content: string, dirMode = 0o700): 
   await fs.promises.mkdir(dir, { recursive: true, mode: dirMode });
   await fs.promises.chmod(dir, dirMode).catch(() => undefined);
   const tmp = `${filePath}.${process.pid}.${randomBytes(8).toString("hex")}.tmp`;
-  await fs.promises.writeFile(tmp, content, { encoding: "utf-8", mode: 0o600 });
+  // frankclaw: jobs.json corruption must fail shut, not silently produce a
+  // half-durable write. Write to a same-directory tempfile, fsync the file,
+  // rename atomically, then fsync the directory so the rename itself is
+  // durable on POSIX filesystems.
+  const handle = await fs.promises.open(
+    tmp,
+    fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_WRONLY,
+    0o600,
+  );
+  try {
+    await handle.writeFile(content, "utf-8");
+    await handle.sync();
+  } catch (err) {
+    await handle.close().catch(() => undefined);
+    await fs.promises.rm(tmp, { force: true }).catch(() => undefined);
+    throw err;
+  }
+  await handle.close();
   await renameWithRetry(tmp, filePath);
+  await fsyncDirectory(dir);
   await setSecureFileMode(filePath);
+}
+
+async function fsyncDirectory(dir: string): Promise<void> {
+  let handle: Awaited<ReturnType<typeof fs.promises.open>> | null = null;
+  try {
+    handle = await fs.promises.open(dir, fs.constants.O_RDONLY);
+    await handle.sync();
+  } catch (err) {
+    const code = (err as { code?: string }).code;
+    // Directory fsync is not supported on every platform/filesystem. The
+    // tempfile itself has already been fsynced; ignore only the portability
+    // cases and surface real write failures.
+    if (code !== "EINVAL" && code !== "EISDIR" && code !== "EPERM") {
+      throw err;
+    }
+  } finally {
+    await handle?.close().catch(() => undefined);
+  }
 }
 
 async function serializedFileNeedsWrite(
