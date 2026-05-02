@@ -244,6 +244,85 @@ describe("server-channels auto restart", () => {
     expect(startAccount).toHaveBeenCalledTimes(1);
   });
 
+  it("does not crash with unhandled rejection when channelLogs entry is missing and startAccount rejects", async () => {
+    // Regression: server.impl-NSL2vxkA.js:2051 unhandled rejection on 2026-05-02.
+    // Discord startAccount rejected during boot (bot identity fetch timed out),
+    // and the catch handler in startChannelInternal called `log.error?.(...)`
+    // where `log = channelLogs[channelId]` was undefined for the channel id
+    // being started. The "Cannot read properties of undefined (reading 'error')"
+    // exception escaped the chain and crashed the gateway via the global
+    // unhandledRejection handler.
+    const unhandledRejection = vi.fn();
+    process.on("unhandledRejection", unhandledRejection);
+    try {
+      const startAccount = vi.fn(async () => {
+        throw new Error("Failed to resolve Discord bot identity");
+      });
+      installTestRegistry(
+        createTestPlugin({
+          id: "mystery" as ChannelId,
+          startAccount,
+        }),
+      );
+      // Note: createManager only seeds channelLogs/channelRuntimeEnvs for
+      // channelIds we pass (default ["discord"]). The "mystery" plugin has
+      // no log entry, mirroring the production state where the channel id
+      // used at startChannelInternal is not present in channelLogs.
+      const manager = createManager();
+
+      await manager.startChannels();
+      // Allow auto-restart loop to spin a few times to exercise log usage in
+      // both the catch and the restart-attempt branches.
+      await vi.advanceTimersByTimeAsync(200);
+      // Drain microtasks so the final catch swallows any rejection.
+      for (let i = 0; i < 5; i++) {
+        await Promise.resolve();
+      }
+
+      expect(startAccount).toHaveBeenCalled();
+      expect(unhandledRejection).not.toHaveBeenCalled();
+    } finally {
+      process.off("unhandledRejection", unhandledRejection);
+    }
+  });
+
+  it("keeps the gateway alive when Discord and Telegram startup network calls reject", async () => {
+    const unhandledRejection = vi.fn();
+    process.on("unhandledRejection", unhandledRejection);
+    try {
+      const startDiscord = vi.fn(async () => {
+        throw new TypeError("fetch failed: connect ETIMEDOUT discord.com:443");
+      });
+      const startTelegram = vi.fn(async () => {
+        throw new Error("Telegram command sync failed: fetch failed");
+      });
+      installTestRegistry(
+        createTestPlugin({ id: "discord", startAccount: startDiscord }),
+        createTestPlugin({ id: "telegram" as ChannelId, startAccount: startTelegram }),
+      );
+      const manager = createManager({ channelIds: ["discord", "telegram" as ChannelId] });
+
+      await expect(manager.startChannels()).resolves.toBeUndefined();
+      await vi.advanceTimersByTimeAsync(0);
+      for (let i = 0; i < 5; i++) {
+        await Promise.resolve();
+      }
+
+      const snapshot = manager.getRuntimeSnapshot();
+      expect(startDiscord).toHaveBeenCalled();
+      expect(startTelegram).toHaveBeenCalled();
+      expect(snapshot.channelAccounts.discord?.[DEFAULT_ACCOUNT_ID]?.lastError).toContain(
+        "discord.com:443",
+      );
+      expect(snapshot.channelAccounts.telegram?.[DEFAULT_ACCOUNT_ID]?.lastError).toContain(
+        "Telegram command sync failed",
+      );
+      expect(unhandledRejection).not.toHaveBeenCalled();
+    } finally {
+      process.off("unhandledRejection", unhandledRejection);
+    }
+  });
+
   it("consumes rejected stop tasks during manual abort", async () => {
     const unhandledRejection = vi.fn();
     process.on("unhandledRejection", unhandledRejection);
