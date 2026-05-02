@@ -823,7 +823,11 @@ describe("processDiscordMessage session routing", () => {
     expect(createDiscordDraftStream).not.toHaveBeenCalled();
   });
 
-  it("suppresses automatic status reactions for always-on guild replies", async () => {
+  // frankclaw: upstream's "suppresses automatic status reactions for always-on
+  // guild replies" was inverted on 2026-05-02. Reactions on Discord are visual
+  // feedback on the inbound message and must fire regardless of reply delivery
+  // mode. See message-handler.process.ack-gate.frankclaw.ts.
+  it("still emits ack/status reactions for always-on guild replies (frankclaw)", async () => {
     const ctx = await createBaseContext({
       shouldRequireMention: false,
       effectiveWasMentioned: false,
@@ -844,8 +848,7 @@ describe("processDiscordMessage session routing", () => {
     await runProcessDiscordMessage(ctx);
 
     expect(getLastDispatchReplyOptions()?.sourceReplyDeliveryMode).toBe("message_tool_only");
-    expect(sendMocks.reactMessageDiscord).not.toHaveBeenCalled();
-    expect(sendMocks.removeReactionDiscord).not.toHaveBeenCalled();
+    expect(sendMocks.reactMessageDiscord).toHaveBeenCalled();
   });
 
   it("defaults guild replies to message-tool-only source delivery", async () => {

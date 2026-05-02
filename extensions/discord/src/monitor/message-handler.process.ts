@@ -41,6 +41,8 @@ import {
 import { buildDiscordMessageProcessContext } from "./message-handler.context.js";
 import { createDiscordDraftPreviewController } from "./message-handler.draft-preview.js";
 import type { DiscordMessagePreflightContext } from "./message-handler.preflight.js";
+// frankclaw: decouple ack/status/DNR reactions from sourceRepliesAreToolOnly
+import { shouldSendAckReactionFrankclaw } from "./message-handler.process.ack-gate.frankclaw.js";
 // frankclaw: bed-emoji reaction helper for DNR quiet hours
 import { reactDiscordDnrBedEmoji } from "./message-handler.process.dnr.frankclaw.js";
 import { resolveForwardedMediaList, resolveMediaList } from "./message-utils.js";
@@ -187,7 +189,14 @@ export async function processDiscordMessage(
         shouldBypassMention,
       }),
     );
-  const shouldSendAckReaction = !sourceRepliesAreToolOnly && shouldAckReaction();
+  // frankclaw: reactions (👀 ack, 🤔/🛠/✅/😱 status, 🛏 DNR) are visual
+  // feedback on the inbound message and must fire regardless of whether the
+  // reply arrives automatically or via the message tool. See
+  // ./message-handler.process.ack-gate.frankclaw.ts for context.
+  const shouldSendAckReaction = shouldSendAckReactionFrankclaw({
+    shouldAckReactionResult: shouldAckReaction(),
+    sourceRepliesAreToolOnly,
+  });
   const statusReactionsEnabled =
     shouldSendAckReaction && cfg.messages?.statusReactions?.enabled !== false;
   const feedbackRest = createDiscordRestClient({
