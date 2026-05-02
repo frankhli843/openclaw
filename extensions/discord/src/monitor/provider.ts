@@ -49,7 +49,10 @@ import {
   type GetPluginCommandSpecs,
 } from "./provider.commands.js";
 import { logDiscordResolvedConfig } from "./provider.config-log.js";
-import { formatDiscordDeployErrorDetails } from "./provider.deploy-errors.js";
+import {
+  formatDiscordDeployErrorDetails,
+  formatDiscordDeployErrorMessage,
+} from "./provider.deploy-errors.js";
 import {
   clearDiscordNativeCommands,
   runDiscordCommandDeployInBackground,
@@ -674,6 +677,7 @@ export const __testing = {
   resolveDiscordRestFetch,
   resolveThreadBindingsEnabled: resolveThreadBindingsEnabledForTesting,
   formatDiscordDeployErrorDetails,
+  formatDiscordDeployErrorMessage,
   setFetchDiscordApplicationId(mock?: typeof fetchDiscordApplicationId) {
     fetchDiscordApplicationIdForTesting = mock;
   },

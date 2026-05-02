@@ -22,6 +22,12 @@ export class FailoverError extends Error {
   readonly status?: number;
   readonly code?: string;
   readonly rawError?: string;
+  // Originating request attribution propagated through wrapper errors so
+  // structured log ingestion (e.g. api_health_log) can attribute exhausted
+  // failover failures back to a session/lane and the last attempted provider.
+  // See #42713.
+  readonly sessionId?: string;
+  readonly lane?: string;
 
   constructor(
     message: string,
@@ -33,6 +39,8 @@ export class FailoverError extends Error {
       status?: number;
       code?: string;
       rawError?: string;
+      sessionId?: string;
+      lane?: string;
       cause?: unknown;
     },
   ) {
@@ -45,6 +53,8 @@ export class FailoverError extends Error {
     this.status = params.status;
     this.code = params.code;
     this.rawError = params.rawError;
+    this.sessionId = params.sessionId;
+    this.lane = params.lane;
   }
 }
 
@@ -426,6 +436,11 @@ export function describeFailoverError(err: unknown): {
   reason?: FailoverReason;
   status?: number;
   code?: string;
+  provider?: string;
+  model?: string;
+  profileId?: string;
+  sessionId?: string;
+  lane?: string;
 } {
   if (isFailoverError(err)) {
     return {
@@ -434,6 +449,11 @@ export function describeFailoverError(err: unknown): {
       reason: err.reason,
       status: err.status,
       code: err.code,
+      provider: err.provider,
+      model: err.model,
+      profileId: err.profileId,
+      sessionId: err.sessionId,
+      lane: err.lane,
     };
   }
   const signal = normalizeErrorSignal(err);
@@ -443,6 +463,7 @@ export function describeFailoverError(err: unknown): {
     reason: resolveFailoverReasonFromError(err) ?? undefined,
     status: signal.status,
     code: signal.code,
+    provider: signal.provider,
   };
 }
 
@@ -452,6 +473,8 @@ export function coerceToFailoverError(
     provider?: string;
     model?: string;
     profileId?: string;
+    sessionId?: string;
+    lane?: string;
   },
 ): FailoverError | null {
   if (isFailoverError(err)) {
@@ -469,9 +492,11 @@ export function coerceToFailoverError(
 
   return new FailoverError(message, {
     reason,
-    provider: context?.provider,
+    provider: context?.provider ?? signal.provider,
     model: context?.model,
     profileId: context?.profileId,
+    sessionId: context?.sessionId,
+    lane: context?.lane,
     status,
     code,
     rawError: message,

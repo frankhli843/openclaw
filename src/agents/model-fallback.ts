@@ -48,6 +48,11 @@ import {
 
 const log = createSubsystemLogger("model-fallback");
 
+type FailoverAttribution = {
+  sessionId?: string;
+  lane?: string;
+};
+
 /**
  * Structured error thrown when all model fallback candidates have been
  * exhausted. Carries per-attempt details so callers can build informative
@@ -56,17 +61,22 @@ const log = createSubsystemLogger("model-fallback");
 export class FallbackSummaryError extends Error {
   readonly attempts: FallbackAttempt[];
   readonly soonestCooldownExpiry: number | null;
+  readonly sessionId?: string;
+  readonly lane?: string;
 
   constructor(
     message: string,
     attempts: FallbackAttempt[],
     soonestCooldownExpiry: number | null,
     cause?: Error,
+    attribution?: FailoverAttribution,
   ) {
     super(message, { cause });
     this.name = "FallbackSummaryError";
     this.attempts = attempts;
     this.soonestCooldownExpiry = soonestCooldownExpiry;
+    this.sessionId = attribution?.sessionId;
+    this.lane = attribution?.lane;
   }
 }
 
@@ -203,6 +213,7 @@ async function runFallbackCandidate<T>(params: {
   provider: string;
   model: string;
   options?: ModelFallbackRunOptions;
+  attribution?: FailoverAttribution;
 }): Promise<{ ok: true; result: T } | { ok: false; error: unknown }> {
   try {
     const result = params.options
@@ -218,6 +229,8 @@ async function runFallbackCandidate<T>(params: {
     const normalizedFailover = coerceToFailoverError(err, {
       provider: params.provider,
       model: params.model,
+      sessionId: params.attribution?.sessionId,
+      lane: params.attribution?.lane,
     });
     if (shouldRethrowAbort(err) && !normalizedFailover) {
       throw err;
@@ -235,12 +248,14 @@ async function runFallbackAttempt<T>(params: {
   classifyResult?: ModelFallbackResultClassifier<T>;
   attempt: number;
   total: number;
+  attribution?: FailoverAttribution;
 }): Promise<{ success: ModelFallbackRunResult<T> } | { error: unknown }> {
   const runResult = await runFallbackCandidate({
     run: params.run,
     provider: params.provider,
     model: params.model,
     options: params.options,
+    attribution: params.attribution,
   });
   if (runResult.ok) {
     const classification = await params.classifyResult?.({
@@ -253,6 +268,7 @@ async function runFallbackAttempt<T>(params: {
     const classifiedError = resolveResultClassificationError(classification, {
       provider: params.provider,
       model: params.model,
+      attribution: params.attribution,
     });
     if (classifiedError) {
       return { error: classifiedError };
@@ -271,7 +287,7 @@ async function runFallbackAttempt<T>(params: {
 
 function resolveResultClassificationError(
   classification: ModelFallbackResultClassification,
-  params: { provider: string; model: string },
+  params: { provider: string; model: string; attribution?: FailoverAttribution },
 ) {
   if (!classification) {
     return null;
@@ -287,6 +303,8 @@ function resolveResultClassificationError(
     reason: classification.reason ?? "unknown",
     provider: params.provider,
     model: params.model,
+    sessionId: params.attribution?.sessionId,
+    lane: params.attribution?.lane,
     status: classification.status,
     code: classification.code,
     rawError: classification.rawError,
@@ -302,6 +320,8 @@ function recordFailedCandidateAttempt(params: {
   candidate: ModelCandidate;
   error: unknown;
   runId?: string;
+  sessionId?: string;
+  lane?: string;
   requestedProvider?: string;
   requestedModel?: string;
   attempt: number;
@@ -323,6 +343,8 @@ function recordFailedCandidateAttempt(params: {
   return logModelFallbackDecision({
     decision: "candidate_failed",
     runId: params.runId,
+    sessionId: params.sessionId,
+    lane: params.lane,
     requestedProvider: params.requestedProvider ?? params.candidate.provider,
     requestedModel: params.requestedModel ?? params.candidate.model,
     candidate: params.candidate,
@@ -361,6 +383,7 @@ function throwFallbackFailureSummary(params: {
   label: string;
   formatAttempt: (attempt: FallbackAttempt) => string;
   soonestCooldownExpiry?: number | null;
+  attribution?: FailoverAttribution;
 }): never {
   if (params.attempts.length <= 1 && params.lastError) {
     throw params.lastError;
@@ -372,6 +395,7 @@ function throwFallbackFailureSummary(params: {
     params.attempts,
     params.soonestCooldownExpiry ?? null,
     params.lastError instanceof Error ? params.lastError : undefined,
+    params.attribution,
   );
 }
 
@@ -763,6 +787,8 @@ export async function runWithModelFallback<T>(params: {
   provider: string;
   model: string;
   runId?: string;
+  sessionId?: string;
+  lane?: string;
   agentDir?: string;
   /** Optional explicit fallbacks list; when provided (even empty), replaces agents.defaults.model.fallbacks. */
   fallbacksOverride?: string[];
@@ -891,6 +917,8 @@ export async function runWithModelFallback<T>(params: {
           await observeDecision({
             decision: "skip_candidate",
             runId: params.runId,
+            sessionId: params.sessionId,
+            lane: params.lane,
             requestedProvider: params.provider,
             requestedModel: params.model,
             candidate,
@@ -926,6 +954,8 @@ export async function runWithModelFallback<T>(params: {
             await observeDecision({
               decision: "skip_candidate",
               runId: params.runId,
+              sessionId: params.sessionId,
+              lane: params.lane,
               requestedProvider: params.provider,
               requestedModel: params.model,
               candidate,
@@ -950,6 +980,8 @@ export async function runWithModelFallback<T>(params: {
         await observeDecision({
           decision: "probe_cooldown_candidate",
           runId: params.runId,
+          sessionId: params.sessionId,
+          lane: params.lane,
           requestedProvider: params.provider,
           requestedModel: params.model,
           candidate,
@@ -974,6 +1006,7 @@ export async function runWithModelFallback<T>(params: {
       classifyResult: params.classifyResult,
       attempt: i + 1,
       total: candidates.length,
+      attribution: { sessionId: params.sessionId, lane: params.lane },
     });
     if ("success" in attemptRun) {
       // frankclaw: reset circuit breaker on success
@@ -982,6 +1015,8 @@ export async function runWithModelFallback<T>(params: {
         await observeDecision({
           decision: "candidate_succeeded",
           runId: params.runId,
+          sessionId: params.sessionId,
+          lane: params.lane,
           requestedProvider: params.provider,
           requestedModel: params.model,
           candidate,
@@ -1022,6 +1057,8 @@ export async function runWithModelFallback<T>(params: {
         coerceToFailoverError(err, {
           provider: candidate.provider,
           model: candidate.model,
+          sessionId: params.sessionId,
+          lane: params.lane,
         }) ?? err;
 
       // LiveSessionModelSwitchError during fallback may point at a later
@@ -1045,6 +1082,8 @@ export async function runWithModelFallback<T>(params: {
           reason: "unknown",
           provider: candidate.provider,
           model: candidate.model,
+          sessionId: params.sessionId,
+          lane: params.lane,
         });
         lastError = switchNormalized;
         await observeFailedCandidate({
@@ -1052,6 +1091,8 @@ export async function runWithModelFallback<T>(params: {
           candidate,
           error: switchNormalized,
           runId: params.runId,
+          sessionId: params.sessionId,
+          lane: params.lane,
           requestedProvider: params.provider,
           requestedModel: params.model,
           attempt: i + 1,
@@ -1083,6 +1124,8 @@ export async function runWithModelFallback<T>(params: {
         candidate,
         error: normalized,
         runId: params.runId,
+        sessionId: params.sessionId,
+        lane: params.lane,
         requestedProvider: params.provider,
         requestedModel: params.model,
         attempt: i + 1,
@@ -1118,6 +1161,7 @@ export async function runWithModelFallback<T>(params: {
       cfg: params.cfg,
       candidates,
     }),
+    attribution: { sessionId: params.sessionId, lane: params.lane },
   });
 }
 
