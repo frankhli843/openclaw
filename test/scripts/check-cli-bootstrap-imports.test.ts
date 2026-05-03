@@ -6,6 +6,7 @@ import {
   collectCliBootstrapExternalImportErrors,
   collectGatewayRunChunkBudgetErrors,
   listStaticImportSpecifiers,
+  stripJavaScriptComments,
 } from "../../scripts/check-cli-bootstrap-imports.mjs";
 
 const tempRoots: string[] = [];
@@ -53,6 +54,21 @@ describe("check-cli-bootstrap-imports", () => {
         await import("commander");
       `),
     ).toEqual(["node:fs", "./side-effect.js", "../value.js"]);
+  });
+
+  it("ignores import examples inside comments", () => {
+    const source = `
+      // import ignored from "comment-line";
+      /*
+       * Usage:
+       *   import { acpDiag } from "./acp-diag.frankclaw.js";
+       *   export { value } from "./comment-export.js";
+       */
+      import "./real.js";
+    `;
+
+    expect(stripJavaScriptComments(source)).not.toContain("./acp-diag.frankclaw.js");
+    expect(listStaticImportSpecifiers(source)).toEqual(["./real.js"]);
   });
 
   it("allows a bootstrap graph with builtins and lazy external imports", () => {

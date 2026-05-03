@@ -54,8 +54,80 @@ function resolveRelativeImport(importer, specifier, fsImpl = fs) {
   });
 }
 
+export function stripJavaScriptComments(source) {
+  let output = "";
+  let state = "code";
+  for (let index = 0; index < source.length; index += 1) {
+    const char = source[index];
+    const next = source[index + 1];
+
+    if (state === "line-comment") {
+      if (char === "\n" || char === "\r") {
+        output += char;
+        state = "code";
+      } else {
+        output += " ";
+      }
+      continue;
+    }
+
+    if (state === "block-comment") {
+      if (char === "*" && next === "/") {
+        output += "  ";
+        index += 1;
+        state = "code";
+      } else {
+        output += char === "\n" || char === "\r" ? char : " ";
+      }
+      continue;
+    }
+
+    if (state === "single-quote" || state === "double-quote" || state === "template") {
+      output += char;
+      if (char === "\\") {
+        index += 1;
+        output += source[index] ?? "";
+        continue;
+      }
+      if (
+        (state === "single-quote" && char === "'") ||
+        (state === "double-quote" && char === '"') ||
+        (state === "template" && char === "`")
+      ) {
+        state = "code";
+      }
+      continue;
+    }
+
+    if (char === "/" && next === "/") {
+      output += "  ";
+      index += 1;
+      state = "line-comment";
+      continue;
+    }
+    if (char === "/" && next === "*") {
+      output += "  ";
+      index += 1;
+      state = "block-comment";
+      continue;
+    }
+    if (char === "'") {
+      state = "single-quote";
+    } else if (char === '"') {
+      state = "double-quote";
+    } else if (char === "`") {
+      state = "template";
+    }
+    output += char;
+  }
+  return output;
+}
+
 export function listStaticImportSpecifiers(source) {
-  return [...source.matchAll(STATIC_IMPORT_RE)].map((match) => match.groups?.specifier ?? "");
+  const sourceWithoutComments = stripJavaScriptComments(source);
+  return [...sourceWithoutComments.matchAll(STATIC_IMPORT_RE)].map(
+    (match) => match.groups?.specifier ?? "",
+  );
 }
 
 function walkStaticImportGraph(params) {
