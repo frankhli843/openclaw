@@ -24,7 +24,6 @@ import { getPrimaryIdentityId, getSelfIdentity, getSenderIdentity } from "../../
 import {
   resolveWhatsAppCommandAuthorized,
   resolveWhatsAppInboundPolicy,
-  type ResolvedWhatsAppInboundPolicy,
 } from "../../inbound-policy.js";
 import { newConnectionId } from "../../reconnect.js";
 import { formatError } from "../../session.js";
@@ -618,10 +617,3 @@ export async function processMessage(params: {
   });
   return didSendReply;
 }
-
-export const __testing = {
-  resolveWhatsAppCommandAuthorized,
-  resolveWhatsAppInboundPolicy: (
-    params: Parameters<typeof resolveWhatsAppInboundPolicy>[0],
-  ): ResolvedWhatsAppInboundPolicy => resolveWhatsAppInboundPolicy(params),
-};

@@ -14,7 +14,7 @@ const OPENAI_PROVIDER_IDS = new Set(["openai", "openai-codex"]);
 export const OPENAI_FRIENDLY_PROMPT_OVERLAY = GPT5_FRIENDLY_PROMPT_OVERLAY;
 export const OPENAI_GPT5_BEHAVIOR_CONTRACT = GPT5_BEHAVIOR_CONTRACT;
 
-// --- VOICE.md runtime loading (frankclaw addition) ---
+// --- VOICE.md runtime loading (frankclaw) ---
 
 const VOICE_FILENAME = "VOICE.md";
 let voiceFileCache: { content: string; mtimeMs: number } | undefined;
@@ -37,9 +37,9 @@ export function loadVoiceFile(workspaceDir: string): string | undefined {
   return undefined;
 }
 
-// --- End frankclaw addition ---
+// --- End frankclaw ---
 
-export type OpenAIPromptOverlayMode = Gpt5PromptOverlayMode;
+type OpenAIPromptOverlayMode = Gpt5PromptOverlayMode;
 
 export function resolveOpenAIPromptOverlayMode(
   pluginConfig?: Record<string, unknown>,

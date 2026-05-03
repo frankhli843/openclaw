@@ -86,7 +86,7 @@ export function validateRuntimeModelInput(rawModel: unknown): string {
   });
 }
 
-export function validateRuntimeThinkingInput(rawThinking: unknown): string {
+function validateRuntimeThinkingInput(rawThinking: unknown): string {
   return validateBoundedText({
     value: rawThinking,
     field: "Thinking level",
@@ -114,7 +114,7 @@ export function validateRuntimeCwdInput(rawCwd: unknown): string {
   return cwd;
 }
 
-export function validateRuntimeTimeoutSecondsInput(rawTimeout: unknown): number {
+function validateRuntimeTimeoutSecondsInput(rawTimeout: unknown): number {
   if (typeof rawTimeout !== "number" || !Number.isFinite(rawTimeout)) {
     failInvalidOption("Timeout must be a positive integer in seconds.");
   }

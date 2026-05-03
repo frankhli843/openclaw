@@ -7,7 +7,6 @@ import {
 import {
   presentationToInteractiveReply,
   renderMessagePresentationFallbackText,
-  resolveInteractiveTextFallback,
 } from "openclaw/plugin-sdk/interactive-runtime";
 import { sanitizeForPlainText } from "openclaw/plugin-sdk/outbound-runtime";
 import {
@@ -27,6 +26,7 @@ import {
 import type { TelegramInlineButtons } from "./button-types.js";
 import { resolveTelegramInlineButtons } from "./button-types.js";
 import { markdownToTelegramHtmlChunks } from "./format.js";
+import { resolveTelegramInteractiveTextFallback } from "./interactive-fallback.js";
 import { parseTelegramReplyToMessageId, parseTelegramThreadId } from "./outbound-params.js";
 import { pinMessageTelegram } from "./send.js";
 
@@ -109,7 +109,7 @@ export async function sendTelegramPayloadMessages(params: {
   const quoteText =
     typeof telegramData?.quoteText === "string" ? telegramData.quoteText : undefined;
   const text =
-    resolveInteractiveTextFallback({
+    resolveTelegramInteractiveTextFallback({
       text: params.payload.text,
       interactive: params.payload.interactive,
     }) ?? "";

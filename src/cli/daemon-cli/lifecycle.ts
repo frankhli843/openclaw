@@ -7,10 +7,12 @@ import {
   formatGatewayPidList,
   signalVerifiedGatewayPidSync,
 } from "../../infra/gateway-processes.js";
+import { type GatewayRestartIntent, writeGatewayRestartIntentSync } from "../../infra/restart.js";
 import { defaultRuntime } from "../../runtime.js";
 import { normalizeOptionalString } from "../../shared/string-coerce.js";
 import { theme } from "../../terminal/theme.js";
 import { formatCliCommand } from "../command-format.js";
+import { parseDurationMs } from "../parse-duration.js";
 import { recoverInstalledLaunchAgent } from "./launchd-recovery.js";
 import {
   runServiceRestart,
@@ -35,6 +37,7 @@ import {
   runSelfHeal,
 } from "./restart-selfheal.frankclaw.js";
 import { parsePortFromArgs, renderGatewayServiceStartHints } from "./shared.js";
+import { repairLoadedGatewayServiceForStart } from "./start-repair.js";
 import type { DaemonLifecycleOptions } from "./types.js";
 
 const POST_RESTART_HEALTH_ATTEMPTS = DEFAULT_RESTART_HEALTH_ATTEMPTS;
@@ -127,7 +130,25 @@ async function stopGatewayWithoutServiceManager(port: number) {
   };
 }
 
-async function restartGatewayWithoutServiceManager(port: number) {
+function resolveGatewayRestartIntentOptions(
+  opts: DaemonLifecycleOptions,
+): GatewayRestartIntent | undefined {
+  if (opts.force && opts.wait !== undefined) {
+    throw new Error("--force cannot be combined with --wait");
+  }
+  if (opts.force) {
+    return { force: true };
+  }
+  if (opts.wait !== undefined) {
+    return { waitMs: parseDurationMs(opts.wait) };
+  }
+  return undefined;
+}
+
+async function restartGatewayWithoutServiceManager(
+  port: number,
+  restartIntent?: GatewayRestartIntent,
+) {
   await assertUnmanagedGatewayRestartEnabled(port);
   const pids = resolveVerifiedGatewayListenerPids(port);
   if (pids.length === 0) {
@@ -138,6 +159,10 @@ async function restartGatewayWithoutServiceManager(port: number) {
       `multiple gateway processes are listening on port ${port}: ${formatGatewayPidList(pids)}; use "openclaw gateway status --deep" before retrying restart`,
     );
   }
+  writeGatewayRestartIntentSync({
+    targetPid: pids[0],
+    ...(restartIntent ? { intent: restartIntent } : {}),
+  });
   signalVerifiedGatewayPidSync(pids[0], "SIGUSR1");
   return {
     result: "restarted" as const,
@@ -156,14 +181,23 @@ export async function runDaemonUninstall(opts: DaemonLifecycleOptions = {}) {
 }
 
 export async function runDaemonStart(opts: DaemonLifecycleOptions = {}) {
+  const service = resolveGatewayService();
   return await runServiceStart({
     serviceNoun: "Gateway",
-    service: resolveGatewayService(),
+    service,
     renderStartHints: renderGatewayServiceStartHints,
     onNotLoaded:
       process.platform === "darwin"
         ? async () => await recoverInstalledLaunchAgent({ result: "started" })
         : undefined,
+    repairLoadedService: async ({ json, stdout, state, issues }) =>
+      await repairLoadedGatewayServiceForStart({
+        service,
+        json,
+        stdout,
+        state,
+        issues,
+      }),
     opts,
   });
 }
@@ -214,6 +248,7 @@ export async function runDaemonRestart(opts: DaemonLifecycleOptions = {}): Promi
 
   const service = resolveGatewayService();
   let restartedWithoutServiceManager = false;
+  const restartIntent = resolveGatewayRestartIntentOptions(opts);
   const restartPort = await resolveGatewayLifecyclePort(service).catch(() =>
     resolveGatewayPortFallback(),
   );
@@ -225,7 +260,10 @@ export async function runDaemonRestart(opts: DaemonLifecycleOptions = {}): Promi
     serviceNoun: "Gateway",
     service,
     renderStartHints: renderGatewayServiceStartHints,
-    opts,
+    opts: {
+      ...opts,
+      ...(restartIntent ? { restartIntent } : {}),
+    },
     checkTokenDrift: true,
     onNotLoaded: async () => {
       if (process.platform === "darwin") {
@@ -234,7 +272,7 @@ export async function runDaemonRestart(opts: DaemonLifecycleOptions = {}): Promi
           return recovered;
         }
       }
-      const handled = await restartGatewayWithoutServiceManager(restartPort);
+      const handled = await restartGatewayWithoutServiceManager(restartPort, restartIntent);
       if (handled) {
         restartedWithoutServiceManager = true;
         return handled;

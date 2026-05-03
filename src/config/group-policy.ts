@@ -14,9 +14,9 @@ import {
   type ToolsBySenderKeyType,
 } from "./types.tools.js";
 
-export type GroupPolicyChannel = ChannelId;
+type GroupPolicyChannel = ChannelId;
 
-export type ChannelGroupConfig = {
+type ChannelGroupConfig = {
   requireMention?: boolean;
   gateMode?: GateMode;
   allowFrom?: Array<string | number>;
@@ -59,7 +59,7 @@ function resolveChannelGroupConfig(
   return groups[matchedKey];
 }
 
-export type GroupToolPolicySender = {
+type GroupToolPolicySender = {
   senderId?: string | null;
   senderName?: string | null;
   senderUsername?: string | null;

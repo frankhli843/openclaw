@@ -7,7 +7,7 @@ import { wrapAsNoteToSelf } from "../auto-reply/note-to-self.frankclaw.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { onAgentEvent } from "../infra/agent-events.js";
 import { formatErrorMessage } from "../infra/errors.js";
-import { requestHeartbeatNow } from "../infra/heartbeat-wake.js";
+import { requestHeartbeat } from "../infra/heartbeat-wake.js";
 import { enqueueSystemEvent } from "../infra/system-events.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import { parseAgentSessionKey } from "../routing/session-key.js";
@@ -1079,8 +1079,11 @@ function queueTaskSystemEvent(task: TaskRecord, text: string) {
     sessionKey: ownerKey,
     contextKey: `task:${task.taskId}`,
     deliveryContext: owner.requesterOrigin,
+    trusted: false,
   });
-  requestHeartbeatNow({
+  requestHeartbeat({
+    source: "background-task",
+    intent: "immediate",
     reason: "background-task",
     sessionKey: ownerKey,
   });
@@ -1101,8 +1104,11 @@ function queueBlockedTaskFollowup(task: TaskRecord) {
     sessionKey: ownerKey,
     contextKey: `task:${task.taskId}:blocked-followup`,
     deliveryContext: owner.requesterOrigin,
+    trusted: false,
   });
-  requestHeartbeatNow({
+  requestHeartbeat({
+    source: "background-task-blocked",
+    intent: "immediate",
     reason: "background-task-blocked",
     sessionKey: ownerKey,
   });
@@ -1961,6 +1967,35 @@ export function listTaskRecords(): TaskRecord[] {
     .map((task, insertionIndex) => Object.assign({}, cloneTaskRecord(task), { insertionIndex }))
     .toSorted(compareTasksNewestFirst)
     .map(({ insertionIndex: _, ...task }) => task);
+}
+
+export function hasActiveTaskForChildSessionKey(params: {
+  sessionKey: string;
+  excludeTaskId?: string;
+}): boolean {
+  ensureTaskRegistryReady();
+  const sessionKey = normalizeOptionalString(params.sessionKey);
+  if (!sessionKey) {
+    return false;
+  }
+  const ids = taskIdsByRelatedSessionKey.get(sessionKey);
+  if (!ids) {
+    return false;
+  }
+  for (const taskId of ids) {
+    if (taskId === params.excludeTaskId) {
+      continue;
+    }
+    const task = tasks.get(taskId);
+    if (
+      task &&
+      isActiveTaskStatus(task.status) &&
+      normalizeOptionalString(task.childSessionKey) === sessionKey
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 export function getTaskRegistrySummary(): TaskRegistrySummary {
