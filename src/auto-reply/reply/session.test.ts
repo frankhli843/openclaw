@@ -1732,6 +1732,61 @@ describe("initSessionState reset policy", () => {
     });
   });
 
+  it("reuses a user-facing Telegram direct session when existing entry has terminal status (done)", async () => {
+    vi.setSystemTime(new Date(2026, 0, 18, 5, 0, 0));
+    const root = await makeCaseDir("openclaw-terminal-telegram-direct-reuse-");
+    const storePath = path.join(root, "sessions.json");
+    const sessionKey = "agent:main:telegram:direct:7918451151";
+    const existingSessionId = "telegram-direct-session";
+
+    await writeSessionStoreFast(storePath, {
+      [sessionKey]: {
+        sessionId: existingSessionId,
+        updatedAt: new Date(2026, 0, 18, 4, 30, 0).getTime(),
+        status: "done",
+        startedAt: new Date(2026, 0, 18, 4, 0, 0).getTime(),
+        endedAt: new Date(2026, 0, 18, 4, 30, 0).getTime(),
+        runtimeMs: 1800000,
+        systemSent: true,
+        chatType: "direct",
+        channel: "telegram",
+        deliveryContext: {
+          channel: "telegram",
+          to: "telegram:7918451151",
+          accountId: "default",
+        },
+        lastChannel: "telegram",
+        lastTo: "telegram:7918451151",
+        lastAccountId: "default",
+      },
+    });
+
+    const cfg = { session: { store: storePath } } as OpenClawConfig;
+    const result = await initSessionState({
+      ctx: {
+        Body: "Why can't you tell? Cant you look into your logs?",
+        SessionKey: sessionKey,
+        Provider: "telegram",
+        Surface: "telegram",
+        ChatType: "direct",
+        OriginatingChannel: "telegram",
+        OriginatingTo: "telegram:7918451151",
+        To: "telegram:7918451151",
+        AccountId: "default",
+      },
+      cfg,
+      commandAuthorized: true,
+    });
+
+    expect(result.isNewSession).toBe(false);
+    expect(result.sessionId).toBe(existingSessionId);
+    expect(result.sessionEntry.deliveryContext).toEqual({
+      channel: "telegram",
+      to: "telegram:7918451151",
+      accountId: "default",
+    });
+  });
+
   it("creates a new worker session when existing entry has terminal status (done)", async () => {
     vi.setSystemTime(new Date(2026, 0, 18, 5, 0, 0));
     const root = await makeCaseDir("openclaw-terminal-session-done-");
