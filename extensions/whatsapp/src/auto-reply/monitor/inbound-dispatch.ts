@@ -6,10 +6,6 @@ import {
 } from "../../outbound-media-contract.js";
 import type { WhatsAppReplyDeliveryResult } from "../deliver-reply.js";
 import type { WebInboundMsg } from "../types.js";
-import {
-  buildConversationTurnsHistoryEntries,
-  recordConversationTurn,
-} from "./conversation-turns.frankclaw.js"; // frankclaw: rolling conversation context
 import { formatGroupMembers } from "./group-members.js";
 import type { GroupHistoryEntry } from "./inbound-context.js";
 import {
@@ -145,22 +141,15 @@ export function buildWhatsAppInboundContext(params: {
   // frankclaw addition: attach recent media from gated group history
   historyMediaPaths?: string[];
   historyMediaTypes?: string[];
-  conversationHistoryKey?: string;
 }) {
-  const rollingConversationHistory =
-    params.msg.chatType === "group" && params.conversationHistoryKey
-      ? buildConversationTurnsHistoryEntries(params.conversationHistoryKey)
-      : [];
-  const groupHistory =
+  const inboundHistory =
     params.msg.chatType === "group"
       ? (params.groupHistory ?? []).map((entry) => ({
           sender: entry.sender,
           body: entry.body,
           timestamp: entry.timestamp,
         }))
-      : [];
-  const inboundHistory =
-    params.msg.chatType === "group" ? [...rollingConversationHistory, ...groupHistory] : undefined;
+      : undefined;
 
   // frankclaw addition: if current message has no media, use history media
   const hasOwnMedia = Boolean(params.msg.mediaPath || params.msg.mediaUrl);
@@ -340,7 +329,6 @@ export async function dispatchWhatsAppBufferedReply(params: {
   const disableBlockStreaming = resolveWhatsAppDisableBlockStreaming(params.cfg);
   let didSendReply = false;
   let didLogHeartbeatStrip = false;
-  const replyTextParts: string[] = []; // frankclaw: accumulate reply text for conversation turns
 
   const { queuedFinal, counts } = await dispatchReplyWithBufferedBlockDispatcher({
     ctx: params.context,
@@ -399,9 +387,6 @@ export async function dispatchWhatsAppBufferedReply(params: {
           return;
         }
         didSendReply = true;
-        if (deliveryPayload.text) {
-          replyTextParts.push(deliveryPayload.text);
-        } // frankclaw: conversation turns
         const shouldLog = normalizedDeliveryPayload.text ? true : undefined;
         params.rememberSentText(normalizedDeliveryPayload.text, {
           combinedBody: params.context.Body as string | undefined,
@@ -450,17 +435,6 @@ export async function dispatchWhatsAppBufferedReply(params: {
 
   if (params.shouldClearGroupHistory) {
     params.groupHistories.set(params.groupHistoryKey, []);
-  }
-
-  // frankclaw: record conversation turn for rolling context window
-  if (didSendReply && replyTextParts.length > 0) {
-    recordConversationTurn({
-      chatKey: params.groupHistoryKey,
-      userMessage: (params.context.BodyForAgent as string) ?? (params.context.Body as string) ?? "",
-      botReply: replyTextParts.join("\n"),
-      timestamp: Date.now(),
-      senderLabel: (params.context.SenderName as string) ?? undefined,
-    });
   }
 
   return didSendReply;
