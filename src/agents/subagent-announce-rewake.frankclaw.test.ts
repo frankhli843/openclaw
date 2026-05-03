@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const requestHeartbeatNow = vi.fn();
 vi.mock("../infra/heartbeat-wake.js", () => ({
-  requestHeartbeatNow: (opts: unknown) => requestHeartbeatNow(opts),
+  requestHeartbeat: (opts: unknown) => requestHeartbeatNow(opts),
 }));
 
 import {

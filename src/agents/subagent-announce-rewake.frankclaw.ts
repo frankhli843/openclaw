@@ -23,7 +23,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { requestHeartbeatNow } from "../infra/heartbeat-wake.js";
+import { requestHeartbeat } from "../infra/heartbeat-wake.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import { scopedHeartbeatWakeOptions } from "../routing/session-key.js";
 import { normalizeOptionalString } from "../shared/string-coerce.js";
@@ -106,8 +106,10 @@ export function rewakeParentAfterAnnounce(params: RewakeAfterAnnounceParams): vo
       return;
     }
     try {
-      requestHeartbeatNow(
+      requestHeartbeat(
         scopedHeartbeatWakeOptions(parentKey, {
+          source: "background-task" as const,
+          intent: "event" as const,
           reason: params.reason ?? "subagent:announce:completed",
         }),
       );
