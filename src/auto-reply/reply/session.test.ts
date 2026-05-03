@@ -1787,6 +1787,66 @@ describe("initSessionState reset policy", () => {
     });
   });
 
+  it("reuses a user-facing Discord thread session when existing entry has terminal status (done)", async () => {
+    vi.setSystemTime(new Date(2026, 0, 18, 5, 0, 0));
+    const root = await makeCaseDir("openclaw-terminal-discord-thread-reuse-");
+    const storePath = path.join(root, "sessions.json");
+    const sessionKey = "agent:main:discord:channel:1500492020106530937";
+    const existingSessionId = "discord-thread-session";
+
+    await writeSessionStoreFast(storePath, {
+      [sessionKey]: {
+        sessionId: existingSessionId,
+        updatedAt: new Date(2026, 0, 18, 4, 30, 0).getTime(),
+        status: "done",
+        startedAt: new Date(2026, 0, 18, 4, 0, 0).getTime(),
+        endedAt: new Date(2026, 0, 18, 4, 30, 0).getTime(),
+        runtimeMs: 1800000,
+        systemSent: true,
+        chatType: "channel",
+        channel: "discord",
+        deliveryContext: {
+          channel: "discord",
+          to: "channel:1500492020106530937",
+          accountId: "default",
+          threadId: "1500492020106530937",
+        },
+        lastChannel: "discord",
+        lastTo: "channel:1500492020106530937",
+        lastAccountId: "default",
+        lastThreadId: "1500492020106530937",
+      },
+    });
+
+    const cfg = { session: { store: storePath } } as OpenClawConfig;
+    const result = await initSessionState({
+      ctx: {
+        Body: "What was the previous task result?",
+        SessionKey: sessionKey,
+        Provider: "discord",
+        Surface: "discord",
+        ChatType: "channel",
+        ThreadLabel: "Discord thread",
+        OriginatingChannel: "discord",
+        OriginatingTo: "channel:1500492020106530937",
+        To: "channel:1500492020106530937",
+        MessageThreadId: "1500492020106530937",
+        AccountId: "default",
+      },
+      cfg,
+      commandAuthorized: true,
+    });
+
+    expect(result.isNewSession).toBe(false);
+    expect(result.sessionId).toBe(existingSessionId);
+    expect(result.sessionEntry.deliveryContext).toEqual({
+      channel: "discord",
+      to: "channel:1500492020106530937",
+      accountId: "default",
+      threadId: "1500492020106530937",
+    });
+  });
+
   it("creates a new worker session when existing entry has terminal status (done)", async () => {
     vi.setSystemTime(new Date(2026, 0, 18, 5, 0, 0));
     const root = await makeCaseDir("openclaw-terminal-session-done-");
