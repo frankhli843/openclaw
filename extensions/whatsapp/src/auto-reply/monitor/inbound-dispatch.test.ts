@@ -4,6 +4,7 @@ import {
   getConversationTurns,
   prependConversationTurnsToBody,
   CONVERSATION_TURNS_MARKER,
+  recordConversationTurn,
   __clearAllConversationTurns,
 } from "./conversation-turns.frankclaw.js";
 
@@ -244,6 +245,72 @@ describe("whatsapp inbound dispatch", () => {
       OriginatingChannel: "whatsapp",
       OriginatingTo: "123@g.us",
     });
+  });
+
+  it("injects per-group rolling conversation turns into structured inbound history", () => {
+    const groupHistoryKey = "whatsapp:default:group:123@g.us";
+    recordConversationTurn({
+      chatKey: groupHistoryKey,
+      userMessage: "Register this as Frank",
+      botReply: "Got it, Frank. English voice sample noted.",
+      timestamp: 1737158300000,
+      senderLabel: "Frank",
+    });
+    recordConversationTurn({
+      chatKey: "whatsapp:default:group:other@g.us",
+      userMessage: "Other group message",
+      botReply: "Other group reply",
+      timestamp: 1737158310000,
+      senderLabel: "Alice",
+    });
+
+    const ctx = buildWhatsAppInboundContext({
+      combinedBody: "Frank: did you register this for transcription?",
+      conversationId: "123@g.us",
+      conversationHistoryKey: groupHistoryKey,
+      groupHistory: [
+        {
+          sender: "Frank",
+          body: "did you register this for transcription?",
+          timestamp: 1737158400000,
+        },
+      ],
+      groupMemberRoster: new Map(),
+      msg: makeMsg({
+        from: "123@g.us",
+        chatType: "group",
+        timestamp: 1737158400000,
+        senderName: "Frank",
+        senderJid: "frank@s.whatsapp.net",
+        senderE164: "+16478023321",
+        groupSubject: "Test Group",
+        groupParticipants: [],
+      }),
+      route: makeRoute({ sessionKey: "agent:main:whatsapp:group:123@g.us" }),
+      sender: {
+        name: "Frank",
+        e164: "+16478023321",
+      },
+    });
+
+    expect(ctx.InboundHistory).toEqual([
+      {
+        sender: "Frank",
+        body: "Register this as Frank",
+        timestamp: 1737158300000,
+      },
+      {
+        sender: "Doraemon",
+        body: "Got it, Frank. English voice sample noted.",
+        timestamp: 1737158300001,
+      },
+      {
+        sender: "Frank",
+        body: "did you register this for transcription?",
+        timestamp: 1737158400000,
+      },
+    ]);
+    expect(JSON.stringify(ctx.InboundHistory)).not.toContain("Other group message");
   });
 
   it("attaches history media when current message has no media", () => {

@@ -496,6 +496,7 @@ export async function processMessage(params: {
     // frankclaw addition
     historyMediaPaths: historyMedia?.mediaPaths,
     historyMediaTypes: historyMedia?.mediaTypes,
+    conversationHistoryKey: params.groupHistoryKey,
   });
   emitWhatsAppMessageReceivedHooksIfEnabled({
     cfg: params.cfg,
@@ -532,7 +533,7 @@ export async function processMessage(params: {
             whatsappInboundLog.info(
               `WhatsApp DNR: suppressed reply to ${groupJid} (next eligible at ${new Date(dnrErr.nextEligibleAtMs).toISOString()})`,
             );
-            return;
+            return { results: [], messageIds: [], providerAccepted: false };
           }
           throw dnrErr;
         }

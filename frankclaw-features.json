@@ -327,6 +327,40 @@
       "e2eTests": ["test/frankclaw-features-e2e.test.ts"]
     },
     {
+      "name": "WhatsApp durable per-group conversation context",
+      "description": "Persists recent WhatsApp user/bot turns per group and injects them into structured InboundHistory so follow-up replies retain context across gateway restarts, session splits, and transcript compaction.",
+      "static": [
+        {
+          "file": "extensions/whatsapp/src/auto-reply/monitor/conversation-turns.frankclaw.ts",
+          "pattern": "whatsapp-conversation-turns.jsonl",
+          "minCount": 1
+        },
+        {
+          "file": "extensions/whatsapp/src/auto-reply/monitor/inbound-dispatch.ts",
+          "pattern": "buildConversationTurnsHistoryEntries",
+          "minCount": 1
+        },
+        {
+          "file": "extensions/whatsapp/src/auto-reply/monitor/process-message.ts",
+          "pattern": "conversationHistoryKey: params.groupHistoryKey",
+          "minCount": 1
+        }
+      ],
+      "tests": [
+        "extensions/whatsapp/src/auto-reply/monitor/conversation-turns.frankclaw.test.ts",
+        "extensions/whatsapp/src/auto-reply/monitor/inbound-dispatch.test.ts",
+        "extensions/whatsapp/src/auto-reply/monitor/process-message.conversation-turns.test.ts"
+      ],
+      "runtime": [
+        {
+          "logPattern": "record chat=",
+          "onEvent": true,
+          "note": "Emitted to state/whatsapp-context-diag.log when WhatsApp sends a reply and records a durable conversation turn."
+        }
+      ],
+      "e2eTests": ["test/frankclaw-features-e2e.test.ts"]
+    },
+    {
       "name": "Telegram DNR quiet hours",
       "description": "Enforces quiet hours on Telegram delivery replies and channel outbound",
       "static": [

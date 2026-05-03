@@ -6,7 +6,10 @@ import {
 } from "../../outbound-media-contract.js";
 import type { WhatsAppReplyDeliveryResult } from "../deliver-reply.js";
 import type { WebInboundMsg } from "../types.js";
-import { recordConversationTurn } from "./conversation-turns.frankclaw.js"; // frankclaw: rolling conversation context
+import {
+  buildConversationTurnsHistoryEntries,
+  recordConversationTurn,
+} from "./conversation-turns.frankclaw.js"; // frankclaw: rolling conversation context
 import { formatGroupMembers } from "./group-members.js";
 import type { GroupHistoryEntry } from "./inbound-context.js";
 import {
@@ -142,15 +145,22 @@ export function buildWhatsAppInboundContext(params: {
   // frankclaw addition: attach recent media from gated group history
   historyMediaPaths?: string[];
   historyMediaTypes?: string[];
+  conversationHistoryKey?: string;
 }) {
-  const inboundHistory =
+  const rollingConversationHistory =
+    params.msg.chatType === "group" && params.conversationHistoryKey
+      ? buildConversationTurnsHistoryEntries(params.conversationHistoryKey)
+      : [];
+  const groupHistory =
     params.msg.chatType === "group"
       ? (params.groupHistory ?? []).map((entry) => ({
           sender: entry.sender,
           body: entry.body,
           timestamp: entry.timestamp,
         }))
-      : undefined;
+      : [];
+  const inboundHistory =
+    params.msg.chatType === "group" ? [...rollingConversationHistory, ...groupHistory] : undefined;
 
   // frankclaw addition: if current message has no media, use history media
   const hasOwnMedia = Boolean(params.msg.mediaPath || params.msg.mediaUrl);

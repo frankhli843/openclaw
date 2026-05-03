@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
+  buildConversationTurnsHistoryEntries,
   buildConversationTurnsContext,
   CONVERSATION_TURNS_END_MARKER,
   CONVERSATION_TURNS_MARKER,
@@ -8,6 +9,7 @@ import {
   prependConversationTurnsToBody,
   recordConversationTurn,
   __clearAllConversationTurns,
+  __clearConversationTurnsMemoryOnlyForTest,
   __getConversationTurnsMap,
 } from "./conversation-turns.frankclaw.js";
 
@@ -124,6 +126,26 @@ describe("conversation-turns.frankclaw", () => {
 
     it("returns empty array for unknown chat", () => {
       expect(getConversationTurns("nonexistent")).toEqual([]);
+    });
+
+    it("reloads turns from durable storage after memory is cleared", () => {
+      recordConversationTurn({
+        chatKey: "chat:durable",
+        userMessage: "Register this as Frank",
+        botReply: "Got it, Frank. Voice sample noted.",
+        timestamp: 1000,
+        senderLabel: "Frank",
+      });
+
+      __clearConversationTurnsMemoryOnlyForTest();
+
+      const turns = getConversationTurns("chat:durable");
+      expect(turns).toHaveLength(1);
+      expect(turns[0]).toMatchObject({
+        userMessage: "Register this as Frank",
+        botReply: "Got it, Frank. Voice sample noted.",
+        senderLabel: "Frank",
+      });
     });
 
     it("evicts oldest chat keys when exceeding max keys", () => {
@@ -298,6 +320,31 @@ describe("conversation-turns.frankclaw", () => {
       expect(result).toContain("Show me the recipe for lasagna");
       expect(result).toContain("lasagna, carbonara, and risotto");
       expect(result).toContain("Nope just this one");
+    });
+  });
+
+  describe("buildConversationTurnsHistoryEntries", () => {
+    it("converts prior turns into structured inbound history entries", () => {
+      recordConversationTurn({
+        chatKey: "chat:history",
+        userMessage: "Register this as Frank",
+        botReply: "Got it, Frank. English voice sample noted.",
+        timestamp: 1000,
+        senderLabel: "Frank",
+      });
+
+      expect(buildConversationTurnsHistoryEntries("chat:history")).toEqual([
+        {
+          sender: "Frank",
+          body: "Register this as Frank",
+          timestamp: 1000,
+        },
+        {
+          sender: "Doraemon",
+          body: "Got it, Frank. English voice sample noted.",
+          timestamp: 1001,
+        },
+      ]);
     });
   });
 });

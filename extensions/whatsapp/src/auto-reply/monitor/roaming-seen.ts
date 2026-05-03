@@ -38,6 +38,7 @@ export function maybeMarkWhatsAppRoamingSeen(params: {
           fromMe: false,
           participant: params.msg.senderJid,
           accountId: params.accountId,
+          cfg: params.cfg,
         });
       },
       removeReaction: async (msgId, _emojiToRemove) => {
@@ -46,6 +47,7 @@ export function maybeMarkWhatsAppRoamingSeen(params: {
           fromMe: false,
           participant: params.msg.senderJid,
           accountId: params.accountId,
+          cfg: params.cfg,
         });
       },
     },
