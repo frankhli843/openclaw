@@ -105,6 +105,8 @@ function mergeManualRunSnapshotAfterReload(params: {
     return;
   }
   if (params.removed) {
+    // frankclaw: track explicit deletion before filtering so assertNoUnexpectedDiskDrops allows it
+    params.state.pendingDeleteJobIds.add(params.jobId);
     params.state.store.jobs = params.state.store.jobs.filter((job) => job.id !== params.jobId);
     return;
   }
@@ -212,24 +214,34 @@ export function stop(state: CronServiceState) {
 }
 
 export async function status(state: CronServiceState) {
-  return await locked(state, async () => {
-    await ensureLoadedForRead(state);
-    return {
-      enabled: state.deps.cronEnabled,
-      storePath: state.deps.storePath,
-      jobs: state.store?.jobs.length ?? 0,
-      nextWakeAtMs: state.deps.cronEnabled ? (nextWakeAtMs(state) ?? null) : null,
-    };
-  });
+  // frankclaw: readOnly — no disk write, skip cross-process file lock
+  return await locked(
+    state,
+    async () => {
+      await ensureLoadedForRead(state);
+      return {
+        enabled: state.deps.cronEnabled,
+        storePath: state.deps.storePath,
+        jobs: state.store?.jobs.length ?? 0,
+        nextWakeAtMs: state.deps.cronEnabled ? (nextWakeAtMs(state) ?? null) : null,
+      };
+    },
+    { readOnly: true },
+  );
 }
 
 export async function list(state: CronServiceState, opts?: { includeDisabled?: boolean }) {
-  return await locked(state, async () => {
-    await ensureLoadedForRead(state);
-    const includeDisabled = opts?.includeDisabled === true;
-    const jobs = (state.store?.jobs ?? []).filter((j) => includeDisabled || isJobEnabled(j));
-    return jobs.toSorted((a, b) => (a.state.nextRunAtMs ?? 0) - (b.state.nextRunAtMs ?? 0));
-  });
+  // frankclaw: readOnly — no disk write, skip cross-process file lock
+  return await locked(
+    state,
+    async () => {
+      await ensureLoadedForRead(state);
+      const includeDisabled = opts?.includeDisabled === true;
+      const jobs = (state.store?.jobs ?? []).filter((j) => includeDisabled || isJobEnabled(j));
+      return jobs.toSorted((a, b) => (a.state.nextRunAtMs ?? 0) - (b.state.nextRunAtMs ?? 0));
+    },
+    { readOnly: true },
+  );
 }
 
 function resolveEnabledFilter(opts?: CronListPageOptions): CronJobsEnabledFilter {
@@ -272,44 +284,49 @@ function sortJobs(jobs: CronJob[], sortBy: CronJobsSortBy, sortDir: CronSortDir)
 }
 
 export async function listPage(state: CronServiceState, opts?: CronListPageOptions) {
-  return await locked(state, async () => {
-    await ensureLoadedForRead(state);
-    const query = normalizeLowercaseStringOrEmpty(opts?.query);
-    const enabledFilter = resolveEnabledFilter(opts);
-    const sortBy = opts?.sortBy ?? "nextRunAtMs";
-    const sortDir = opts?.sortDir ?? "asc";
-    const source = state.store?.jobs ?? [];
-    const filtered = source.filter((job) => {
-      if (enabledFilter === "enabled" && !isJobEnabled(job)) {
-        return false;
-      }
-      if (enabledFilter === "disabled" && isJobEnabled(job)) {
-        return false;
-      }
-      if (!query) {
-        return true;
-      }
-      const haystack = normalizeLowercaseStringOrEmpty(
-        [job.name, job.description ?? "", job.agentId ?? ""].join(" "),
-      );
-      return haystack.includes(query);
-    });
-    const sorted = sortJobs(filtered, sortBy, sortDir);
-    const total = sorted.length;
-    const offset = Math.max(0, Math.min(total, Math.floor(opts?.offset ?? 0)));
-    const defaultLimit = total === 0 ? 50 : total;
-    const limit = Math.max(1, Math.min(200, Math.floor(opts?.limit ?? defaultLimit)));
-    const jobs = sorted.slice(offset, offset + limit);
-    const nextOffset = offset + jobs.length;
-    return {
-      jobs,
-      total,
-      offset,
-      limit,
-      hasMore: nextOffset < total,
-      nextOffset: nextOffset < total ? nextOffset : null,
-    } satisfies CronListPageResult;
-  });
+  // frankclaw: readOnly — no disk write, skip cross-process file lock
+  return await locked(
+    state,
+    async () => {
+      await ensureLoadedForRead(state);
+      const query = normalizeLowercaseStringOrEmpty(opts?.query);
+      const enabledFilter = resolveEnabledFilter(opts);
+      const sortBy = opts?.sortBy ?? "nextRunAtMs";
+      const sortDir = opts?.sortDir ?? "asc";
+      const source = state.store?.jobs ?? [];
+      const filtered = source.filter((job) => {
+        if (enabledFilter === "enabled" && !isJobEnabled(job)) {
+          return false;
+        }
+        if (enabledFilter === "disabled" && isJobEnabled(job)) {
+          return false;
+        }
+        if (!query) {
+          return true;
+        }
+        const haystack = normalizeLowercaseStringOrEmpty(
+          [job.name, job.description ?? "", job.agentId ?? ""].join(" "),
+        );
+        return haystack.includes(query);
+      });
+      const sorted = sortJobs(filtered, sortBy, sortDir);
+      const total = sorted.length;
+      const offset = Math.max(0, Math.min(total, Math.floor(opts?.offset ?? 0)));
+      const defaultLimit = total === 0 ? 50 : total;
+      const limit = Math.max(1, Math.min(200, Math.floor(opts?.limit ?? defaultLimit)));
+      const jobs = sorted.slice(offset, offset + limit);
+      const nextOffset = offset + jobs.length;
+      return {
+        jobs,
+        total,
+        offset,
+        limit,
+        hasMore: nextOffset < total,
+        nextOffset: nextOffset < total ? nextOffset : null,
+      } satisfies CronListPageResult;
+    },
+    { readOnly: true },
+  );
 }
 
 export async function add(state: CronServiceState, input: CronJobCreate) {
@@ -428,6 +445,8 @@ export async function remove(state: CronServiceState, id: string) {
       return { ok: false, removed: false } as const;
     }
     const removedJob = state.store.jobs.find((j) => j.id === id);
+    // frankclaw: track explicit deletion before filtering so assertNoUnexpectedDiskDrops allows it
+    state.pendingDeleteJobIds.add(id);
     state.store.jobs = state.store.jobs.filter((j) => j.id !== id);
     const removed = (state.store.jobs.length ?? 0) !== before;
     await persist(state);
@@ -504,6 +523,8 @@ async function skipInvalidPersistedManualRun(params: {
   });
 
   if (shouldDelete && params.state.store) {
+    // frankclaw: track explicit deletion before filtering so assertNoUnexpectedDiskDrops allows it
+    params.state.pendingDeleteJobIds.add(params.job.id);
     params.state.store.jobs = params.state.store.jobs.filter((entry) => entry.id !== params.job.id);
     emit(params.state, { jobId: params.job.id, action: "removed" });
   }
@@ -748,6 +769,8 @@ async function finishPreparedManualRun(
     });
 
     if (shouldDelete && state.store) {
+      // frankclaw: track explicit deletion before filtering so assertNoUnexpectedDiskDrops allows it
+      state.pendingDeleteJobIds.add(job.id);
       state.store.jobs = state.store.jobs.filter((entry) => entry.id !== job.id);
       emit(state, { jobId: job.id, action: "removed", job });
     }

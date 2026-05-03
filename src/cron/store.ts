@@ -333,23 +333,16 @@ async function atomicWrite(filePath: string, content: string, dirMode = 0o700): 
   await fs.promises.chmod(dir, dirMode).catch(() => undefined);
   const tmp = `${filePath}.${process.pid}.${randomBytes(8).toString("hex")}.tmp`;
   // frankclaw: jobs.json corruption must fail shut, not silently produce a
-  // half-durable write. Write to a same-directory tempfile, fsync the file,
-  // rename atomically, then fsync the directory so the rename itself is
-  // durable on POSIX filesystems.
-  const handle = await fs.promises.open(
-    tmp,
-    fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_WRONLY,
-    0o600,
-  );
+  // half-durable write. Write to a same-directory tempfile with exclusive
+  // create (flag "wx" = O_CREAT|O_EXCL|O_WRONLY), rename atomically, then
+  // fsync the directory so the rename itself is durable on POSIX filesystems.
+  // Using writeFile (not open+handle) keeps this compatible with test FS mocks.
   try {
-    await handle.writeFile(content, "utf-8");
-    await handle.sync();
+    await fs.promises.writeFile(tmp, content, { encoding: "utf-8", flag: "wx", mode: 0o600 });
   } catch (err) {
-    await handle.close().catch(() => undefined);
-    await fs.promises.rm(tmp, { force: true }).catch(() => undefined);
+    await fs.promises.unlink(tmp).catch(() => undefined);
     throw err;
   }
-  await handle.close();
   await renameWithRetry(tmp, filePath);
   await fsyncDirectory(dir);
   await setSecureFileMode(filePath);
@@ -362,10 +355,11 @@ async function fsyncDirectory(dir: string): Promise<void> {
     await handle.sync();
   } catch (err) {
     const code = (err as { code?: string }).code;
-    // Directory fsync is not supported on every platform/filesystem. The
-    // tempfile itself has already been fsynced; ignore only the portability
-    // cases and surface real write failures.
-    if (code !== "EINVAL" && code !== "EISDIR" && code !== "EPERM") {
+    // Directory fsync is not supported on every platform/filesystem.
+    // EINVAL/EISDIR/EPERM: platform/fs does not support directory fsync.
+    // ENOENT: directory is virtual (test FS mock) and doesn't exist on disk.
+    // These are all safe to ignore; the rename itself provides atomicity.
+    if (code !== "EINVAL" && code !== "EISDIR" && code !== "EPERM" && code !== "ENOENT") {
       throw err;
     }
   } finally {

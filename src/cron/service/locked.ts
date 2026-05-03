@@ -14,10 +14,20 @@ const resolveChain = (promise: Promise<unknown>) =>
     () => undefined,
   );
 
-export async function locked<T>(state: CronServiceState, fn: () => Promise<T>): Promise<T> {
+export async function locked<T>(
+  state: CronServiceState,
+  fn: () => Promise<T>,
+  opts?: { readOnly?: boolean },
+): Promise<T> {
   const storePath = state.deps.storePath;
   const storeOp = storeLocks.get(storePath) ?? Promise.resolve();
   const next = Promise.all([resolveChain(state.op), resolveChain(storeOp)]).then(async () => {
+    // frankclaw: read-only operations (list, status, listPage) don't mutate
+    // disk so they don't need the cross-process file lock. In-process op
+    // serialization (state.op / storeLocks) is sufficient for reads.
+    if (opts?.readOnly) {
+      return await fn();
+    }
     // frankclaw: cron mutations are read-modify-write operations on a file
     // that can also be touched by direct-file recovery scripts or another
     // gateway process. The in-process promise chain is not enough for that
@@ -51,22 +61,16 @@ async function acquireFileLock(
 
   for (;;) {
     try {
-      const handle = await fs.promises.open(
+      // frankclaw: use "wx" flag (O_WRONLY|O_CREAT|O_EXCL) for exclusive atomic
+      // create. If the lock file already exists, writeFile throws EEXIST.
+      // Using writeFile (not open+handle) keeps this compatible with test FS mocks.
+      await fs.promises.writeFile(
         lockPath,
-        fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_WRONLY,
-        0o600,
+        JSON.stringify({ pid: process.pid, createdAtMs: Date.now(), storePath }) + "\n",
+        { encoding: "utf-8", flag: "wx", mode: 0o600 },
       );
-      try {
-        await handle.writeFile(
-          JSON.stringify({ pid: process.pid, createdAtMs: Date.now(), storePath }) + "\n",
-          "utf-8",
-        );
-        await handle.sync();
-      } finally {
-        await handle.close();
-      }
       return async () => {
-        await fs.promises.rm(lockPath, { force: true }).catch(() => undefined);
+        await fs.promises.unlink(lockPath).catch(() => undefined);
       };
     } catch (err) {
       if ((err as { code?: string }).code !== "EEXIST") {
@@ -82,7 +86,7 @@ async function acquireFileLock(
           { storePath, lockPath, staleMs: Math.round(now - stat.mtimeMs) },
           "cron: removing stale jobs.json lock",
         );
-        await fs.promises.rm(lockPath, { force: true });
+        await fs.promises.unlink(lockPath).catch(() => undefined);
         continue;
       }
     } catch (err) {

@@ -162,6 +162,14 @@ export type CronServiceState = {
    * `assertNoUnexpectedDiskDrops` in service/store.ts.
    */
   lastLoadedDiskJobIds: Set<string> | null;
+  /**
+   * frankclaw: IDs of jobs explicitly removed in the current
+   * read-modify-write cycle (via remove(), deleteAfterRun, or
+   * other intentional deletion paths). Reset on every forceReload and
+   * after each successful persist. Used by assertNoUnexpectedDiskDrops to
+   * distinguish intended removals from accidental in-memory drops.
+   */
+  pendingDeleteJobIds: Set<string>;
 };
 
 export function createCronServiceState(deps: CronServiceDeps): CronServiceState {
@@ -177,6 +185,7 @@ export function createCronServiceState(deps: CronServiceDeps): CronServiceState 
     storeLoadedAtMs: null,
     storeFileMtimeMs: null,
     lastLoadedDiskJobIds: null,
+    pendingDeleteJobIds: new Set<string>(),
   };
 }
 

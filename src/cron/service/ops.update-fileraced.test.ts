@@ -10,7 +10,7 @@ import { setupCronServiceSuite } from "../service.test-harness.js";
 import type { CronJob } from "../types.js";
 import { add, remove, update } from "./ops.js";
 import { createCronServiceState } from "./state.js";
-import { ensureLoaded } from "./store.js";
+import { ensureLoaded, persist } from "./store.js";
 
 const { logger, makeStorePath } = setupCronServiceSuite({
   prefix: "cron-service-ops-fileraced-",
@@ -57,6 +57,51 @@ async function readJobIds(storePath: string): Promise<string[]> {
   };
   return (raw.jobs ?? []).map((j) => String(j.id));
 }
+
+// frankclaw: explicit-delete-intent guard (st_91d93c012595).
+// Proves that assertNoUnexpectedDiskDrops uses pendingDeleteJobIds (not
+// lastLoadedDiskJobIds) to decide what drops are allowed. Accidentally
+// filtering memory without going through the remove() path must be
+// REJECTED even though the ID was known at last load.
+describe("cron service explicit-delete-intent guard", () => {
+  it("rejects persist when a job is dropped from memory without explicit removal intent", async () => {
+    const { storePath } = await makeStorePath();
+    // Load two jobs to disk and into memory.
+    const original = [makeJob("alpha"), makeJob("beta")];
+    await writeJobsFile(storePath, original);
+
+    const state = createState(storePath);
+    await ensureLoaded(state, { skipRecompute: true });
+    // Confirm both loaded.
+    expect(state.store?.jobs.map((j) => j.id).sort()).toEqual(["alpha", "beta"]);
+
+    // Simulate an accidental in-memory drop of "beta" — NOT via remove().
+    // This is the class of bug from the 2026-05-02 incident.
+    state.store!.jobs = state.store!.jobs.filter((j) => j.id !== "beta");
+    // pendingDeleteJobIds is empty (beta was never explicitly removed).
+    expect(state.pendingDeleteJobIds.has("beta")).toBe(false);
+
+    // persist() must refuse because "beta" is on disk but not in memory
+    // and was not explicitly added to pendingDeleteJobIds.
+    await expect(persist(state)).rejects.toThrow(/refusing to persist/);
+  });
+
+  it("allows persist when a job is explicitly removed via remove()", async () => {
+    const { storePath } = await makeStorePath();
+    const original = [makeJob("alpha"), makeJob("beta")];
+    await writeJobsFile(storePath, original);
+
+    const state = createState(storePath);
+    await ensureLoaded(state, { skipRecompute: true });
+
+    // remove() adds "beta" to pendingDeleteJobIds before filtering.
+    await remove(state, "beta");
+
+    // persist already happened inside remove(); verify disk has only alpha.
+    const idsAfter = await readJobIds(storePath);
+    expect(idsAfter.sort()).toEqual(["alpha"]);
+  });
+});
 
 describe("cron service jobs.json file-race regression", () => {
   it("update preserves jobs added to jobs.json by a concurrent writer", async () => {

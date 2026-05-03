@@ -770,6 +770,8 @@ function applyOutcomeToStoredJob(state: CronServiceState, result: TimedCronRunOu
   emitJobFinished(state, job, result, result.startedAt);
 
   if (shouldDelete) {
+    // frankclaw: track explicit deletion before filtering so assertNoUnexpectedDiskDrops allows it
+    state.pendingDeleteJobIds.add(job.id);
     store.jobs = jobs.filter((entry) => entry.id !== job.id);
     emit(state, { jobId: job.id, action: "removed", job });
   }
@@ -1563,6 +1565,8 @@ export async function executeJob(
   emitJobFinished(state, job, coreResult, startedAt);
 
   if (shouldDelete && state.store) {
+    // frankclaw: track explicit deletion before filtering so assertNoUnexpectedDiskDrops allows it
+    state.pendingDeleteJobIds.add(job.id);
     state.store.jobs = state.store.jobs.filter((j) => j.id !== job.id);
     emit(state, { jobId: job.id, action: "removed", job });
   }

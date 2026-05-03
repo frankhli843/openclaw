@@ -141,6 +141,10 @@ export async function ensureLoaded(
       state.lastLoadedDiskJobIds.add(job.id);
     }
   }
+  // frankclaw: reset explicit-delete-intent tracking on each fresh load so
+  // only deliberate removes in the CURRENT read-modify-write cycle are
+  // treated as expected drops by assertNoUnexpectedDiskDrops.
+  state.pendingDeleteJobIds = new Set<string>();
 
   if (!opts?.skipRecompute) {
     recomputeNextRuns(state);
@@ -175,7 +179,8 @@ export async function persist(state: CronServiceState, opts?: { skipBackup?: boo
   state.storeFileMtimeMs = await getFileMtimeMs(state.deps.storePath);
   // After successful save, the disk snapshot now matches in-memory; refresh
   // lastLoadedDiskJobIds so the next persist's tripwire is anchored to the
-  // jobs we just wrote.
+  // jobs we just wrote. Also reset pendingDeleteJobIds since this
+  // read-modify-write cycle is complete.
   if (state.store) {
     const refreshed = new Set<string>();
     for (const job of state.store.jobs) {
@@ -185,6 +190,7 @@ export async function persist(state: CronServiceState, opts?: { skipBackup?: boo
     }
     state.lastLoadedDiskJobIds = refreshed;
   }
+  state.pendingDeleteJobIds = new Set<string>();
 }
 
 // frankclaw: read the on-disk jobs.json and verify that we are not about to
@@ -193,10 +199,10 @@ export async function persist(state: CronServiceState, opts?: { skipBackup?: boo
 //      gateway) that added jobs between our load and our persist.
 //   2. Future regressions that bypass the forceReload-before-mutate rule and
 //      end up with a stale state.store relative to disk.
-// Explicit removals (cron.remove, deleteAfterRun) are allowed because they
-// remove the job ID from BOTH state.store.jobs AND the comparison via
-// lastLoadedDiskJobIds. Only IDs that exist on disk RIGHT NOW but were never
-// in lastLoadedDiskJobIds count as "unexpected" drops.
+// Explicit removals (cron.remove, deleteAfterRun, etc.) are allowed because
+// they add the job ID to state.pendingDeleteJobIds before filtering from
+// state.store.jobs. Only IDs that exist on disk RIGHT NOW and were NOT
+// explicitly added to pendingDeleteJobIds count as "unexpected" drops.
 async function assertNoUnexpectedDiskDrops(state: CronServiceState): Promise<void> {
   const storePath = state.deps.storePath;
   let raw: string;
@@ -247,12 +253,17 @@ async function assertNoUnexpectedDiskDrops(state: CronServiceState): Promise<voi
   const unexpected: string[] = [];
   for (const id of diskIds) {
     if (memIds.has(id)) continue;
-    // ID exists on disk but not in memory. Allowed if we last saw it on disk
-    // (explicit removal in this op) or if we have no last-loaded snapshot
-    // (e.g. fresh state created without ensureLoaded — defensive default to
-    // not block). Disallowed when the ID is "new" to disk vs our last load,
-    // which means another writer added it and we'd overwrite.
-    if (!lastLoaded || lastLoaded.has(id)) continue;
+    // ID exists on disk but not in memory.
+    // Allowed if we have no last-loaded snapshot (fresh state created
+    // without ensureLoaded — defensive default to not block).
+    if (!lastLoaded) continue;
+    // Allowed if the caller explicitly marked this ID for deletion via
+    // remove(), deleteAfterRun, or another intentional removal path.
+    if (state.pendingDeleteJobIds?.has(id)) continue;
+    // Otherwise: the ID was not explicitly deleted from memory, meaning it
+    // either appeared on disk after our last load (cross-process add) or was
+    // accidentally dropped from the in-memory store without going through the
+    // proper removal path. Either way, reject to prevent silent data loss.
     unexpected.push(id);
   }
   if (unexpected.length === 0) {
