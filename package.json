@@ -1688,6 +1688,7 @@
     "jiti": "^2.6.1",
     "json5": "^2.2.3",
     "jszip": "^3.10.1",
+    "link-preview-js": "^3.0.0",
     "linkedom": "^0.18.12",
     "markdown-it": "14.1.1",
     "minimatch": "10.2.5",
