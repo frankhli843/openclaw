@@ -250,4 +250,47 @@ describe("sanitizeToolArgs", () => {
       file_path: "/tmp/x.txt",
     });
   });
+
+  it("preserves Codex composite tool_use IDs that contain 16-digit hex runs", () => {
+    // Codex IDs use format call_<alphanumeric>|fc_<hex> where the fc_ hex portion
+    // can contain 16 consecutive decimal digits that match credit-card patterns in
+    // custom redactPatterns configs.  ID-like fields must pass through unchanged.
+    const codexId = "call_abc123def456ghi789jkl012mn|fc_0be76f02d532ecef2969600881919541";
+    const args = {
+      id: codexId,
+      tool_use_id: "toolu_01A09q90qw90lq917835lq9",
+      content: "some tool output text",
+    };
+    const sanitized = sanitizeToolArgs(args) as {
+      id: string;
+      tool_use_id: string;
+      content: string;
+    };
+    expect(sanitized.id).toBe(codexId);
+    expect(sanitized.tool_use_id).toBe("toolu_01A09q90qw90lq917835lq9");
+    expect(sanitized.content).toBe("some tool output text");
+  });
+
+  it("preserves toolCallId in nested tool result args", () => {
+    const compositeId = "call_xyz789abc|fc_1234567890abcdef9876543210fedcba";
+    const args = { toolCallId: compositeId, result: "ok" };
+    const sanitized = sanitizeToolArgs(args) as { toolCallId: string };
+    expect(sanitized.toolCallId).toBe(compositeId);
+  });
+
+  it("still redacts cardNumber while preserving id field when custom credit-card pattern is active", () => {
+    // When a user adds a credit-card digit pattern to redactPatterns, the id field
+    // must be shielded even if its hex content matches the pattern.
+    vi.spyOn(loggingConfigModule, "readLoggingConfig").mockReturnValue({
+      redactSensitive: "tools",
+      redactPatterns: [String.raw`\b(\d{4}[\s\-]?\d{4}[\s\-]?\d{4}[\s\-]?\d{4})\b`],
+    });
+    const args = {
+      cardNumber: "4242424242424242",
+      id: "call_abc|fc_0be76f02d532ecef2969600881919541",
+    };
+    const sanitized = sanitizeToolArgs(args) as { cardNumber: string; id: string };
+    expect(sanitized.cardNumber).not.toBe("4242424242424242");
+    expect(sanitized.id).toBe("call_abc|fc_0be76f02d532ecef2969600881919541");
+  });
 });

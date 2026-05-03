@@ -115,6 +115,33 @@ function isHostDenialToolText(text: string): boolean {
   return normalized.toLowerCase().includes("approval cannot safely bind");
 }
 
+// Field names whose string values must never be redacted.
+// Provider tool_use IDs (OpenAI Codex composite: "call_xxx|fc_<hex>",
+// Anthropic: "toolu_xxx") can contain digit runs that match payment-credential
+// or SSN patterns when a custom redactPatterns list is in use.  Skipping these
+// fields prevents session JSONL corruption that breaks Anthropic API replays.
+// frankclaw: id-field-skip
+const REDACT_SKIP_ID_FIELDS = new Set<string>([
+  "id",
+  "tool_use_id",
+  "toolCallId",
+  "toolUseId",
+  "messageId",
+  "message_id",
+  "sessionId",
+  "session_id",
+  "requestId",
+  "request_id",
+  "traceId",
+  "trace_id",
+  "correlationId",
+  "correlation_id",
+  "spanId",
+  "span_id",
+  "parentId",
+  "parent_id",
+]);
+
 function redactStringsDeep(value: unknown, seen = new WeakSet<object>()): unknown {
   if (typeof value === "string") {
     return redactToolPayloadText(value);
@@ -133,10 +160,13 @@ function redactStringsDeep(value: unknown, seen = new WeakSet<object>()): unknow
     seen.add(value);
     const out: Record<string, unknown> = {};
     for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
-      out[key] =
-        typeof child === "string"
-          ? redactSensitiveFieldValue(key, child)
-          : redactStringsDeep(child, seen);
+      if (typeof child === "string") {
+        // Never redact provider-assigned identifier fields (tool_use_id, id, etc.)
+        // to prevent digit runs in hex IDs from matching payment-credential patterns.
+        out[key] = REDACT_SKIP_ID_FIELDS.has(key) ? child : redactSensitiveFieldValue(key, child);
+      } else {
+        out[key] = redactStringsDeep(child, seen);
+      }
     }
     return out;
   }
