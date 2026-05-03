@@ -173,6 +173,101 @@ afterEach(() => {
 });
 
 describe("stageBundledPluginRuntimeDeps", () => {
+  // Regression tests for the 2026-05-02 crash loop where
+  // extensions/browser/package.json was missing openclaw.bundle.stageRuntimeDependencies.
+  // stage-bundled-plugin-runtime-deps.mjs then skipped the plugin entirely, leaving
+  // dist/extensions/browser/node_modules/ absent and triggering BundledRuntimeDepsMissingError.
+
+  it("skips staging and removes node_modules for a plugin without stageRuntimeDependencies", () => {
+    const repoRoot = makeRepoRoot("openclaw-stage-bundled-runtime-no-flag-");
+
+    writeRepoFile(
+      repoRoot,
+      "dist/extensions/no-flag-plugin/package.json",
+      JSON.stringify(
+        {
+          name: "@openclaw/no-flag-plugin",
+          version: "2026.5.1",
+          dependencies: {
+            "some-runtime-dep": "1.0.0",
+          },
+          openclaw: {
+            extensions: ["./index.js"],
+            // stageRuntimeDependencies intentionally omitted — this is the bug class
+          },
+        },
+        null,
+        2,
+      ),
+    );
+    writeRepoFile(
+      repoRoot,
+      "node_modules/some-runtime-dep/package.json",
+      JSON.stringify({ name: "some-runtime-dep", version: "1.0.0" }, null, 2),
+    );
+    writeRepoFile(repoRoot, "node_modules/some-runtime-dep/index.js", "module.exports = {};\n");
+
+    return loadStageBundledPluginRuntimeDeps().then((stageBundledPluginRuntimeDeps) => {
+      stageBundledPluginRuntimeDeps({ repoRoot });
+      // Without the flag, node_modules must NOT be created — the gateway would throw
+      // BundledRuntimeDepsMissingError only if the plugin declares it needs them and
+      // the flag is set. A plugin without the flag is not expected to have staged deps.
+      const stagedRoot = path.join(
+        repoRoot,
+        "dist",
+        "extensions",
+        "no-flag-plugin",
+        "node_modules",
+      );
+      expect(fs.existsSync(stagedRoot)).toBe(false);
+    });
+  });
+
+  it("stages deps for a plugin that declares stageRuntimeDependencies: true", () => {
+    const repoRoot = makeRepoRoot("openclaw-stage-bundled-runtime-with-flag-");
+
+    writeRepoFile(
+      repoRoot,
+      "dist/extensions/with-flag-plugin/package.json",
+      JSON.stringify(
+        {
+          name: "@openclaw/with-flag-plugin",
+          version: "2026.5.1",
+          dependencies: {
+            "some-runtime-dep": "1.0.0",
+          },
+          openclaw: {
+            extensions: ["./index.js"],
+            bundle: {
+              stageRuntimeDependencies: true,
+            },
+          },
+        },
+        null,
+        2,
+      ),
+    );
+    writeRepoFile(
+      repoRoot,
+      "node_modules/some-runtime-dep/package.json",
+      JSON.stringify({ name: "some-runtime-dep", version: "1.0.0" }, null, 2),
+    );
+    writeRepoFile(repoRoot, "node_modules/some-runtime-dep/index.js", "module.exports = {};\n");
+
+    return loadStageBundledPluginRuntimeDeps().then((stageBundledPluginRuntimeDeps) => {
+      stageBundledPluginRuntimeDeps({ repoRoot });
+      const stagedRoot = path.join(
+        repoRoot,
+        "dist",
+        "extensions",
+        "with-flag-plugin",
+        "node_modules",
+        "some-runtime-dep",
+      );
+      expect(fs.existsSync(path.join(stagedRoot, "index.js"))).toBe(true);
+    });
+  });
+
   it("drops Lark SDK type cargo while keeping runtime entrypoints", () => {
     const repoRoot = makeRepoRoot("openclaw-stage-bundled-runtime-deps-");
 
