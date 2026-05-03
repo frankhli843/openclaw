@@ -101,7 +101,7 @@ describe("cron retry/backoff behavior", () => {
       log: noopLogger,
       nowMs: () => now,
       enqueueSystemEvent: vi.fn(),
-      requestHeartbeatNow: vi.fn(),
+      requestHeartbeat: vi.fn(),
       runIsolatedAgentJob: runner,
       sendDeadLetterAlert: vi.fn(),
     });
@@ -160,7 +160,7 @@ describe("cron retry/backoff behavior", () => {
       log: noopLogger,
       nowMs: () => now,
       enqueueSystemEvent: vi.fn(),
-      requestHeartbeatNow: vi.fn(),
+      requestHeartbeat: vi.fn(),
       runIsolatedAgentJob: runner,
       sendDeadLetterAlert,
     });
@@ -202,7 +202,7 @@ describe("cron retry/backoff behavior", () => {
       log: noopLogger,
       nowMs: () => dueAt,
       enqueueSystemEvent: vi.fn(),
-      requestHeartbeatNow: vi.fn(),
+      requestHeartbeat: vi.fn(),
       runIsolatedAgentJob: runner,
       sendDeadLetterAlert: vi.fn(),
     });

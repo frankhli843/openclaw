@@ -39,7 +39,11 @@ import { createSubsystemLogger } from "../../logging/subsystem.js";
 import { closeTrackedBrowserTabsForSessions } from "../../plugin-sdk/browser-maintenance.js";
 import { getGlobalHookRunner } from "../../plugins/hook-runner-global.js";
 import type { PluginHookSessionEndReason } from "../../plugins/hook-types.js";
-import { isAcpSessionKey, normalizeMainKey } from "../../routing/session-key.js";
+import {
+  isAcpSessionKey,
+  isSubagentSessionKey,
+  normalizeMainKey,
+} from "../../routing/session-key.js";
 import { isInterSessionInputProvenance } from "../../sessions/input-provenance.js";
 import { createLazyImportLoader } from "../../shared/lazy-promise.js";
 import {
@@ -145,6 +149,22 @@ function resolveStaleSessionEndReason(params: {
 function hasProviderOwnedSession(entry: SessionEntry | undefined): boolean {
   const provider = normalizeOptionalString(entry?.providerOverride ?? entry?.modelProvider);
   return Boolean(provider && getCliSessionBinding(entry, provider));
+}
+
+function hasTerminalRunOwnership(params: {
+  entry: SessionEntry | undefined;
+  sessionKey: string;
+}): boolean {
+  const { entry, sessionKey } = params;
+  return Boolean(
+    isSubagentSessionKey(sessionKey) ||
+    isAcpSessionKey(sessionKey) ||
+    entry?.acp ||
+    entry?.spawnedBy ||
+    entry?.subagentRole ||
+    entry?.subagentControlScope ||
+    entry?.pluginOwnerId,
+  );
 }
 
 export type SessionInitResult = {
@@ -486,12 +506,16 @@ export async function initSessionState(params: {
     clearSessionResetRuntimeState([sessionKey, previousSessionEntry.sessionId]);
   }
 
-  // frankclaw: sessions with terminal lifecycle status (done, failed, killed, timeout)
-  // must start a new session. Without this, thread/topic sessions that completed their
-  // subagent run would be "reused" (same sessionId, stale CLI binding) and new messages
-  // would be silently dropped.
+  // frankclaw: terminal lifecycle status belongs to worker/ACP run sessions,
+  // not normal chat continuity. User-facing channel sessions also get marked
+  // done after each reply, and treating those as terminal loses WhatsApp/
+  // Discord/Telegram history on the next message.
   const TERMINAL_SESSION_STATUSES = new Set(["done", "failed", "killed", "timeout"]);
-  const isTerminalSession = Boolean(entry?.status && TERMINAL_SESSION_STATUSES.has(entry.status));
+  const isTerminalSession = Boolean(
+    entry?.status &&
+    TERMINAL_SESSION_STATUSES.has(entry.status) &&
+    hasTerminalRunOwnership({ entry, sessionKey }),
+  );
   if (isTerminalSession && !isNewSession) {
     isNewSession = true;
   }

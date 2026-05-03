@@ -464,7 +464,7 @@ describe("cron service ops regressions", () => {
       storePath: store.storePath,
       log: noopLogger,
       enqueueSystemEvent: vi.fn(),
-      requestHeartbeatNow: vi.fn(),
+      requestHeartbeat: vi.fn(),
       runIsolatedAgentJob,
     });
 

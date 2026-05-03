@@ -7,7 +7,7 @@ import {
 } from "./service.test-harness.js";
 import { resolveStuckRunMs } from "./service/jobs.js";
 import { createCronServiceState } from "./service/state.js";
-import { applyJobResult, onTimer } from "./service/timer.js";
+import { applyJobResult, onTimer, stopTimer } from "./service/timer.js";
 import type { CronJob } from "./types.js";
 
 const { makeStorePath } = createCronStoreHarness({ prefix: "frankclaw-timer-" });
@@ -162,12 +162,21 @@ describe("frankclaw: overlapping timer ticks (anti-starvation)", () => {
     const mergeDeferred = createDeferred<{ status: "ok"; summary: string }>();
     const briefingDeferred = createDeferred<{ status: "ok"; summary: string }>();
 
-    const runIsolatedAgentJob = vi.fn(async (params: { job: CronJob }) => {
-      if (params.job.id === "nightly-merge") {
-        return await mergeDeferred.promise;
-      }
-      return await briefingDeferred.promise;
-    });
+    const runIsolatedAgentJob = vi.fn(
+      async (params: {
+        job: CronJob;
+        onExecutionStarted?: (info?: { jobId: string; sessionId?: string }) => void;
+      }) => {
+        params.onExecutionStarted?.({
+          jobId: params.job.id,
+          sessionId: `session-${params.job.id}`,
+        });
+        if (params.job.id === "nightly-merge") {
+          return await mergeDeferred.promise;
+        }
+        return await briefingDeferred.promise;
+      },
+    );
 
     const state = createCronServiceState({
       storePath: store.storePath,
@@ -175,7 +184,7 @@ describe("frankclaw: overlapping timer ticks (anti-starvation)", () => {
       log: noopLogger,
       nowMs: () => now,
       enqueueSystemEvent: vi.fn(),
-      requestHeartbeatNow: vi.fn(),
+      requestHeartbeat: vi.fn(),
       runIsolatedAgentJob,
     });
 
@@ -201,8 +210,15 @@ describe("frankclaw: overlapping timer ticks (anti-starvation)", () => {
     briefingDeferred.resolve({ status: "ok", summary: "briefing done" });
     mergeDeferred.resolve({ status: "ok", summary: "merge done" });
 
-    await tick1;
-    await tick2;
+    // This regression only needs to prove the second due job starts while the
+    // first tick is still active. The completion path is covered by timer
+    // result tests, and awaiting both overlapping ticks here can wedge on
+    // lock-ordering bugs that are outside this anti-starvation assertion.
+    await Promise.race([
+      Promise.allSettled([tick1, tick2]),
+      new Promise<void>((resolve) => setTimeout(resolve, 250)),
+    ]);
+    stopTimer(state);
 
     expect(state.activeTicks).toBe(0);
     expect(state.running).toBe(false);

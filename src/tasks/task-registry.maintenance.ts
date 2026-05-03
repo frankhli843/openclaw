@@ -1025,9 +1025,6 @@ export async function runTaskRegistryMaintenance(): Promise<TaskRegistryMaintena
 
   const tasks = taskRegistryMaintenanceRuntime.listTaskRecords();
   const cronRecoveryContext = createCronRecoveryContext();
-  // frankclaw: pre-compute the active child session set ONCE instead of
-  // calling listTaskRecords() inside the loop for every task (O(n²) → O(n)).
-  const tasksForCleanup = tasks;
   const backingSessionContext = createBackingSessionLookupContext();
   const recoveryHookRegistered = hasDetachedTaskRecoveryHook();
   let processed = 0;

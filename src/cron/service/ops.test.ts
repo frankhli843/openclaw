@@ -205,7 +205,7 @@ describe("cron service ops seam coverage", () => {
     const { storePath } = await makeStorePath();
     const now = Date.parse("2026-03-23T12:00:00.000Z");
     const enqueueSystemEvent = vi.fn();
-    const requestHeartbeatNow = vi.fn();
+    const requestHeartbeat = vi.fn();
 
     await writeCronStoreSnapshot({
       storePath,
@@ -218,17 +218,17 @@ describe("cron service ops seam coverage", () => {
       log: logger,
       nowMs: () => now,
       enqueueSystemEvent,
-      requestHeartbeatNow,
+      requestHeartbeat,
       runIsolatedAgentJob: vi.fn(async () => ({ status: "ok" as const })),
     });
 
     await start(state);
 
     expect(enqueueSystemEvent).not.toHaveBeenCalled();
-    expect(requestHeartbeatNow).not.toHaveBeenCalled();
+    expect(requestHeartbeat).not.toHaveBeenCalled();
     expect(logger.warn).toHaveBeenCalledWith(
-      expect.objectContaining({ jobId: "startup-one-shot" }),
-      "cron: disabling interrupted one-shot job on startup to avoid duplicate replay",
+      expect.objectContaining({ jobId: "startup-one-shot", runningAtMs: now - 30 * 60_000 }),
+      "cron: marking interrupted running job failed on startup",
     );
 
     // Cron store can split runtime state into a separate `*-state.json` file.
@@ -239,8 +239,9 @@ describe("cron service ops seam coverage", () => {
     expect(job?.enabled).toBe(false);
     expect(job?.state.runningAtMs).toBeUndefined();
     expect(job?.state.nextRunAtMs).toBeUndefined();
-    expect(job?.state.lastStatus).toBe("skipped");
-    expect(job?.state.lastRunStatus).toBe("skipped");
+    expect(job?.state.lastStatus).toBe("error");
+    expect(job?.state.lastRunStatus).toBe("error");
+    expect(job?.state.lastError).toBe("cron: job interrupted by gateway restart");
     expect(job?.state.lastRunAtMs).toBe(now - 30 * 60_000);
 
     stop(state);

@@ -47,25 +47,13 @@ async function loadCronOrchestrationRuntime() {
 type AgentTurnPayload = Extract<CronJob["payload"], { kind: "agentTurn" }> | null;
 type CronPromptRunResult = Awaited<ReturnType<typeof runCliAgent>>;
 type CronEmbeddedRuntime = typeof import("./run-embedded.runtime.js");
-type CronSubagentRegistryRuntime = typeof import("./run-subagent-registry.runtime.js");
 
 const cronEmbeddedRuntimeLoader = createLazyImportLoader<CronEmbeddedRuntime>(
   () => import("./run-embedded.runtime.js"),
 );
-const cronSubagentRegistryRuntimeLoader = createLazyImportLoader<CronSubagentRegistryRuntime>(
-  () => import("./run-subagent-registry.runtime.js"),
-);
 
 async function loadCronEmbeddedRuntime() {
   return await cronEmbeddedRuntimeLoader.load();
-}
-
-let cronSubagentRegistryRuntimePromise:
-  | Promise<typeof import("./run-subagent-registry.runtime.js")>
-  | undefined;
-
-async function loadCronSubagentRegistryRuntime() {
-  return await cronSubagentRegistryRuntimeLoader.load();
 }
 
 function resolveCronOwnerOnlyToolAllowlist(toolsAllow: string[] | undefined): string[] | undefined {

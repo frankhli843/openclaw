@@ -176,7 +176,7 @@ describe("runAcpOrphanSweep", () => {
     expect(result.candidates).toBe(2);
     expect(result.deleted).toBe(2);
     expect(result.failed).toBe(0);
-    expect(deletedKeys.sort()).toEqual(["agent:claude:acp:abc", "agent:claude:acp:def"]);
+    expect(deletedKeys.toSorted()).toEqual(["agent:claude:acp:abc", "agent:claude:acp:def"]);
     const lines = hoisted.acpDiagMock.mock.calls.map((c) => String(c?.[0] ?? ""));
     expect(lines.some((l) => l.startsWith("ACP_ORPHAN_SWEEP_START"))).toBe(true);
     expect(lines.some((l) => l.startsWith("ACP_ORPHAN_SWEEP_DONE"))).toBe(true);

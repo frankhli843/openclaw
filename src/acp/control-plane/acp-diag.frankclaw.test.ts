@@ -37,8 +37,11 @@ describe("acp-diag.frankclaw routing", () => {
 
   afterEach(() => {
     for (const [k, v] of Object.entries(savedEnv)) {
-      if (v === undefined) delete process.env[k];
-      else process.env[k] = v;
+      if (v === undefined) {
+        delete process.env[k];
+      } else {
+        process.env[k] = v;
+      }
     }
     rmSync(workdir, { recursive: true, force: true });
   });

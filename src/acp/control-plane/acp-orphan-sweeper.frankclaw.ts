@@ -28,7 +28,6 @@
  *     order, lifecycle hooks, and binding cleanup go through the gateway.
  */
 import { promises as fsp } from "node:fs";
-import { resolveStorePath } from "../../config/sessions/paths.js";
 import { loadSessionStore } from "../../config/sessions/store-load.js";
 import { resolveAllAgentSessionStoreTargets } from "../../config/sessions/targets.js";
 import { resolveSessionTranscriptFile } from "../../config/sessions/transcript.js";
@@ -174,7 +173,7 @@ export async function runAcpOrphanSweep(params: {
   const doDelete =
     params.deleteFn ??
     (async (sessionKey: string) =>
-      (await callGateway({
+      await callGateway({
         method: "sessions.delete",
         params: {
           key: sessionKey,
@@ -182,7 +181,7 @@ export async function runAcpOrphanSweep(params: {
           emitLifecycleHooks: false,
         },
         timeoutMs: ORPHAN_DELETE_TIMEOUT_MS,
-      })) as { deleted?: boolean } | undefined);
+      }));
 
   for (const candidate of candidates) {
     result.scanned += 1;
@@ -223,7 +222,9 @@ export function scheduleAcpOrphanSweeper(params: {
   let stopped = false;
 
   const runOne = async () => {
-    if (stopped) return;
+    if (stopped) {
+      return;
+    }
     try {
       await runAcpOrphanSweep({ cfg: params.cfg });
     } catch (err) {

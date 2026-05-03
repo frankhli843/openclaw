@@ -197,7 +197,9 @@ export function listBundledPluginMetadata(params?: {
   // frankclaw: cache to avoid redundant scans on repeated calls
   const cacheKey = `${rootDir}|${scanDir ?? ""}|${includeChannelConfigs}|${includeSyntheticChannelConfigs}`;
   const cached = _bundledMetadataCache.get(cacheKey);
-  if (cached) return cached;
+  if (cached) {
+    return cached;
+  }
 
   const result = Object.freeze(
     collectBundledPluginMetadata(

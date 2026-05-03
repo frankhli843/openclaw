@@ -12,7 +12,7 @@ import { describe, expect, it } from "vitest";
  */
 import { __testing } from "./loader.js";
 
-const { buildPluginLoaderJitiOptions, buildPluginLoaderAliasMap, shouldPreferNativeJiti } =
+const { buildPluginLoaderJitiOptions, buildPluginLoaderAliasMap, shouldPreferNativeModuleLoad } =
   __testing;
 
 describe("Jiti singleton loader caching", () => {
@@ -23,8 +23,8 @@ describe("Jiti singleton loader caching", () => {
     expect(typeof options).toBe("object");
   });
 
-  it("shouldPreferNativeJiti returns a boolean", () => {
-    const result = shouldPreferNativeJiti("/some/path/dist/plugin.js");
+  it("shouldPreferNativeModuleLoad returns a boolean", () => {
+    const result = shouldPreferNativeModuleLoad("/some/path/dist/plugin.js");
     expect(typeof result).toBe("boolean");
   });
 

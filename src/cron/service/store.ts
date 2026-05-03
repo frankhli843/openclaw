@@ -252,14 +252,20 @@ async function assertNoUnexpectedDiskDrops(state: CronServiceState): Promise<voi
   const lastLoaded = state.lastLoadedDiskJobIds;
   const unexpected: string[] = [];
   for (const id of diskIds) {
-    if (memIds.has(id)) continue;
+    if (memIds.has(id)) {
+      continue;
+    }
     // ID exists on disk but not in memory.
     // Allowed if we have no last-loaded snapshot (fresh state created
     // without ensureLoaded — defensive default to not block).
-    if (!lastLoaded) continue;
+    if (!lastLoaded) {
+      continue;
+    }
     // Allowed if the caller explicitly marked this ID for deletion via
     // remove(), deleteAfterRun, or another intentional removal path.
-    if (state.pendingDeleteJobIds?.has(id)) continue;
+    if (state.pendingDeleteJobIds?.has(id)) {
+      continue;
+    }
     // Otherwise: the ID was not explicitly deleted from memory, meaning it
     // either appeared on disk after our last load (cross-process add) or was
     // accidentally dropped from the in-memory store without going through the

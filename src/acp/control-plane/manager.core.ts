@@ -862,7 +862,6 @@ export class AcpSessionManager {
             this.activeTurnBySession.set(actorKey, activeTurn);
             activeTurnStarted = true;
 
-            let streamError: AcpRuntimeError | null = null;
             // frankclaw: track tool call count for zero-tool-call checkpoint detection
             let taskToolCallCount = 0;
             const combinedSignal =

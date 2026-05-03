@@ -88,7 +88,9 @@ let _installedPluginIndexCache: InstalledPluginIndex | null = null;
 export function loadInstalledPluginIndex(
   params: LoadInstalledPluginIndexParams = {},
 ): InstalledPluginIndex {
-  if (_installedPluginIndexCache) return _installedPluginIndexCache;
+  if (_installedPluginIndexCache) {
+    return _installedPluginIndexCache;
+  }
   const index = buildInstalledPluginIndex(params);
   _installedPluginIndexCache = index;
   return index;

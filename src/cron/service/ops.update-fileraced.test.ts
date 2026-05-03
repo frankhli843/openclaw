@@ -25,7 +25,7 @@ function createState(storePath: string) {
     log: logger,
     nowMs: () => STORE_TEST_NOW,
     enqueueSystemEvent: vi.fn(),
-    requestHeartbeatNow: vi.fn(),
+    requestHeartbeat: vi.fn(),
     runIsolatedAgentJob: vi.fn(async () => ({ status: "ok" as const })),
   });
 }
@@ -73,7 +73,7 @@ describe("cron service explicit-delete-intent guard", () => {
     const state = createState(storePath);
     await ensureLoaded(state, { skipRecompute: true });
     // Confirm both loaded.
-    expect(state.store?.jobs.map((j) => j.id).sort()).toEqual(["alpha", "beta"]);
+    expect(state.store?.jobs.map((j) => j.id).toSorted()).toEqual(["alpha", "beta"]);
 
     // Simulate an accidental in-memory drop of "beta" — NOT via remove().
     // This is the class of bug from the 2026-05-02 incident.
@@ -99,7 +99,7 @@ describe("cron service explicit-delete-intent guard", () => {
 
     // persist already happened inside remove(); verify disk has only alpha.
     const idsAfter = await readJobIds(storePath);
-    expect(idsAfter.sort()).toEqual(["alpha"]);
+    expect(idsAfter.toSorted()).toEqual(["alpha"]);
   });
 });
 
@@ -171,6 +171,6 @@ describe("cron service jobs.json file-race regression", () => {
     const idsAfter = await readJobIds(storePath);
     // beta deliberately removed via the service.
     // alpha + gamma + delta survive (3 entries).
-    expect(idsAfter.sort()).toEqual(["alpha", "delta", "gamma"]);
+    expect(idsAfter.toSorted()).toEqual(["alpha", "delta", "gamma"]);
   });
 });

@@ -1674,12 +1674,69 @@ describe("initSessionState reset policy", () => {
     expect(result.sessionId).toBe(existingSessionId);
   });
 
-  // frankclaw: terminal session status forces a new session
-  it("creates a new session when existing entry has terminal status (done)", async () => {
+  // frankclaw: terminal run status forces a new session only for worker-owned sessions.
+  it("reuses a user-facing WhatsApp group session when existing entry has terminal status (done)", async () => {
+    vi.setSystemTime(new Date(2026, 0, 18, 5, 0, 0));
+    const root = await makeCaseDir("openclaw-terminal-whatsapp-group-reuse-");
+    const storePath = path.join(root, "sessions.json");
+    const sessionKey = "agent:main:whatsapp:group:120363421390336301@g.us";
+    const existingSessionId = "whatsapp-group-session";
+
+    await writeSessionStoreFast(storePath, {
+      [sessionKey]: {
+        sessionId: existingSessionId,
+        updatedAt: new Date(2026, 0, 18, 4, 30, 0).getTime(),
+        status: "done",
+        startedAt: new Date(2026, 0, 18, 4, 0, 0).getTime(),
+        endedAt: new Date(2026, 0, 18, 4, 30, 0).getTime(),
+        runtimeMs: 1800000,
+        systemSent: true,
+        chatType: "group",
+        channel: "whatsapp",
+        groupId: "120363421390336301@g.us",
+        subject: "Causal Mon",
+        deliveryContext: {
+          channel: "whatsapp",
+          to: "120363421390336301@g.us",
+          accountId: "default",
+        },
+        lastChannel: "whatsapp",
+        lastTo: "120363421390336301@g.us",
+        lastAccountId: "default",
+      },
+    });
+
+    const cfg = { session: { store: storePath } } as OpenClawConfig;
+    const result = await initSessionState({
+      ctx: {
+        Body: "What is that?",
+        SessionKey: sessionKey,
+        Provider: "whatsapp",
+        Surface: "whatsapp",
+        ChatType: "group",
+        OriginatingChannel: "whatsapp",
+        OriginatingTo: "120363421390336301@g.us",
+        To: "120363421390336301@g.us",
+        AccountId: "default",
+      },
+      cfg,
+      commandAuthorized: true,
+    });
+
+    expect(result.isNewSession).toBe(false);
+    expect(result.sessionId).toBe(existingSessionId);
+    expect(result.sessionEntry.deliveryContext).toEqual({
+      channel: "whatsapp",
+      to: "120363421390336301@g.us",
+      accountId: "default",
+    });
+  });
+
+  it("creates a new worker session when existing entry has terminal status (done)", async () => {
     vi.setSystemTime(new Date(2026, 0, 18, 5, 0, 0));
     const root = await makeCaseDir("openclaw-terminal-session-done-");
     const storePath = path.join(root, "sessions.json");
-    const sessionKey = "agent:main:discord:channel:thread123";
+    const sessionKey = "agent:main:subagent:thread123";
     const existingSessionId = "terminal-done-session";
 
     await writeSessionStoreFast(storePath, {
@@ -1692,6 +1749,7 @@ describe("initSessionState reset policy", () => {
         runtimeMs: 1800000,
         systemSent: true,
         modelOverride: "gpt-5.2",
+        spawnedBy: "agent:main:discord:channel:thread123",
       },
     });
 
@@ -1713,11 +1771,11 @@ describe("initSessionState reset policy", () => {
     expect(result.sessionEntry.modelOverride).toBe("gpt-5.2");
   });
 
-  it("creates a new session when existing entry has terminal status (failed)", async () => {
+  it("creates a new worker session when existing entry has terminal status (failed)", async () => {
     vi.setSystemTime(new Date(2026, 0, 18, 5, 0, 0));
     const root = await makeCaseDir("openclaw-terminal-session-failed-");
     const storePath = path.join(root, "sessions.json");
-    const sessionKey = "agent:main:discord:channel:thread456";
+    const sessionKey = "agent:main:subagent:thread456";
     const existingSessionId = "terminal-failed-session";
 
     await writeSessionStoreFast(storePath, {
@@ -1725,6 +1783,7 @@ describe("initSessionState reset policy", () => {
         sessionId: existingSessionId,
         updatedAt: new Date(2026, 0, 18, 4, 30, 0).getTime(),
         status: "failed",
+        spawnedBy: "agent:main:discord:channel:thread456",
       },
     });
 

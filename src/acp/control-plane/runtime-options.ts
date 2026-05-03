@@ -283,7 +283,10 @@ export function normalizeRuntimeOptions(
   const envEntries = Object.entries(options?.env ?? {})
     .map(([key, value]) => [normalizeText(key), normalizeText(value)] as const)
     .filter(([key, value]) => Boolean(key && value)) as Array<[string, string]>;
-  const env = envEntries.length > 0 ? Object.fromEntries(envEntries.toSorted()) : undefined;
+  const env =
+    envEntries.length > 0
+      ? Object.fromEntries(envEntries.toSorted(([a], [b]) => a.localeCompare(b)))
+      : undefined;
   let timeoutSeconds: number | undefined;
   if (typeof options?.timeoutSeconds === "number" && Number.isFinite(options.timeoutSeconds)) {
     const rounded = Math.round(options.timeoutSeconds);
