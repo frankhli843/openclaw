@@ -35,10 +35,11 @@ import { normalizeDiscordInboundWorkerTimeoutMs, runDiscordTaskWithTimeout } fro
 /**
  * Buffer added on top of the worker timeout to derive the lease duration.
  * The lease must be longer than the worker timeout so the timeout fires first
- * and cleanly aborts the run before the lease expires.  5 minutes gives
- * headroom for cleanup after timeout.
+ * and cleanly aborts the run before the lease expires. Keep this short for
+ * channel responsiveness: long work belongs in background workers, not in the
+ * inbound Discord delivery queue.
  */
-const LEASE_BUFFER_MS = 5 * 60_000;
+const LEASE_BUFFER_MS = 30_000;
 
 /**
  * Conservative fallback lease when the worker timeout is disabled (unlimited).

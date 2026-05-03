@@ -222,8 +222,10 @@ export function createDiscordInboundDurableQueue(options: DurableDiscordInboundQ
   let drainRequested = false;
   let activeBatches = 0;
   let wakeTimer: NodeJS.Timeout | null = null;
-  // Periodic check every 60s to recover visibility timeouts even when no new events arrive.
-  const PERIODIC_RECOVERY_INTERVAL_MS = 60_000;
+  // Periodic check every 10s to recover visibility timeouts even when no new
+  // events arrive. The work is a small directory scan, and fast recovery keeps
+  // durable delivery from feeling like a stuck chat queue.
+  const PERIODIC_RECOVERY_INTERVAL_MS = 10_000;
   let periodicRecoveryTimer: NodeJS.Timeout | null = null;
 
   // ── Completed-key cache ──────────────────────────────────────────

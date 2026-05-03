@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   isNoteToSelf,
+  isStatusOnlyBackgroundNoteToSelf,
   noteToSelfPrefix,
   noteToSelfPromptOverlay,
   wrapAsNoteToSelf,
@@ -66,13 +67,58 @@ describe("wrapAsNoteToSelf", () => {
   });
 });
 
+describe("isStatusOnlyBackgroundNoteToSelf", () => {
+  it("matches background failure notices that must not do channel inline work", () => {
+    expect(
+      isStatusOnlyBackgroundNoteToSelf(
+        "[Doramon note to self] Background task failed: homezai-fix. Error: timeout",
+      ),
+    ).toBe(true);
+    expect(
+      isStatusOnlyBackgroundNoteToSelf(
+        "[Doramon note to self] Background task timed out: benchmark-run.",
+      ),
+    ).toBe(true);
+    expect(
+      isStatusOnlyBackgroundNoteToSelf("[Doramon note to self] Background task lost: worker."),
+    ).toBe(true);
+    expect(
+      isStatusOnlyBackgroundNoteToSelf(
+        "[Doramon note to self] Background task cancelled: stale run.",
+      ),
+    ).toBe(true);
+  });
+
+  it("does not mark successful background status or plain user text as status-only", () => {
+    expect(
+      isStatusOnlyBackgroundNoteToSelf("[Doramon note to self] Background task done: foo."),
+    ).toBe(false);
+    expect(isStatusOnlyBackgroundNoteToSelf("Background task failed: foo.")).toBe(false);
+  });
+});
+
 describe("noteToSelfPromptOverlay", () => {
   it("emits the note_to_self_protocol tag with required behavior cues", () => {
     const overlay = noteToSelfPromptOverlay();
     expect(overlay).toContain("<note_to_self_protocol>");
     expect(overlay).toContain("</note_to_self_protocol>");
     expect(overlay.toLowerCase()).toContain("summary");
-    expect(overlay.toLowerCase()).toContain("continue iterating");
+    expect(overlay.toLowerCase()).toContain("owning task");
     expect(overlay.toLowerCase()).toContain("never reply with no_reply");
+  });
+
+  it("makes background failures status-only so channel sessions cannot wedge", () => {
+    const overlay = noteToSelfPromptOverlay(
+      "[Doramon note to self] Background task failed: homezai-genie. Error: billing",
+    );
+    const lower = overlay.toLowerCase();
+
+    expect(overlay).toContain("<note_to_self_protocol>");
+    expect(lower).toContain("status-only");
+    expect(lower).toContain("do not call tools");
+    expect(lower).toContain("do not");
+    expect(lower).toContain("spawn workers");
+    expect(lower).toContain("stay responsive");
+    expect(lower).not.toContain("continue iterating");
   });
 });

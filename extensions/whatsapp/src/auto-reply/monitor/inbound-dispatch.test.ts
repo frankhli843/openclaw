@@ -676,6 +676,18 @@ describe("whatsapp inbound dispatch", () => {
     ).toBeUndefined();
   });
 
+  it("forces automatic source delivery so final WhatsApp auto-replies are not suppressed", async () => {
+    await dispatchBufferedReply();
+
+    expect(
+      (
+        capturedDispatchParams as {
+          replyOptions?: { sourceReplyDeliveryMode?: string };
+        }
+      )?.replyOptions?.sourceReplyDeliveryMode,
+    ).toBe("automatic");
+  });
+
   it("treats block-only turns as visible replies instead of silent turns", async () => {
     const deliverReply = vi.fn(async () => acceptedDeliveryResult());
     const rememberSentText = vi.fn();
@@ -960,7 +972,7 @@ describe("whatsapp inbound dispatch", () => {
   // frankclaw: integration test for conversation turn recording + context assembly
   describe("conversation turn recording (frankclaw)", () => {
     it("records a conversation turn after a reply is delivered", async () => {
-      const deliverReply = vi.fn(async () => undefined);
+      const deliverReply = vi.fn(async () => acceptedDeliveryResult());
       const rememberSentText = vi.fn();
       const groupHistoryKey = "whatsapp:default:group:dahong@g.us";
 
@@ -1003,7 +1015,7 @@ describe("whatsapp inbound dispatch", () => {
     });
 
     it("follow-up message includes prior conversation turns in context", async () => {
-      const deliverReply = vi.fn(async () => undefined);
+      const deliverReply = vi.fn(async () => acceptedDeliveryResult());
       const rememberSentText = vi.fn();
       const groupHistoryKey = "whatsapp:default:group:dahong@g.us";
 
@@ -1082,7 +1094,7 @@ describe("whatsapp inbound dispatch", () => {
     });
 
     it("accumulates multi-chunk reply text into a single conversation turn", async () => {
-      const deliverReply = vi.fn(async () => undefined);
+      const deliverReply = vi.fn(async () => acceptedDeliveryResult());
       const rememberSentText = vi.fn();
       const groupHistoryKey = "whatsapp:default:group:multi@g.us";
 

@@ -28,9 +28,10 @@ export function buildGoogleGeminiCliBackend(): CliBackendPlugin {
     nativeToolMode: "always-on",
     config: {
       command: "gemini",
-      args: ["--skip-trust", "--output-format", "json", "--prompt", "{prompt}"],
+      args: ["--approval-mode", "yolo", "--output-format", "json", "--prompt", "{prompt}"],
       resumeArgs: [
-        "--skip-trust",
+        "--approval-mode",
+        "yolo",
         "--resume",
         "{sessionId}",
         "--output-format",

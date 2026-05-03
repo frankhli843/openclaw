@@ -9,7 +9,7 @@ describe("resolveDiscordDurableLeaseMs", () => {
       requestedLeaseMs: undefined,
       timeoutMs,
     });
-    expect(lease).toBe(timeoutMs + 5 * 60_000);
+    expect(lease).toBe(timeoutMs + 30_000);
   });
 
   it("keeps an explicit lease that exceeds timeout plus buffer", () => {

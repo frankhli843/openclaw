@@ -419,6 +419,12 @@ export async function dispatchWhatsAppBufferedReply(params: {
     },
     replyOptions: {
       disableBlockStreaming,
+      // frankclaw: WhatsApp auto-reply owns the delivery path. The generic
+      // group default is message_tool_only, which suppresses normal final
+      // answers unless the model explicitly calls the message tool. That is
+      // correct for some shared group surfaces, but it drops plain WhatsApp
+      // auto-replies after the model has already generated them.
+      sourceReplyDeliveryMode: "automatic",
       onModelSelected: params.onModelSelected,
     },
   });

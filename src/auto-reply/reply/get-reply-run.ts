@@ -611,8 +611,11 @@ export async function runPreparedReply(
   });
   // frankclaw addition: when the inbound body is a [Doramon note to self]
   // self-nudge, inject the note-to-self behavior protocol so the agent
-  // summarizes + iterates rather than ignoring or echoing the prefix.
-  const noteToSelfBlock = isNoteToSelf(baseBodyFinal) ? noteToSelfPromptOverlay() : undefined;
+  // responds with the right status-only vs regular self-nudge behavior rather
+  // than ignoring or echoing the prefix.
+  const noteToSelfBlock = isNoteToSelf(baseBodyFinal)
+    ? noteToSelfPromptOverlay(baseBodyFinal)
+    : undefined;
   const baseBodyForPrompt = isBareSessionReset
     ? [
         noteToSelfBlock,
