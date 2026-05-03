@@ -723,9 +723,10 @@ describe("spawnAcpDirect", () => {
     const transcriptCalls = hoisted.resolveSessionTranscriptFileMock.mock.calls.map(
       (call: unknown[]) => call[0] as { threadId?: string },
     );
-    expect(transcriptCalls).toHaveLength(2);
+    expect(transcriptCalls).toHaveLength(3);
     expect(transcriptCalls[0]?.threadId).toBeUndefined();
     expect(transcriptCalls[1]?.threadId).toBe("child-thread");
+    expect(transcriptCalls[2]?.threadId).toBeUndefined();
   });
 
   // frankclaw: verify Discord ACP run-mode thread suppression
@@ -1634,8 +1635,9 @@ describe("spawnAcpDirect", () => {
     const transcriptCalls = hoisted.resolveSessionTranscriptFileMock.mock.calls.map(
       (call: unknown[]) => call[0] as { threadId?: string },
     );
-    expect(transcriptCalls).toHaveLength(1);
+    expect(transcriptCalls).toHaveLength(2);
     expect(transcriptCalls[0]?.threadId).toBeUndefined();
+    expect(transcriptCalls[1]?.threadId).toBeUndefined();
   });
 
   it("binds ACP sessions through the configured default account when accountId is omitted", async () => {
