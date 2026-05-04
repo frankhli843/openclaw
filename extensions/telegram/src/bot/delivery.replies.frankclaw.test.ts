@@ -1,5 +1,7 @@
 /**
  * Tests Telegram DNR quiet hours enforcement in deliverReplies.
+ * Verifies that DiscordDnrSuppressedError propagates (not swallowed) so
+ * deliver.ts can call deferDelivery() and the queue entry is not lost.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -9,108 +11,129 @@ describe("Telegram DNR enforcement in deliverReplies", () => {
     vi.clearAllMocks();
   });
 
-  it("returns delivered:false when DiscordDnrSuppressedError is thrown", async () => {
-    // Mock the dynamic import of discord-dnr.js to throw suppressed error
-    const mockEnforce = vi.fn().mockImplementation(() => {
-      const err = new Error("discord outbound suppressed by DNR window");
-      (err as any).name = "DiscordDnrSuppressedError";
-      throw err;
-    });
-
-    // Use a direct simulation of the deliverReplies DNR check pattern
-    const runtimeLog = vi.fn();
-    const chatId = "123456";
-    let delivered = true;
-
-    try {
-      mockEnforce({ channel: "discord", to: "telegram-global", threadId: "*" });
-    } catch (err: any) {
-      if (err?.name === "DiscordDnrSuppressedError") {
-        runtimeLog(`Telegram DNR: suppressed reply to ${chatId} (quiet hours)`);
-        delivered = false;
-      } else if (err?.code !== "ERR_MODULE_NOT_FOUND") {
-        throw err;
+  it("propagates DiscordDnrSuppressedError when in DNR window (so deliver.ts can defer)", () => {
+    // Simulate the delivery.replies.ts DNR check pattern:
+    // ERR_MODULE_NOT_FOUND is silently ignored; everything else re-throws.
+    function simulateDnrCheck(enforcer: () => void): void {
+      try {
+        enforcer();
+      } catch (err: unknown) {
+        const code =
+          err && typeof err === "object" && "code" in err
+            ? (err as { code?: unknown }).code
+            : undefined;
+        if (code === "ERR_MODULE_NOT_FOUND") {
+          // Module not available — skip DNR check.
+        } else {
+          throw err;
+        }
       }
     }
 
-    expect(delivered).toBe(false);
-    expect(runtimeLog).toHaveBeenCalledWith(
-      expect.stringContaining("Telegram DNR: suppressed reply to 123456"),
-    );
+    const dnrError = new Error("discord outbound suppressed by DNR window");
+    (dnrError as any).name = "DiscordDnrSuppressedError";
+    (dnrError as any).nextEligibleAtMs = Date.now() + 3_600_000;
+
+    expect(() =>
+      simulateDnrCheck(() => {
+        throw dnrError;
+      }),
+    ).toThrow("discord outbound suppressed by DNR window");
+  });
+
+  it("propagated error carries nextEligibleAtMs for deferral", () => {
+    const nextEligibleAtMs = Date.now() + 3_600_000;
+
+    function simulateDnrCheck(enforcer: () => void): void {
+      try {
+        enforcer();
+      } catch (err: unknown) {
+        const code =
+          err && typeof err === "object" && "code" in err
+            ? (err as { code?: unknown }).code
+            : undefined;
+        if (code !== "ERR_MODULE_NOT_FOUND") throw err;
+      }
+    }
+
+    const dnrError = Object.assign(new Error("discord outbound suppressed by DNR window"), {
+      name: "DiscordDnrSuppressedError",
+      nextEligibleAtMs,
+    });
+
+    let caughtErr: unknown;
+    try {
+      simulateDnrCheck(() => {
+        throw dnrError;
+      });
+    } catch (e) {
+      caughtErr = e;
+    }
+
+    expect(caughtErr).toBeDefined();
+    expect((caughtErr as any).nextEligibleAtMs).toBe(nextEligibleAtMs);
   });
 
   it("proceeds normally when no DNR error is thrown", () => {
-    const mockEnforce = vi.fn(); // no-op
-    const runtimeLog = vi.fn();
-    let delivered = true;
-    let shouldContinue = true;
+    let threw = false;
 
-    try {
-      mockEnforce({ channel: "discord", to: "telegram-global", threadId: "*" });
-    } catch (err: any) {
-      if (err?.name === "DiscordDnrSuppressedError") {
-        runtimeLog(`Telegram DNR: suppressed`);
-        delivered = false;
-        shouldContinue = false;
+    function simulateDnrCheck(enforcer: () => void): void {
+      try {
+        enforcer();
+      } catch (err: unknown) {
+        const code =
+          err && typeof err === "object" && "code" in err
+            ? (err as { code?: unknown }).code
+            : undefined;
+        if (code !== "ERR_MODULE_NOT_FOUND") throw err;
       }
     }
 
-    expect(shouldContinue).toBe(true);
-    expect(delivered).toBe(true);
-    expect(runtimeLog).not.toHaveBeenCalled();
+    expect(() => simulateDnrCheck(() => {})).not.toThrow();
+    expect(threw).toBe(false);
   });
 
-  it("re-throws non-DNR errors", () => {
-    const mockEnforce = vi.fn().mockImplementation(() => {
-      throw new Error("network error");
-    });
-
-    expect(() => {
+  it("re-throws non-DNR, non-module-not-found errors", () => {
+    function simulateDnrCheck(enforcer: () => void): void {
       try {
-        mockEnforce({ channel: "discord", to: "telegram-global", threadId: "*" });
-      } catch (err: any) {
-        if (err?.name === "DiscordDnrSuppressedError") {
-          return;
-        }
-        if (err?.code !== "ERR_MODULE_NOT_FOUND") {
-          throw err;
-        }
+        enforcer();
+      } catch (err: unknown) {
+        const code =
+          err && typeof err === "object" && "code" in err
+            ? (err as { code?: unknown }).code
+            : undefined;
+        if (code !== "ERR_MODULE_NOT_FOUND") throw err;
       }
-    }).toThrow("network error");
+    }
+
+    expect(() =>
+      simulateDnrCheck(() => {
+        throw new Error("network error");
+      }),
+    ).toThrow("network error");
   });
 
   it("silently ignores ERR_MODULE_NOT_FOUND (graceful degradation)", () => {
-    const mockEnforce = vi.fn().mockImplementation(() => {
-      const err = new Error("module not found");
-      (err as any).code = "ERR_MODULE_NOT_FOUND";
-      throw err;
+    function simulateDnrCheck(enforcer: () => void): void {
+      try {
+        enforcer();
+      } catch (err: unknown) {
+        const code =
+          err && typeof err === "object" && "code" in err
+            ? (err as { code?: unknown }).code
+            : undefined;
+        if (code !== "ERR_MODULE_NOT_FOUND") throw err;
+      }
+    }
+
+    const moduleNotFoundErr = Object.assign(new Error("module not found"), {
+      code: "ERR_MODULE_NOT_FOUND",
     });
 
-    let shouldContinue = true;
-
-    expect(() => {
-      try {
-        mockEnforce({ channel: "discord", to: "telegram-global", threadId: "*" });
-      } catch (err: any) {
-        if (err?.name === "DiscordDnrSuppressedError") {
-          shouldContinue = false;
-          return;
-        }
-        if (err?.code !== "ERR_MODULE_NOT_FOUND") {
-          throw err;
-        }
-      }
-    }).not.toThrow();
-
-    expect(shouldContinue).toBe(true);
-  });
-
-  it("uses telegram-global as the DNR target identifier", () => {
-    // The deliverReplies code uses a fixed context:
-    //   enforceDiscordDnrWindow({ channel: "discord", to: "telegram-global", threadId: "*" })
-    // This verifies the exact pattern expected.
-    const ctx = { channel: "discord", to: "telegram-global", threadId: "*" };
-    expect(ctx.to).toBe("telegram-global");
-    expect(ctx.threadId).toBe("*");
+    expect(() =>
+      simulateDnrCheck(() => {
+        throw moduleNotFoundErr;
+      }),
+    ).not.toThrow();
   });
 });

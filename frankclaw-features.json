@@ -318,7 +318,7 @@
       "static": [
         {
           "file": "extensions/whatsapp/src/outbound-adapter.ts",
-          "pattern": "enforceWhatsAppDnr",
+          "pattern": "enforceWhatsAppDnrWindow",
           "minCount": 1
         }
       ],
@@ -630,6 +630,7 @@
     },
     {
       "name": "DNR recovery pre-check (delivery queue)",
+      "description": "Pre-checks DNR for Discord, WhatsApp, and Telegram during delivery recovery; defers active-window entries instead of attempting delivery",
       "static": [
         {
           "file": "src/infra/outbound/delivery-queue-recovery.ts",
@@ -642,11 +643,19 @@
           "pattern": "deferUntilMs",
           "minCount": 2,
           "note": "deferUntilMs bypass in isEntryEligibleForRecoveryRetry + recovery DNR defer"
+        },
+        {
+          "file": "src/infra/outbound/delivery-queue-recovery.ts",
+          "pattern": "enforceWhatsAppDnrWindow",
+          "minCount": 1,
+          "note": "WhatsApp DNR pre-check in checkRecoveryDnr"
         }
       ],
       "tests": [
         "src/infra/outbound/delivery-queue.recovery.test.ts",
-        "src/infra/outbound/delivery-queue.policy.test.ts"
+        "src/infra/outbound/delivery-queue.policy.test.ts",
+        "src/infra/outbound/delivery-queue.dnr-recovery.frankclaw.test.ts",
+        "src/infra/outbound/delivery-queue.recovery-dnr.frankclaw.test.ts"
       ],
       "runtime": [],
       "e2eTests": ["test/frankclaw-features-e2e.test.ts"]

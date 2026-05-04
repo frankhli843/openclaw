@@ -1,6 +1,7 @@
 /**
  * Tests WhatsApp DNR quiet hours enforcement in the outbound adapter.
- * Tests the enforceWhatsAppDnr wrapper that intercepts sends.
+ * Verifies that WhatsAppDnrSuppressedError propagates (not swallowed) so
+ * deliver.ts can call deferDelivery() and the queue entry is not lost.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -23,9 +24,6 @@ vi.mock("../../../src/infra/outbound/discord-dnr.js", () => ({
   WhatsAppDnrSuppressedError: dnrMocks.WhatsAppDnrSuppressedError,
 }));
 
-// Import the enforceWhatsAppDnr function indirectly through the module
-// We test the DNR enforcement via the exported outbound adapter
-
 const sendMessageMock = vi.hoisted(() =>
   vi.fn(async () => ({ messageId: "msg-123", toJid: "jid-456" })),
 );
@@ -47,21 +45,48 @@ describe("WhatsApp outbound adapter DNR enforcement", () => {
     vi.clearAllMocks();
   });
 
-  it("suppresses send when WhatsAppDnrSuppressedError is thrown", async () => {
+  it("propagates WhatsAppDnrSuppressedError when in DNR window (so deliver.ts can defer)", async () => {
+    const nextEligibleAtMs = Date.now() + 60_000;
     dnrMocks.enforceWhatsAppDnrWindow.mockImplementation(() => {
-      throw new dnrMocks.WhatsAppDnrSuppressedError(Date.now() + 60_000);
+      throw new dnrMocks.WhatsAppDnrSuppressedError(nextEligibleAtMs);
     });
 
-    // Call sendText which goes through our DNR-wrapped sendMessageWhatsApp
-    const result = await whatsappOutbound.sendText!({
-      cfg: {} as any,
-      to: "120363421390336301@g.us",
-      text: "Hello",
-      accountId: "default",
-    });
-    // DNR suppresses: sendMessageWhatsApp returns { messageId: "", toJid: "" }
-    expect(result).toMatchObject({ messageId: "" });
+    // Error must propagate — deliver.ts catches it to call deferDelivery().
+    // The queue entry must NOT be silently acked as success.
+    await expect(
+      whatsappOutbound.sendText!({
+        cfg: {} as any,
+        to: "120363421390336301@g.us",
+        text: "Hello",
+        accountId: "default",
+      }),
+    ).rejects.toThrow("whatsapp outbound suppressed by DNR window");
+
     expect(sendMessageMock).not.toHaveBeenCalled();
+  });
+
+  it("propagated error carries nextEligibleAtMs for deferral", async () => {
+    const nextEligibleAtMs = Date.now() + 3_600_000;
+    dnrMocks.enforceWhatsAppDnrWindow.mockImplementation(() => {
+      throw new dnrMocks.WhatsAppDnrSuppressedError(nextEligibleAtMs);
+    });
+
+    let caughtErr: unknown;
+    try {
+      await whatsappOutbound.sendText!({
+        cfg: {} as any,
+        to: "120363421390336301@g.us",
+        text: "Test",
+        accountId: "default",
+      });
+    } catch (err) {
+      caughtErr = err;
+    }
+
+    expect(caughtErr).toBeInstanceOf(dnrMocks.WhatsAppDnrSuppressedError);
+    expect(
+      (caughtErr as InstanceType<typeof dnrMocks.WhatsAppDnrSuppressedError>).nextEligibleAtMs,
+    ).toBe(nextEligibleAtMs);
   });
 
   it("proceeds with send when DNR window is not active", async () => {
