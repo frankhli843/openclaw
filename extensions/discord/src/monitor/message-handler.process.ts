@@ -92,6 +92,7 @@ function formatDiscordReplyDeliveryFailure(params: {
 }
 
 type DiscordMessageProcessObserver = {
+  onNoop?: (reason: string) => void;
   onFinalReplyStart?: () => void;
   onFinalReplyDelivered?: () => void;
   onReplyPlanResolved?: (params: { createdThreadId?: string; sessionKey?: string }) => void;
@@ -176,6 +177,7 @@ export async function processDiscordMessage(
   const text = messageText;
   if (!text) {
     logVerbose("discord: drop message " + message.id + " (empty content)");
+    observer?.onNoop?.("empty-content");
     return;
   }
 
@@ -921,6 +923,8 @@ export async function processDiscordMessage(
       channelId: messageChannelId,
       messageId: message.id,
       rest: feedbackRest,
+      cfg,
+      accountId,
     });
   }
 
@@ -935,6 +939,8 @@ export async function processDiscordMessage(
       if (err instanceof DiscordDnrSuppressedError) {
         await reactMessageDiscord(messageChannelId, message.id, "🛏️", {
           rest: feedbackRest,
+          cfg,
+          accountId,
         }).catch(() => {});
       }
     }

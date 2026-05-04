@@ -201,7 +201,7 @@ describe("createDiscordMonitorClient", () => {
       } as Client;
     });
 
-    createDiscordMonitorClient({
+    void createDiscordMonitorClient({
       accountId: "default",
       applicationId: "app-1",
       token: "token-1",

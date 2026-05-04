@@ -1,6 +1,6 @@
-import type { Client } from "@buape/carbon";
 import { hasControlCommand } from "../../../../src/auto-reply/command-detection.js";
 import { buildCollectPrompt } from "../../../../src/utils/queue-helpers.js";
+import type { APIAttachment, Client } from "../internal/discord.js";
 import type { DurableDiscordInboundEvent } from "./inbound-durable-queue.js";
 import { rehydrateCarbonMessage } from "./inbound-job.js";
 import { preflightDiscordMessage } from "./message-handler.preflight.js";
@@ -156,7 +156,7 @@ export function createCoalescedDiscordMessageHandler(params: CoalescedMessageHan
           includeForwarded: false,
         }).trim();
         const author = item.data.author;
-        const timestamp = item.data.message?.timestamp || item.data.timestamp;
+        const timestamp = item.data.message?.timestamp;
         const authorName =
           author?.globalName || author?.username || `user:${author?.id ?? "unknown"}`;
         const timeLabel =
@@ -167,7 +167,7 @@ export function createCoalescedDiscordMessageHandler(params: CoalescedMessageHan
       },
     });
 
-    const mergedAttachments = regularEvents.flatMap(({ data }) => {
+    const mergedAttachments: APIAttachment[] = regularEvents.flatMap(({ data }) => {
       const attachments = data.message?.attachments;
       if (Array.isArray(attachments)) {
         return attachments;
@@ -176,7 +176,7 @@ export function createCoalescedDiscordMessageHandler(params: CoalescedMessageHan
         attachments &&
         typeof (attachments as { values?: () => Iterable<unknown> }).values === "function"
       ) {
-        return Array.from((attachments as { values: () => Iterable<unknown> }).values());
+        return Array.from((attachments as { values: () => Iterable<APIAttachment> }).values());
       }
       return [];
     });
@@ -190,14 +190,16 @@ export function createCoalescedDiscordMessageHandler(params: CoalescedMessageHan
         return Array.isArray(users) ? users : [];
       }),
     );
-    const mergedMentionedRoles = deduplicateById(
-      regularEvents.flatMap(({ data }) => {
-        const roles = data.message?.mentionedRoles;
-        return Array.isArray(roles) ? roles : [];
-      }),
+    const mergedMentionedRoles = Array.from(
+      new Set(
+        regularEvents.flatMap(({ data }) => {
+          const roles = data.message?.mentionedRoles;
+          return Array.isArray(roles) ? roles : [];
+        }),
+      ),
     );
     const mergedMentionedEveryone = regularEvents.some(
-      ({ data }) => data.message?.mentionedEveryone === true,
+      ({ data }) => data.message?.mentionedEveryone ?? false,
     );
     // Preserve the first referencedMessage found (for implicit mention via reply-to-bot).
     const mergedReferencedMessage =
@@ -206,15 +208,14 @@ export function createCoalescedDiscordMessageHandler(params: CoalescedMessageHan
 
     const syntheticData: DiscordMessageEvent = {
       ...lastData,
-      message: {
-        ...lastData.message,
+      message: Object.assign({}, lastData.message, {
         content: coalescedBody,
         attachments: mergedAttachments,
         mentionedUsers: mergedMentionedUsers,
         mentionedRoles: mergedMentionedRoles,
         mentionedEveryone: mergedMentionedEveryone,
         referencedMessage: mergedReferencedMessage,
-      },
+      }) as DiscordMessageEvent["message"],
     };
 
     console.info(

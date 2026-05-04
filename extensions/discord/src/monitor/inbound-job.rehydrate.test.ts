@@ -188,7 +188,7 @@ describe("materializeDiscordInboundJob rehydrates message", () => {
     const ctx = materializeDiscordInboundJob(job);
 
     // After materialization, message.attachments should be accessible
-    expect((ctx.message as Record<string, unknown>).attachments).toEqual([
+    expect((ctx.message as unknown as Record<string, unknown>).attachments).toEqual([
       {
         id: "att-1",
         url: "https://cdn.discord.com/image.png",
@@ -197,7 +197,7 @@ describe("materializeDiscordInboundJob rehydrates message", () => {
         size: 12345,
       },
     ]);
-    expect((ctx.message as Record<string, unknown>).content).toBe("test message");
+    expect((ctx.message as unknown as Record<string, unknown>).content).toBe("test message");
     // data.message should also be rehydrated
     expect(
       ((ctx.data as Record<string, unknown>).message as Record<string, unknown>).attachments,
@@ -232,6 +232,8 @@ describe("materializeDiscordInboundJob rehydrates message", () => {
 
     const ctx = materializeDiscordInboundJob(job);
     // Existing own properties preserved
-    expect((ctx.message as Record<string, unknown>).attachments).toEqual([{ id: "existing" }]);
+    expect((ctx.message as unknown as Record<string, unknown>).attachments).toEqual([
+      { id: "existing" },
+    ]);
   });
 });

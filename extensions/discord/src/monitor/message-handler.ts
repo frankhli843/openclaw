@@ -5,9 +5,9 @@ import {
 } from "openclaw/plugin-sdk/channel-inbound";
 import { danger, logVerbose } from "openclaw/plugin-sdk/runtime-env";
 import { resolveOpenProviderRuntimeGroupPolicy } from "openclaw/plugin-sdk/runtime-group-policy";
-import { createDiscordRestClient } from "../client.js";
 // frankclaw: import note-to-self detector for pre-debounce bot-self bypass
 import { isNoteToSelf } from "../../../../src/auto-reply/note-to-self.frankclaw.js";
+import { createDiscordRestClient } from "../client.js";
 import type { Client } from "../internal/discord.js";
 import { reactMessageDiscord } from "../send.reactions.js";
 import {
@@ -401,6 +401,8 @@ export function createDiscordMessageHandler(
 
         void reactMessageDiscord(channelId, messageId, earlyAckEmoji, {
           rest: client.rest as never,
+          cfg: params.cfg,
+          accountId: params.accountId,
         }).catch(async (err) => {
           logVerbose(`discord early ack reaction failed: ${String(err)}`);
         });

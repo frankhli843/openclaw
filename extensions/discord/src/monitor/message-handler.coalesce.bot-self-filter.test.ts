@@ -1,3 +1,4 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
 /**
  * Test suite: Discord message coalescing — bot-self message filtering
  *
@@ -11,8 +12,7 @@
  * Fix: filter out bot-self messages in the coalesce handler before building
  * the synthetic message.
  */
-import type { Client } from "@buape/carbon";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { Client } from "../internal/discord.js";
 
 const mocks = vi.hoisted(() => ({
   hasControlCommand: vi.fn<(text?: string) => boolean>(),
@@ -22,11 +22,11 @@ const mocks = vi.hoisted(() => ({
   resolveDiscordMessageText: vi.fn<(message: unknown, opts?: unknown) => string>(),
 }));
 
-vi.mock("../../auto-reply/command-detection.js", () => ({
+vi.mock("../../../../src/auto-reply/command-detection.js", () => ({
   hasControlCommand: mocks.hasControlCommand,
 }));
 
-vi.mock("../../utils/queue-helpers.js", () => ({
+vi.mock("../../../../src/utils/queue-helpers.js", () => ({
   buildCollectPrompt: mocks.buildCollectPrompt,
 }));
 

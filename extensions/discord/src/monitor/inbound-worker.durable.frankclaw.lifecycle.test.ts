@@ -220,6 +220,7 @@ describe("durable discord worker inbound lifecycle terminals", () => {
             createdThreadId: "1491803173252497548",
             sessionKey: resolvedSessionKey,
           });
+          observer?.onFinalReplyDelivered?.();
           // Session write happens under the new thread key, not orderingKey
         }) as never,
       },
@@ -244,6 +245,58 @@ describe("durable discord worker inbound lifecycle terminals", () => {
     );
     // captureSessionProgress should have been called with the resolved session key
     expect(captureSessionProgress).toHaveBeenCalledWith(resolvedSessionKey);
+    await worker.stop();
+  });
+
+  it("does not treat completed tool-only transcript progress as a delivered reply", async () => {
+    const runtime = makeRuntime();
+    const runtimeRef = makeRuntimeRef(runtime);
+    const onDeadLetter = vi.fn();
+    const worker = createDurableDiscordInboundWorker({
+      accountId: "default",
+      runtime: runtime as never,
+      stateDir: tmpDir,
+      maxAttempts: 1,
+      resolveRuntime: () => runtimeRef as never,
+      onDeadLetter,
+      __testing: {
+        captureSessionProgress: createProgressSequence(
+          {
+            sessionId: "session-123",
+            sessionFile: "/tmp/session-123.jsonl",
+            updatedAt: 123,
+            status: "running",
+            transcriptExists: true,
+            transcriptSize: 1024,
+            transcriptMtimeMs: 123,
+          },
+          {
+            sessionId: "session-123",
+            sessionFile: "/tmp/session-123.jsonl",
+            updatedAt: 456,
+            status: "done",
+            transcriptExists: true,
+            transcriptSize: 4096,
+            transcriptMtimeMs: 456,
+          },
+        ),
+        processDiscordMessage: vi.fn(async () => undefined) as never,
+      },
+    });
+
+    await worker.start();
+    worker.enqueue(makeJob() as never);
+
+    await vi.waitFor(
+      () => {
+        expect(onDeadLetter).toHaveBeenCalledTimes(1);
+      },
+      { timeout: 10_000, interval: 100 },
+    );
+
+    expect(runtime.error).toHaveBeenCalledWith(
+      expect.stringContaining("completed without visible reply"),
+    );
     await worker.stop();
   });
 

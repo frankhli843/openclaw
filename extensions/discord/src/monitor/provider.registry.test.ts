@@ -7,7 +7,7 @@ import {
   resetDiscordProviderMonitorMocks,
 } from "../test-support/provider.test-support.js";
 
-const { createDiscordNativeCommandMock, clientHandleDeployRequestMock, monitorLifecycleMock } =
+const { createDiscordNativeCommandMock, clientDeployCommandsMock, monitorLifecycleMock } =
   getProviderMonitorTestMocks();
 
 describe("monitorDiscordProvider real plugin registry", () => {
@@ -29,12 +29,19 @@ describe("monitorDiscordProvider real plugin registry", () => {
       }),
     ).toEqual({ ok: true });
 
-    const { monitorDiscordProvider } = await import("./provider.js");
+    const { monitorDiscordProvider, __testing } = await import("./provider.js");
+    __testing.setGetPluginCommandSpecs(() => [
+      { name: "pair", description: "Pair device", acceptsArgs: true },
+    ]);
 
-    await monitorDiscordProvider({
-      config: baseConfig(),
-      runtime: baseRuntime(),
-    });
+    try {
+      await monitorDiscordProvider({
+        config: baseConfig(),
+        runtime: baseRuntime(),
+      });
+    } finally {
+      __testing.setGetPluginCommandSpecs(undefined);
+    }
 
     const commandNames = (createDiscordNativeCommandMock.mock.calls as Array<unknown[]>)
       .map((call) => (call[0] as { command?: { name?: string } } | undefined)?.command?.name)
@@ -42,7 +49,7 @@ describe("monitorDiscordProvider real plugin registry", () => {
 
     expect(commandNames).toContain("status");
     expect(commandNames).toContain("pair");
-    expect(clientHandleDeployRequestMock).toHaveBeenCalledTimes(1);
+    expect(clientDeployCommandsMock).toHaveBeenCalledTimes(1);
     expect(monitorLifecycleMock).toHaveBeenCalledTimes(1);
   });
 });

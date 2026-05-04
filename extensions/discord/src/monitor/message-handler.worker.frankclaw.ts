@@ -16,9 +16,13 @@ import {
   createDurableDiscordInboundWorker,
   type DurableDiscordInboundWorkerParams,
 } from "./inbound-worker.durable.frankclaw.js";
-import type { DiscordInboundWorker } from "./inbound-worker.js";
 import type { RuntimeEnv } from "./message-handler.preflight.types.js";
 import type { DiscordMonitorStatusSink } from "./status.js";
+
+type DiscordInboundWorker = {
+  enqueue: (job: DiscordInboundJob) => void;
+  deactivate: () => void;
+};
 
 export type FrankclawDurableInboundWorkerParams = {
   accountId: string;

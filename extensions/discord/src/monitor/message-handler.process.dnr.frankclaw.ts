@@ -1,4 +1,5 @@
 import type { RequestClient } from "../internal/discord.js";
+import type { DiscordReactOpts } from "../send.js";
 // frankclaw: bed-emoji reactor for DNR (do-not-reply / quiet-hours) on Discord.
 // Kept in a separate file so the bed-emoji wiring point in process.ts is a
 // single import + single call, minimizing merge-conflict surface area when the
@@ -11,8 +12,12 @@ export async function reactDiscordDnrBedEmoji(params: {
   channelId: string;
   messageId: string;
   rest: RequestClient;
+  cfg: DiscordReactOpts["cfg"];
+  accountId?: string;
 }): Promise<void> {
   await reactMessageDiscord(params.channelId, params.messageId, DNR_BED_EMOJI, {
     rest: params.rest,
+    cfg: params.cfg,
+    accountId: params.accountId,
   }).catch(() => {});
 }

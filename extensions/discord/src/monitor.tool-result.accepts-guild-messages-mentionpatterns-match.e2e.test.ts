@@ -1,5 +1,5 @@
-import { ChannelType, MessageType } from "@buape/carbon";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { ChannelType, MessageType } from "./internal/discord.js";
 import { dispatchMock } from "./monitor.tool-result.test-harness.js";
 import {
   captureNextDispatchCtx,

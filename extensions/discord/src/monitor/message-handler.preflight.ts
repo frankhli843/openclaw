@@ -148,18 +148,21 @@ export async function preflightDiscordMessage(
       // Rewrite author identity so downstream logic treats this as
       // a message from the owner.
       try {
-        author.id = webhookRelayResult.ownerUserId;
+        Object.defineProperty(author, "id", {
+          value: webhookRelayResult.ownerUserId,
+          writable: true,
+          configurable: true,
+        });
       } catch {
         /* noop */
       }
       try {
         Object.defineProperty(author, "bot", { value: false, writable: true, configurable: true });
       } catch {
-        (message as Record<string, unknown>).author = {
-          ...author,
+        (message as unknown as Record<string, unknown>).author = Object.assign({}, author, {
           id: webhookRelayResult.ownerUserId,
           bot: false,
-        };
+        });
       }
       if (webhookRelayResult.rewrittenText != null) {
         try {

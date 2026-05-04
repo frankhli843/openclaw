@@ -193,6 +193,10 @@ function didDurableSessionMetadataMaterialize(
   return false;
 }
 
+function isDurableSessionActivelyRunning(progress: DurableDiscordSessionProgressSnapshot): boolean {
+  return progress.status === "running" && progress.transcriptExists && progress.transcriptSize > 0;
+}
+
 function formatDurableSessionProgressSnapshot(
   snapshot: DurableDiscordSessionProgressSnapshot,
 ): string {
@@ -373,6 +377,10 @@ export function createDurableDiscordInboundWorker(
       // moved the session to a new channel key) falling back to orderingKey.
       const progressKey = resolvedSessionKey ?? event.orderingKey;
       const afterProgress = await captureSessionProgress(progressKey);
+      const sessionProgressAdvanced = didDurableSessionProgressAdvance(
+        beforeProgress,
+        afterProgress,
+      );
       let terminalStage: "run_started" | "reply_delivered" | "dropped_intentionally" | undefined;
 
       if (noopReason) {
@@ -389,13 +397,28 @@ export function createDurableDiscordInboundWorker(
           note: "final reply delivered to Discord",
           progress: afterProgress,
         });
-      } else if (didDurableSessionProgressAdvance(beforeProgress, afterProgress)) {
+      } else if (sessionProgressAdvanced && isDurableSessionActivelyRunning(afterProgress)) {
         terminalStage = "run_started";
         await lifecycle.mark({
           stage: terminalStage,
-          note: "session transcript advanced",
+          note: "session transcript advanced while run remains active",
           progress: afterProgress,
         });
+      } else if (sessionProgressAdvanced) {
+        await lifecycle.mark({
+          stage: "handler_returned",
+          note: "session transcript advanced but no visible reply was delivered",
+          progress: afterProgress,
+        });
+        params.runtime.error?.(
+          danger(
+            `discord durable worker completed without visible reply${suffix}: ` +
+              `before=[${formatDurableSessionProgressSnapshot(beforeProgress)}] ` +
+              `after=[${formatDurableSessionProgressSnapshot(afterProgress)}] ` +
+              `noopReason=${noopReason ?? "-"} finalReplyDelivered=${finalReplyDelivered ? "true" : "false"} ` +
+              `resolvedSessionKey=${resolvedSessionKey ?? "-"} createdThreadId=${createdThreadId ?? "-"}`,
+          ),
+        );
       } else if (didDurableSessionMetadataMaterialize(beforeProgress, afterProgress)) {
         await lifecycle.mark({
           stage: "session_metadata_persisted",
@@ -422,10 +445,7 @@ export function createDurableDiscordInboundWorker(
         // the message was injected into session context and will be processed
         // when the current LLM turn finishes. Treat this as success rather
         // than throwing (which leads to dead-lettering after 3 retries).
-        const sessionIsActivelyRunning =
-          afterProgress.status === "running" &&
-          afterProgress.transcriptExists &&
-          afterProgress.transcriptSize > 0;
+        const sessionIsActivelyRunning = isDurableSessionActivelyRunning(afterProgress);
         if (sessionIsActivelyRunning) {
           terminalStage = "run_started";
           await lifecycle.mark({
@@ -447,7 +467,9 @@ export function createDurableDiscordInboundWorker(
             ),
           );
           throw new Error(
-            `discord durable worker missing terminal inbound lifecycle state${suffix}`,
+            sessionProgressAdvanced
+              ? `discord durable worker completed without visible reply${suffix}`
+              : `discord durable worker missing terminal inbound lifecycle state${suffix}`,
           );
         }
       }
@@ -520,4 +542,5 @@ export const __testing = {
   resolveDiscordDurableLeaseMs,
   didDurableSessionProgressAdvance,
   didDurableSessionMetadataMaterialize,
+  isDurableSessionActivelyRunning,
 };

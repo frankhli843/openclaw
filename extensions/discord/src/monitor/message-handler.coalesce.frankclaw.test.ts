@@ -7,8 +7,8 @@
  *   - Coalesced body format with author/timestamp
  */
 
-import type { Client } from "@buape/carbon";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { Client } from "../internal/discord.js";
 
 const mocks = vi.hoisted(() => ({
   hasControlCommand: vi.fn<(text?: string) => boolean>(),
