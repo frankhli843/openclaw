@@ -912,6 +912,7 @@ export async function runReplyAgent(params: {
   defaultModel: string;
   agentCfgContextTokens?: number;
   resolvedVerboseLevel: VerboseLevel;
+  toolProgressDetail?: "explain" | "raw";
   isNewSession: boolean;
   blockStreamingEnabled: boolean;
   blockReplyChunking?: {
@@ -949,6 +950,7 @@ export async function runReplyAgent(params: {
     defaultModel,
     agentCfgContextTokens,
     resolvedVerboseLevel,
+    toolProgressDetail,
     isNewSession,
     blockStreamingEnabled,
     blockReplyChunking,
@@ -1282,6 +1284,7 @@ export async function runReplyAgent(params: {
       activeSessionStore,
       storePath,
       resolvedVerboseLevel,
+      toolProgressDetail,
       replyMediaContext,
     });
 

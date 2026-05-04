@@ -44,6 +44,7 @@ import { resolveTelegramAutoThreadId } from "./action-threading.js";
 import { lookupTelegramChatId } from "./api-fetch.js";
 import { telegramApprovalCapability } from "./approval-native.js";
 import * as auditModule from "./audit.js";
+import type { TelegramBotInfo } from "./bot-info.js";
 import { buildTelegramGroupPeerId } from "./bot/helpers.js";
 import { telegramMessageActions as telegramMessageActionsImpl } from "./channel-actions.js";
 import {
@@ -901,6 +902,7 @@ export const telegramPlugin = createChatChannelPlugin({
         const token = (account.token ?? "").trim();
         let telegramBotLabel = "";
         let unauthorizedTokenReason: string | null = null;
+        let botInfo: TelegramBotInfo | undefined;
         try {
           const probe = await resolveTelegramProbe()(
             token,
@@ -917,6 +919,7 @@ export const telegramPlugin = createChatChannelPlugin({
           if (username) {
             telegramBotLabel = ` (@${username})`;
           }
+          botInfo = probe.ok ? probe.botInfo : undefined;
           if (!probe.ok && probe.status === 401) {
             unauthorizedTokenReason = formatTelegramUnauthorizedTokenError(account);
           }
@@ -948,6 +951,7 @@ export const telegramPlugin = createChatChannelPlugin({
           webhookHost: account.config.webhookHost,
           webhookPort: account.config.webhookPort,
           webhookCertPath: account.config.webhookCertPath,
+          botInfo,
           setStatus,
         });
       },

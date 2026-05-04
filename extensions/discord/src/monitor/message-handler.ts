@@ -5,6 +5,7 @@ import {
 } from "openclaw/plugin-sdk/channel-inbound";
 import { danger, logVerbose } from "openclaw/plugin-sdk/runtime-env";
 import { resolveOpenProviderRuntimeGroupPolicy } from "openclaw/plugin-sdk/runtime-group-policy";
+import { createDiscordRestClient } from "../client.js";
 // frankclaw: import note-to-self detector for pre-debounce bot-self bypass
 import { isNoteToSelf } from "../../../../src/auto-reply/note-to-self.frankclaw.js";
 import type { Client } from "../internal/discord.js";
@@ -25,6 +26,7 @@ import {
 import { buildDiscordInboundJob } from "./inbound-job.js";
 import type { DiscordMessageEvent, DiscordMessageHandler } from "./listeners.js";
 import { applyImplicitReplyBatchGate } from "./message-handler.batch-gate.js";
+import type { DiscordMessagePreflightContext } from "./message-handler.preflight.js";
 import type { DiscordMessagePreflightParams } from "./message-handler.preflight.types.js";
 // [frankclaw] Durable worker for crash-resistant message processing.
 import { createFrankclawDurableInboundWorker } from "./message-handler.worker.frankclaw.js";
@@ -38,6 +40,7 @@ import {
   resolveDiscordMessageText,
 } from "./message-utils.js";
 import type { DiscordMonitorStatusSink } from "./status.js";
+import { sendTyping } from "./typing.js";
 
 type PreflightDiscordMessage =
   typeof import("./message-handler.preflight.js").preflightDiscordMessage;
@@ -73,6 +76,36 @@ export type DiscordMessageHandlerWithLifecycle = DiscordMessageHandler & {
 
 function isNonEmptyString(value: string | undefined): value is string {
   return typeof value === "string" && value.length > 0;
+}
+
+function shouldSendAcceptedDiscordTypingCue(ctx: DiscordMessagePreflightContext): boolean {
+  if (ctx.abortSignal?.aborted) {
+    return false;
+  }
+  if (!ctx.isDirectMessage || ctx.isGuildMessage || ctx.isGroupDm) {
+    return false;
+  }
+  if (!ctx.messageText.trim()) {
+    return false;
+  }
+  const configuredTypingMode = ctx.cfg.session?.typingMode ?? ctx.cfg.agents?.defaults?.typingMode;
+  return configuredTypingMode === undefined || configuredTypingMode === "instant";
+}
+
+function queueAcceptedDiscordTypingCue(ctx: DiscordMessagePreflightContext): void {
+  if (!shouldSendAcceptedDiscordTypingCue(ctx)) {
+    return;
+  }
+  const { rest } = createDiscordRestClient({
+    cfg: ctx.cfg,
+    token: ctx.token,
+    accountId: ctx.accountId,
+  });
+  void sendTyping({ rest, channelId: ctx.messageChannelId }).catch((err) => {
+    logVerbose(
+      `discord early typing cue failed for channel ${ctx.messageChannelId}: ${String(err)}`,
+    );
+  });
 }
 
 export function createDiscordMessageHandler(
@@ -199,6 +232,7 @@ export function createDiscordMessageHandler(
             return;
           }
           applyImplicitReplyBatchGate(ctx, params.replyToMode, false);
+          queueAcceptedDiscordTypingCue(ctx);
           messageRunQueue.enqueue(buildDiscordInboundJob(ctx, { replayKeys }));
           return;
         }
@@ -261,6 +295,7 @@ export function createDiscordMessageHandler(
             ctxBatch.MessageSidLast = ids[ids.length - 1];
           }
         }
+        queueAcceptedDiscordTypingCue(ctx);
         messageRunQueue.enqueue(buildDiscordInboundJob(ctx, { replayKeys }));
       } catch (error) {
         if (error instanceof DiscordRetryableInboundError) {

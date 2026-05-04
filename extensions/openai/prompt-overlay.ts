@@ -2,7 +2,8 @@ import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import {
   GPT5_BEHAVIOR_CONTRACT,
-  GPT5_FRIENDLY_PROMPT_OVERLAY,
+  GPT5_FRIENDLY_CHAT_PROMPT_OVERLAY,
+  GPT5_HEARTBEAT_PROMPT_OVERLAY,
   isGpt5ModelId,
   resolveGpt5PromptOverlayMode,
   resolveGpt5SystemPromptContribution,
@@ -11,7 +12,8 @@ import {
 
 const OPENAI_PROVIDER_IDS = new Set(["openai", "openai-codex"]);
 
-export const OPENAI_FRIENDLY_PROMPT_OVERLAY = GPT5_FRIENDLY_PROMPT_OVERLAY;
+export const OPENAI_FRIENDLY_PROMPT_OVERLAY = GPT5_FRIENDLY_CHAT_PROMPT_OVERLAY;
+export const OPENAI_HEARTBEAT_PROMPT_OVERLAY = GPT5_HEARTBEAT_PROMPT_OVERLAY;
 export const OPENAI_GPT5_BEHAVIOR_CONTRACT = GPT5_BEHAVIOR_CONTRACT;
 
 // --- VOICE.md runtime loading (frankclaw) ---
@@ -61,12 +63,14 @@ export function resolveOpenAISystemPromptContribution(params: {
   modelProviderId?: string;
   modelId?: string;
   workspaceDir?: string;
+  trigger?: Parameters<typeof resolveGpt5SystemPromptContribution>[0]["trigger"];
 }) {
   let result = resolveGpt5SystemPromptContribution({
     config: params.config,
     legacyPluginConfig:
       params.mode === undefined ? params.legacyPluginConfig : { personality: params.mode },
     modelId: params.modelId,
+    trigger: params.trigger,
     enabled: shouldApplyOpenAIPromptOverlay({
       modelProviderId: params.modelProviderId,
       modelId: params.modelId,

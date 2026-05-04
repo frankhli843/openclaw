@@ -180,6 +180,7 @@ export function activateGatewayScheduledServices(params: {
   deps: import("../cli/deps.types.js").CliDeps;
   sessionDeliveryRecoveryMaxEnqueuedAt: number;
   cron: { start: () => Promise<void> };
+  startCron?: boolean;
   logCron: { error: (message: string) => void };
   log: GatewayRuntimeServiceLogger;
   pluginLookUpTable?: PluginMetadataRegistryView;
@@ -188,10 +189,12 @@ export function activateGatewayScheduledServices(params: {
     return { heartbeatRunner: createNoopHeartbeatRunner(), stopModelPricingRefresh: () => {} };
   }
   const heartbeatRunner = startHeartbeatRunner({ cfg: params.cfgAtStart });
-  startGatewayCronWithLogging({
-    cron: params.cron,
-    logCron: params.logCron,
-  });
+  if (params.startCron !== false) {
+    startGatewayCronWithLogging({
+      cron: params.cron,
+      logCron: params.logCron,
+    });
+  }
   recoverPendingOutboundDeliveries({
     cfg: params.cfgAtStart,
     log: params.log,

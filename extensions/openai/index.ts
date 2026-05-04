@@ -42,6 +42,7 @@ export default definePluginEntry({
           modelProviderId: provider.id,
           modelId: ctx.modelId,
           workspaceDir: ctx.workspaceDir,
+          trigger: ctx.trigger,
         });
       },
     });
