@@ -19,10 +19,7 @@ import {
 } from "openclaw/plugin-sdk/reply-payload";
 import type { ReplyPayload } from "openclaw/plugin-sdk/reply-runtime";
 import { createSubsystemLogger } from "openclaw/plugin-sdk/runtime-env";
-import {
-  enforceDiscordDnrWindow,
-  DiscordDnrSuppressedError,
-} from "../../../src/infra/outbound/discord-dnr.js";
+import { enforceDiscordDnrWindow } from "../../../src/infra/outbound/discord-dnr.js";
 import type { TelegramInlineButtons } from "./button-types.js";
 import { resolveTelegramInlineButtons } from "./button-types.js";
 import { markdownToTelegramHtmlChunks } from "./format.js";
@@ -30,23 +27,11 @@ import { resolveTelegramInteractiveTextFallback } from "./interactive-fallback.j
 import { parseTelegramReplyToMessageId, parseTelegramThreadId } from "./outbound-params.js";
 import { pinMessageTelegram } from "./send.js";
 
-const dnrLog = createSubsystemLogger("telegram-dnr");
-
-/** Check if Telegram outbound should be suppressed by DNR quiet hours. */
-function checkTelegramDnr(): boolean {
-  try {
-    // Reuse the Discord DNR window check (same time window applies globally)
-    enforceDiscordDnrWindow({ channel: "discord", to: "telegram-global", threadId: "*" });
-    return false; // not suppressed
-  } catch (err) {
-    if (err instanceof DiscordDnrSuppressedError) {
-      dnrLog.info(
-        `Telegram DNR: suppressed (quiet until ${new Date(err.nextEligibleAtMs).toISOString()})`,
-      );
-      return true; // suppressed
-    }
-    throw err;
-  }
+/** Enforce Telegram DNR quiet hours; throws DiscordDnrSuppressedError if in window. */
+function enforceTelegramDnr(): void {
+  // Reuse the Discord DNR window check (same time window applies globally).
+  // Throws DiscordDnrSuppressedError, which deliver.ts catches to call deferDelivery().
+  enforceDiscordDnrWindow({ channel: "discord", to: "telegram-global", threadId: "*" });
 }
 
 export const TELEGRAM_TEXT_CHUNK_LIMIT = 4000;
@@ -188,9 +173,9 @@ export const telegramOutbound: ChannelOutboundAdapter = {
       threadId,
       gatewayClientScopes,
     }) => {
-      if (checkTelegramDnr()) {
-        return createEmptyChannelResult("telegram");
-      }
+      // frankclaw: throws DiscordDnrSuppressedError when in DNR window; propagates
+      // to deliver.ts which calls deferDelivery() so the queue entry is not lost.
+      enforceTelegramDnr();
       const { send, baseOpts } = await resolveTelegramSendContext({
         cfg,
         deps,
@@ -247,10 +232,9 @@ export const telegramOutbound: ChannelOutboundAdapter = {
     forceDocument,
     gatewayClientScopes,
   }) => {
-    // Enforce Telegram DNR quiet hours (frankclaw extension)
-    if (checkTelegramDnr()) {
-      return createEmptyChannelResult("telegram");
-    }
+    // frankclaw: throws DiscordDnrSuppressedError when in DNR window; propagates
+    // to deliver.ts which calls deferDelivery() so the queue entry is not lost.
+    enforceTelegramDnr();
     const { send, baseOpts } = await resolveTelegramSendContext({
       cfg,
       deps,

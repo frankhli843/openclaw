@@ -35,10 +35,7 @@ import {
   normalizeOptionalLowercaseString,
   normalizeOptionalString,
 } from "openclaw/plugin-sdk/text-runtime";
-import {
-  enforceDiscordDnrWindow,
-  DiscordDnrSuppressedError,
-} from "../../../src/infra/outbound/discord-dnr.js";
+import { enforceDiscordDnrWindow } from "../../../src/infra/outbound/discord-dnr.js";
 import { resolveTelegramAccount, type ResolvedTelegramAccount } from "./accounts.js";
 import { resolveTelegramAutoThreadId } from "./action-threading.js";
 import { lookupTelegramChatId } from "./api-fetch.js";
@@ -1086,15 +1083,9 @@ export const telegramPlugin = createChatChannelPlugin({
         forceDocument,
         gatewayClientScopes,
       }) => {
-        // Enforce Telegram DNR quiet hours (frankclaw extension).
-        try {
-          enforceDiscordDnrWindow({ channel: "discord", to: "telegram-global", threadId: "*" });
-        } catch (err) {
-          if (err instanceof DiscordDnrSuppressedError) {
-            return attachChannelToResult("telegram", { messageId: "dnr-suppressed" });
-          }
-          throw err;
-        }
+        // frankclaw: throws DiscordDnrSuppressedError when in DNR window; propagates
+        // to deliver.ts which calls deferDelivery() so the queue entry is not lost.
+        enforceDiscordDnrWindow({ channel: "discord", to: "telegram-global", threadId: "*" });
         const send = await resolveTelegramSend(deps);
         const result = await sendTelegramPayloadMessages({
           send,

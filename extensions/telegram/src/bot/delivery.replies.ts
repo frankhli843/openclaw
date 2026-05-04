@@ -702,21 +702,22 @@ export async function deliverReplies(params: {
   /** Override media loader (tests). */
   mediaLoader?: typeof loadWebMedia;
 }): Promise<{ delivered: boolean }> {
-  // Enforce Telegram DNR quiet hours (frankclaw extension)
+  // Enforce Telegram DNR quiet hours (frankclaw extension).
+  // Throws DiscordDnrSuppressedError when in DNR window; propagates to deliver.ts
+  // which calls deferDelivery() so the queue entry is held until the window ends.
   try {
     const { enforceDiscordDnrWindow } =
       await import("../../../../src/infra/outbound/discord-dnr.js");
     enforceDiscordDnrWindow({ channel: "discord", to: "telegram-global", threadId: "*" });
   } catch (err: unknown) {
-    if (err instanceof Error && err.name === "DiscordDnrSuppressedError") {
-      params.runtime.log?.(`Telegram DNR: suppressed reply to ${params.chatId} (quiet hours)`);
-      return { delivered: false };
-    }
     const code =
       err && typeof err === "object" && "code" in err
         ? (err as { code?: unknown }).code
         : undefined;
-    if (code !== "ERR_MODULE_NOT_FOUND") {
+    if (code === "ERR_MODULE_NOT_FOUND") {
+      // Module not available in this environment — skip DNR check.
+    } else {
+      // Re-throw: DiscordDnrSuppressedError propagates to deliver.ts for deferral.
       throw err;
     }
   }

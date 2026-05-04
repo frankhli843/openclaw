@@ -37,12 +37,14 @@ import { emitDiagnosticEvent, type DiagnosticMessageDeliveryKind } from "../diag
 import { formatErrorMessage } from "../errors.js";
 import { throwIfAborted } from "./abort.js";
 import type { OutboundDeliveryResult } from "./deliver-types.js";
+import { deferDelivery } from "./delivery-queue.frankclaw.js";
 import {
   ackDelivery,
   enqueueDelivery,
   failDelivery,
   withActiveDeliveryClaim,
 } from "./delivery-queue.js";
+import { DiscordDnrSuppressedError, WhatsAppDnrSuppressedError } from "./discord-dnr.js";
 import type { OutboundDeliveryFormattingOptions } from "./formatting.js";
 import type { OutboundIdentity } from "./identity.js";
 import {
@@ -911,6 +913,14 @@ async function deliverOutboundPayloadsWithQueueCleanup(
     if (queueId) {
       if (isAbortError(err)) {
         await ackDelivery(queueId).catch(() => {});
+      } else if (err instanceof DiscordDnrSuppressedError) {
+        // frankclaw: Telegram reuses Discord DNR. Defer without incrementing retry count.
+        await deferDelivery(queueId, err.nextEligibleAtMs, "telegram-dnr-window").catch(() => {});
+        return [];
+      } else if (err instanceof WhatsAppDnrSuppressedError) {
+        // frankclaw: defer WhatsApp queue entry until DNR window ends.
+        await deferDelivery(queueId, err.nextEligibleAtMs, "whatsapp-dnr-window").catch(() => {});
+        return [];
       } else {
         await failDelivery(queueId, formatErrorMessage(err)).catch(() => {});
       }

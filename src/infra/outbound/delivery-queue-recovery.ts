@@ -12,6 +12,7 @@ import {
   type QueuedDelivery,
   type QueuedDeliveryPayload,
 } from "./delivery-queue-storage.js";
+import { enforceDiscordDnrWindow, enforceWhatsAppDnrWindow } from "./discord-dnr.js";
 
 const QUEUE_DIRNAME = "delivery-queue";
 
@@ -156,22 +157,30 @@ async function moveEntryToFailedWithLogging(
   }
 }
 
+function dnrResultFromError(err: unknown): { nextEligibleAtMs: number } | null {
+  if (err && typeof err === "object" && "nextEligibleAtMs" in err) {
+    return { nextEligibleAtMs: (err as { nextEligibleAtMs: number }).nextEligibleAtMs };
+  }
+  return null;
+}
+
 /**
- * [frankclaw] Check if a Discord delivery target is currently in a DNR quiet window.
+ * [frankclaw] Check if a delivery target is currently in a DNR quiet window.
  * Returns { nextEligibleAtMs } if suppressed, or null if delivery is allowed.
- * Uses dynamic import to avoid circular dependency with discord-dnr module.
+ * Handles Discord, WhatsApp, and Telegram channels.
  */
-function checkRecoveryDnr(target: string): { nextEligibleAtMs: number } | null {
+function checkRecoveryDnr(channel: string, target: string): { nextEligibleAtMs: number } | null {
   try {
-    const { enforceDiscordDnrWindow } = require("../outbound/discord-dnr.js") as {
-      enforceDiscordDnrWindow: (ctx: { channel: "discord"; to: string }) => void;
-    };
-    enforceDiscordDnrWindow({ channel: "discord", to: target });
+    if (channel === "whatsapp") {
+      enforceWhatsAppDnrWindow(target);
+    } else {
+      // Discord and Telegram both use the Discord DNR window.
+      enforceDiscordDnrWindow({ channel: "discord", to: target });
+    }
     return null;
   } catch (err) {
-    if (err && typeof err === "object" && "nextEligibleAtMs" in err) {
-      return { nextEligibleAtMs: (err as { nextEligibleAtMs: number }).nextEligibleAtMs };
-    }
+    const result = dnrResultFromError(err);
+    if (result) return result;
     // Not a DNR error — let delivery proceed and handle normally
     return null;
   }
@@ -466,14 +475,19 @@ async function recoverPendingDeliveriesInner(opts: {
     // recovery (returns empty result, not an error), and the entry gets
     // ackDelivery'd — lost forever.  By checking DNR here, we defer the
     // entry with the correct deferUntilMs and skip the deliver call entirely.
-    if (entry.channel === "discord") {
-      const dnrResult = checkRecoveryDnr(entry.to);
+    // Applies to Discord, WhatsApp, and Telegram.
+    if (
+      entry.channel === "discord" ||
+      entry.channel === "whatsapp" ||
+      entry.channel === "telegram"
+    ) {
+      const dnrResult = checkRecoveryDnr(entry.channel, entry.to);
       if (dnrResult) {
         const frankcawEntry = entry as { deferUntilMs?: number; holdReason?: string };
         frankcawEntry.deferUntilMs = dnrResult.nextEligibleAtMs;
-        frankcawEntry.holdReason = "discord-dnr-window";
+        frankcawEntry.holdReason = `${entry.channel}-dnr-window`;
         entry.lastAttemptAt = Date.now();
-        entry.lastError = "discord-dnr-window";
+        entry.lastError = `${entry.channel}-dnr-window`;
         const filePath = path.join(
           opts.stateDir ?? resolveStateDir(),
           QUEUE_DIRNAME,
