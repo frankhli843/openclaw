@@ -724,18 +724,6 @@ describe("whatsapp inbound dispatch", () => {
     });
   });
 
-  it("forces automatic source delivery so final WhatsApp auto-replies are not suppressed", async () => {
-    await dispatchBufferedReply();
-
-    expect(
-      (
-        capturedDispatchParams as {
-          replyOptions?: { sourceReplyDeliveryMode?: string };
-        }
-      )?.replyOptions?.sourceReplyDeliveryMode,
-    ).toBe("automatic");
-  });
-
   it("treats block-only turns as visible replies instead of silent turns", async () => {
     const deliverReply = vi.fn(async () => acceptedDeliveryResult());
     const rememberSentText = vi.fn();

@@ -1230,7 +1230,9 @@ describe("processDiscordMessage session routing", () => {
 
     await runProcessDiscordMessage(ctx);
 
-    expect(rest.get).toHaveBeenCalled();
+    // frankclaw: thread-starter injection is force-disabled, so rest.get is never called
+    // and ThreadStarterBody is always omitted regardless of session state.
+    expect(rest.get).not.toHaveBeenCalled();
     expect(getLastDispatchCtx()).toMatchObject({
       SessionKey: threadSessionKey,
       MessageThreadId: "thread-1",
