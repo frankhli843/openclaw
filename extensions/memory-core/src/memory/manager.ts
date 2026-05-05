@@ -159,11 +159,25 @@ export class MemoryIndexManager extends MemoryManagerEmbeddingOps implements Mem
     agentId: string;
     settings: ResolvedMemorySearchConfig;
   }): Promise<EmbeddingProviderResult> {
-    return await createEmbeddingProvider({
-      config: params.cfg,
-      agentDir: resolveAgentDir(params.cfg, params.agentId),
-      ...resolveMemoryPrimaryProviderRequest({ settings: params.settings }),
-    });
+    const request = resolveMemoryPrimaryProviderRequest({ settings: params.settings });
+    try {
+      return await createEmbeddingProvider({
+        config: params.cfg,
+        agentDir: resolveAgentDir(params.cfg, params.agentId),
+        ...request,
+      });
+    } catch (err) {
+      // Provider creation failed (e.g. optional dep missing). Degrade to FTS-only instead of
+      // throwing on every subsequent sync — the rejection would re-throw from the cached
+      // providerInitPromise on each call, spamming the journal.
+      const reason = formatErrorMessage(err);
+      log.warn(`memory embedding provider unavailable (${request.provider}): ${reason}`);
+      return {
+        provider: null,
+        requestedProvider: request.provider,
+        providerUnavailableReason: reason,
+      };
+    }
   }
 
   static async get(params: {
