@@ -1343,7 +1343,7 @@ export async function runReplyAgent(params: {
     if (retryResult) {
       runOutcome = retryResult.outcome;
       if (retryResult.deferredPayload) {
-        return finalizeWithFollowup(retryResult.deferredPayload, queueKey, runFollowupTurn);
+        return returnWithQueuedFollowupDrain(retryResult.deferredPayload);
       }
     }
 
