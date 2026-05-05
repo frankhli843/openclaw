@@ -39,7 +39,7 @@ describe("sessions_yield tool", () => {
     const result = await tool.execute("call-1", {});
     expect(result.details).toMatchObject({
       status: "error",
-      error: "Yield not supported in this context",
+      error: expect.stringContaining("sessions_yield is not supported in cron sessions"),
     });
   });
 });

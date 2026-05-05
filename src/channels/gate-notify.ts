@@ -80,8 +80,8 @@ export function formatBlockedNotification(
     .map(([key, value]) => `- ${key}: ${value}`);
 
   return [
-    ...(options?.ownerMention ? [options.ownerMention, ""] : []),
     `🔒 Blocked message: ${info.chatName}, ${preview}`,
+    ...(options?.ownerMention ? [options.ownerMention] : []),
     `Platform: ${info.platform}`,
     `Chat: "${info.chatName}" (${info.chatId})`,
     `Sender: ${info.senderId}`,
