@@ -50,8 +50,10 @@ describe("mantis desktop browser smoke runtime", () => {
           expect(outputDir).toBeTypeOf("string");
           await fs.mkdir(outputDir as string, { recursive: true });
           await fs.writeFile(path.join(outputDir as string, "desktop-browser-smoke.png"), "png");
+          await fs.writeFile(path.join(outputDir as string, "desktop-browser-smoke.mp4"), "mp4");
           await fs.writeFile(path.join(outputDir as string, "remote-metadata.json"), "{}\n");
           await fs.writeFile(path.join(outputDir as string, "chrome.log"), "chrome\n");
+          await fs.writeFile(path.join(outputDir as string, "ffmpeg.log"), "ffmpeg\n");
           return { stdout: "", stderr: "" };
         }
         return { stdout: "", stderr: "" };
@@ -80,11 +82,10 @@ describe("mantis desktop browser smoke runtime", () => {
     expect(commands.every((entry) => entry.env === runtimeEnv)).toBe(true);
     const rsyncArgs = commands.find((entry) => entry.command === "rsync")?.args ?? [];
     expect(rsyncArgs).not.toContain("--delete");
+    expect(rsyncArgs).toEqual(expect.arrayContaining(["--exclude", "chrome-profile/**"]));
     expect(rsyncArgs).toEqual(
       expect.arrayContaining([
-        "crabbox@203.0.113.10:/tmp/openclaw-mantis-desktop-2026-05-04T12-00-00-000Z/desktop-browser-smoke.png",
-        "crabbox@203.0.113.10:/tmp/openclaw-mantis-desktop-2026-05-04T12-00-00-000Z/remote-metadata.json",
-        "crabbox@203.0.113.10:/tmp/openclaw-mantis-desktop-2026-05-04T12-00-00-000Z/chrome.log",
+        "crabbox@203.0.113.10:/tmp/openclaw-mantis-desktop-2026-05-04T12-00-00-000Z/",
       ]),
     );
     const remoteScript = commands
@@ -94,9 +95,14 @@ describe("mantis desktop browser smoke runtime", () => {
     expect(remoteScript).toContain("${CHROME_BIN:-}");
     expect(remoteScript).toContain("chromium-browser");
     expect(remoteScript).toContain("base64 -d");
+    expect(remoteScript).toContain("ffmpeg");
+    expect(remoteScript).toContain('sudo apt-get update -y >>"$out/apt.log" 2>&1 || true');
+    expect(remoteScript).toContain("desktop-browser-smoke.mp4");
+    expect(remoteScript).not.toContain("-video_size");
     expect(remoteScript).toContain('url="file://$out/input.html"');
     expect(remoteScript).toContain('"browserBinary": "$browser_bin"');
     await expect(fs.readFile(result.screenshotPath ?? "", "utf8")).resolves.toBe("png");
+    await expect(fs.readFile(result.videoPath ?? "", "utf8")).resolves.toBe("mp4");
     const summary = JSON.parse(await fs.readFile(result.summaryPath, "utf8")) as {
       browserUrl: string;
       crabbox: { id: string; vncCommand: string };
@@ -127,6 +133,64 @@ describe("mantis desktop browser smoke runtime", () => {
       }),
     ).rejects.toThrow("Mantis desktop HTML file must be inside the repository");
     expect(runner).not.toHaveBeenCalled();
+  });
+
+  it("accepts Blacksmith Testbox lease ids from Crabbox warmup", async () => {
+    const commands: { args: readonly string[]; command: string }[] = [];
+    const runner = vi.fn(async (command: string, args: readonly string[]) => {
+      commands.push({ command, args });
+      if (command === "/tmp/crabbox" && args[0] === "warmup") {
+        return { stdout: "ready: tbx_abc-123_more\n", stderr: "" };
+      }
+      if (command === "/tmp/crabbox" && args[0] === "inspect") {
+        return {
+          stdout: `${JSON.stringify({
+            host: "203.0.113.10",
+            id: "tbx_abc-123_more",
+            provider: "blacksmith-testbox",
+            sshKey: "/tmp/key",
+            sshPort: "2222",
+            sshUser: "crabbox",
+            state: "active",
+          })}\n`,
+          stderr: "",
+        };
+      }
+      if (command === "rsync") {
+        const outputDir = args.at(-1);
+        await fs.mkdir(outputDir as string, { recursive: true });
+        await fs.writeFile(path.join(outputDir as string, "desktop-browser-smoke.png"), "png");
+        await fs.writeFile(path.join(outputDir as string, "remote-metadata.json"), "{}\n");
+        await fs.writeFile(path.join(outputDir as string, "chrome.log"), "chrome\n");
+      }
+      return { stdout: "", stderr: "" };
+    });
+
+    const result = await runMantisDesktopBrowserSmoke({
+      commandRunner: runner,
+      crabboxBin: "/tmp/crabbox",
+      now: () => new Date("2026-05-04T12:30:00.000Z"),
+      outputDir: ".artifacts/qa-e2e/mantis/desktop-browser-testbox",
+      provider: "blacksmith-testbox",
+      repoRoot,
+    });
+
+    expect(result.status).toBe("pass");
+    expect(commands).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          args: expect.arrayContaining(["--id", "tbx_abc-123_more"]),
+          command: "/tmp/crabbox",
+        }),
+      ]),
+    );
+    const summary = JSON.parse(await fs.readFile(result.summaryPath, "utf8")) as {
+      crabbox: { id: string; provider: string };
+    };
+    expect(summary.crabbox).toMatchObject({
+      id: "tbx_abc-123_more",
+      provider: "blacksmith-testbox",
+    });
   });
 
   it("keeps an existing lease and writes failure reports when the remote run fails", async () => {

@@ -930,6 +930,10 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                 toolProgress: {
                   type: "boolean",
                 },
+                commandText: {
+                  type: "string",
+                  enum: ["raw", "status"],
+                },
               },
               additionalProperties: false,
             },
@@ -958,8 +962,16 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                   exclusiveMinimum: 0,
                   maximum: 9007199254740991,
                 },
+                render: {
+                  type: "string",
+                  enum: ["text", "rich"],
+                },
                 toolProgress: {
                   type: "boolean",
+                },
+                commandText: {
+                  type: "string",
+                  enum: ["raw", "status"],
                 },
               },
               additionalProperties: false,
@@ -2398,6 +2410,10 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                       toolProgress: {
                         type: "boolean",
                       },
+                      commandText: {
+                        type: "string",
+                        enum: ["raw", "status"],
+                      },
                     },
                     additionalProperties: false,
                   },
@@ -2426,8 +2442,16 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                         exclusiveMinimum: 0,
                         maximum: 9007199254740991,
                       },
+                      render: {
+                        type: "string",
+                        enum: ["text", "rich"],
+                      },
                       toolProgress: {
                         type: "boolean",
+                      },
+                      commandText: {
+                        type: "string",
+                        enum: ["raw", "status"],
                       },
                     },
                     additionalProperties: false,
@@ -3688,6 +3712,10 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
         label: "Discord Draft Tool Progress",
         help: "Show tool/progress activity in the live draft preview message (default: true). Set false to hide interim tool updates while the draft preview stays active.",
       },
+      "streaming.preview.commandText": {
+        label: "Discord Draft Command Text",
+        help: 'Command/exec detail in preview tool-progress lines: "raw" preserves released behavior; "status" shows only the tool label.',
+      },
       "streaming.progress.label": {
         label: "Discord Progress Label",
         help: 'Initial progress draft title. Use "auto" for built-in single-word labels, a custom string, or false to hide the title.',
@@ -3703,6 +3731,10 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
       "streaming.progress.toolProgress": {
         label: "Discord Progress Tool Lines",
         help: "Show compact tool/progress lines in progress draft mode (default: true). Set false to keep only the label until final delivery.",
+      },
+      "streaming.progress.commandText": {
+        label: "Discord Progress Command Text",
+        help: 'Command/exec detail in progress draft lines: "raw" preserves released behavior; "status" shows only the tool label.',
       },
       "retry.attempts": {
         label: "Discord Retry Attempts",
@@ -8107,6 +8139,10 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
         label: "Matrix Progress Tool Lines",
         help: "Show compact tool/progress lines in progress draft mode (default: true). Set false to keep only the label until final delivery.",
       },
+      "streaming.progress.commandText": {
+        label: "Matrix Progress Command Text",
+        help: 'Command/exec detail in progress draft lines: "raw" preserves released behavior; "status" shows only the tool label.',
+      },
     },
   },
   {
@@ -8949,9 +8985,17 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
         label: "Mattermost Progress Tool Lines",
         help: "Show compact tool/progress lines in progress draft mode (default: true). Set false to keep only the label until final delivery.",
       },
+      "streaming.progress.commandText": {
+        label: "Mattermost Progress Command Text",
+        help: 'Command/exec detail in progress draft lines: "raw" preserves released behavior; "status" shows only the tool label.',
+      },
       "streaming.preview.toolProgress": {
         label: "Mattermost Draft Tool Progress",
         help: "Show tool/progress activity in the live draft preview post (default: true). Set false to hide interim tool updates while the draft preview stays active.",
+      },
+      "streaming.preview.commandText": {
+        label: "Mattermost Draft Command Text",
+        help: 'Command/exec detail in preview tool-progress lines: "raw" preserves released behavior; "status" shows only the tool label.',
       },
       "streaming.block.enabled": {
         label: "Mattermost Block Streaming Enabled",
@@ -9186,6 +9230,10 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                 toolProgress: {
                   type: "boolean",
                 },
+                commandText: {
+                  type: "string",
+                  enum: ["raw", "status"],
+                },
               },
               additionalProperties: false,
             },
@@ -9214,8 +9262,16 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                   exclusiveMinimum: 0,
                   maximum: 9007199254740991,
                 },
+                render: {
+                  type: "string",
+                  enum: ["text", "rich"],
+                },
                 toolProgress: {
                   type: "boolean",
+                },
+                commandText: {
+                  type: "string",
+                  enum: ["raw", "status"],
                 },
               },
               additionalProperties: false,
@@ -9588,6 +9644,10 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
       "streaming.progress.toolProgress": {
         label: "MS Teams Progress Tool Lines",
         help: "Show compact tool/progress lines in progress mode (default: true). Set false to keep only the title until final delivery.",
+      },
+      "streaming.progress.commandText": {
+        label: "MS Teams Progress Command Text",
+        help: 'Command/exec detail in progress lines: "raw" preserves released behavior; "status" shows only the tool label.',
       },
     },
   },
@@ -12412,6 +12472,10 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                 toolProgress: {
                   type: "boolean",
                 },
+                commandText: {
+                  type: "string",
+                  enum: ["raw", "status"],
+                },
               },
               additionalProperties: false,
             },
@@ -12440,8 +12504,16 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                   exclusiveMinimum: 0,
                   maximum: 9007199254740991,
                 },
+                render: {
+                  type: "string",
+                  enum: ["text", "rich"],
+                },
                 toolProgress: {
                   type: "boolean",
+                },
+                commandText: {
+                  type: "string",
+                  enum: ["raw", "status"],
                 },
               },
               additionalProperties: false,
@@ -13374,6 +13446,10 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                       toolProgress: {
                         type: "boolean",
                       },
+                      commandText: {
+                        type: "string",
+                        enum: ["raw", "status"],
+                      },
                     },
                     additionalProperties: false,
                   },
@@ -13402,8 +13478,16 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                         exclusiveMinimum: 0,
                         maximum: 9007199254740991,
                       },
+                      render: {
+                        type: "string",
+                        enum: ["text", "rich"],
+                      },
                       toolProgress: {
                         type: "boolean",
+                      },
+                      commandText: {
+                        type: "string",
+                        enum: ["raw", "status"],
                       },
                     },
                     additionalProperties: false,
@@ -13961,6 +14045,10 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
         label: "Slack Draft Tool Progress",
         help: "Show tool/progress activity in the live draft preview message (default: true). Set false to hide interim tool updates while the draft preview stays active.",
       },
+      "streaming.preview.commandText": {
+        label: "Slack Draft Command Text",
+        help: 'Command/exec detail in preview tool-progress lines: "raw" preserves released behavior; "status" shows only the tool label.',
+      },
       "streaming.progress.label": {
         label: "Slack Progress Label",
         help: 'Initial progress draft title. Use "auto" for built-in single-word labels, a custom string, or false to hide the title.',
@@ -13973,9 +14061,17 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
         label: "Slack Progress Max Lines",
         help: "Maximum number of compact progress lines to keep below the draft label (default: 8).",
       },
+      "streaming.progress.render": {
+        label: "Slack Progress Renderer",
+        help: 'Progress draft renderer: "text" uses one portable text body; "rich" renders structured Slack Block Kit fields with the same text fallback.',
+      },
       "streaming.progress.toolProgress": {
         label: "Slack Progress Tool Lines",
         help: "Show compact tool/progress lines in progress draft mode (default: true). Set false to keep only the label until final delivery.",
+      },
+      "streaming.progress.commandText": {
+        label: "Slack Progress Command Text",
+        help: 'Command/exec detail in progress draft lines: "raw" preserves released behavior; "status" shows only the tool label.',
       },
       "thread.historyScope": {
         label: "Slack Thread History Scope",
@@ -14753,6 +14849,10 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                 toolProgress: {
                   type: "boolean",
                 },
+                commandText: {
+                  type: "string",
+                  enum: ["raw", "status"],
+                },
               },
               additionalProperties: false,
             },
@@ -14781,8 +14881,16 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                   exclusiveMinimum: 0,
                   maximum: 9007199254740991,
                 },
+                render: {
+                  type: "string",
+                  enum: ["text", "rich"],
+                },
                 toolProgress: {
                   type: "boolean",
+                },
+                commandText: {
+                  type: "string",
+                  enum: ["raw", "status"],
                 },
               },
               additionalProperties: false,
@@ -15879,6 +15987,10 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                       toolProgress: {
                         type: "boolean",
                       },
+                      commandText: {
+                        type: "string",
+                        enum: ["raw", "status"],
+                      },
                     },
                     additionalProperties: false,
                   },
@@ -15907,8 +16019,16 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                         exclusiveMinimum: 0,
                         maximum: 9007199254740991,
                       },
+                      render: {
+                        type: "string",
+                        enum: ["text", "rich"],
+                      },
                       toolProgress: {
                         type: "boolean",
+                      },
+                      commandText: {
+                        type: "string",
+                        enum: ["raw", "status"],
                       },
                     },
                     additionalProperties: false,
@@ -16338,6 +16458,10 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
         label: "Telegram Draft Tool Progress",
         help: "Show tool/progress activity in the live draft preview message (default: true when preview streaming is active). Set false to keep tool updates out of the edited Telegram preview.",
       },
+      "streaming.preview.commandText": {
+        label: "Telegram Draft Command Text",
+        help: 'Command/exec detail in preview tool-progress lines: "raw" preserves released behavior; "status" shows only the tool label.',
+      },
       "streaming.progress.label": {
         label: "Telegram Progress Label",
         help: 'Initial progress draft title. Use "auto" for built-in single-word labels, a custom string, or false to hide the title.',
@@ -16353,6 +16477,10 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
       "streaming.progress.toolProgress": {
         label: "Telegram Progress Tool Lines",
         help: "Show compact tool/progress lines in progress draft mode (default: true). Set false to keep only the label until final delivery.",
+      },
+      "streaming.progress.commandText": {
+        label: "Telegram Progress Command Text",
+        help: 'Command/exec detail in progress draft lines: "raw" preserves released behavior; "status" shows only the tool label.',
       },
       "retry.attempts": {
         label: "Telegram Retry Attempts",

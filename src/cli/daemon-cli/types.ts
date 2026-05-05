@@ -29,5 +29,6 @@ export type DaemonLifecycleOptions = {
   /** [frankclaw] Override the reason file path for self-heal context. */
   reason?: string;
   force?: boolean;
+  safe?: boolean;
   wait?: string;
 };

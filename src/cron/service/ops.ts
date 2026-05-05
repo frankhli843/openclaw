@@ -6,6 +6,7 @@ import {
   createRunningTaskRun,
   failTaskRunByRunId,
 } from "../../tasks/detached-task-runtime.js";
+import { createCronRunDiagnosticsFromError } from "../run-diagnostics.js";
 import { createCronExecutionId } from "../run-id.js";
 import type { CronJob, CronJobCreate, CronJobPatch } from "../types.js";
 import {
@@ -499,12 +500,17 @@ async function skipInvalidPersistedManualRun(params: {
 }) {
   const endedAt = params.state.deps.nowMs();
   const errorText = normalizeCronRunErrorText(params.error);
+  const diagnostics = createCronRunDiagnosticsFromError("cron-preflight", errorText, {
+    severity: "warn",
+    nowMs: params.state.deps.nowMs,
+  });
   const shouldDelete = applyJobResult(
     params.state,
     params.job,
     {
       status: "skipped",
       error: errorText,
+      diagnostics,
       startedAt: endedAt,
       endedAt,
     },
@@ -516,6 +522,7 @@ async function skipInvalidPersistedManualRun(params: {
     action: "finished",
     status: "skipped",
     error: errorText,
+    diagnostics,
     runAtMs: endedAt,
     durationMs: params.job.state.lastDurationMs,
     nextRunAtMs: params.job.state.nextRunAtMs,
@@ -744,6 +751,7 @@ async function finishPreparedManualRun(
       {
         status: coreResult.status,
         error: coreResult.error,
+        diagnostics: coreResult.diagnostics,
         delivered: coreResult.delivered,
         startedAt,
         endedAt,
@@ -758,6 +766,7 @@ async function finishPreparedManualRun(
       status: coreResult.status,
       error: coreResult.error,
       summary: coreResult.summary,
+      diagnostics: coreResult.diagnostics,
       delivered: coreResult.delivered,
       deliveryStatus: job.state.lastDeliveryStatus,
       deliveryError: job.state.lastDeliveryError,
