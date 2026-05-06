@@ -394,14 +394,22 @@ export function isEntryEligibleForRecoveryRetry(
   }
   const firstReplayAfterCrash = entry.retryCount === 0 && entry.lastAttemptAt === undefined;
   if (firstReplayAfterCrash) {
-    // [frankclaw] Guard against racing with in-flight normal delivery.
-    // Only consider a fresh entry eligible if it was enqueued at least
-    // MIN_ENTRY_AGE_MS ago. Entries younger than that are likely still
-    // being delivered by the normal path and picking them up here would
-    // cause duplicate sends.
-    const entryAgeMs = now - entry.enqueuedAt;
-    if (entryAgeMs < MIN_ENTRY_AGE_MS) {
-      return { eligible: false, remainingBackoffMs: MIN_ENTRY_AGE_MS - entryAgeMs };
+    // [frankclaw] Entries with recoveryState set had a platform send already started —
+    // drainQueuedEntry will reconcile (not blindly replay) them, so there is no race
+    // with the normal in-flight delivery path.  Skip the MIN_ENTRY_AGE_MS guard.
+    const hasStartedRecoveryState =
+      entry.recoveryState === "send_attempt_started" ||
+      entry.recoveryState === "unknown_after_send";
+    if (!hasStartedRecoveryState) {
+      // [frankclaw] Guard against racing with in-flight normal delivery.
+      // Only consider a fresh entry eligible if it was enqueued at least
+      // MIN_ENTRY_AGE_MS ago. Entries younger than that are likely still
+      // being delivered by the normal path and picking them up here would
+      // cause duplicate sends.
+      const entryAgeMs = now - entry.enqueuedAt;
+      if (entryAgeMs < MIN_ENTRY_AGE_MS) {
+        return { eligible: false, remainingBackoffMs: MIN_ENTRY_AGE_MS - entryAgeMs };
+      }
     }
     return { eligible: true };
   }

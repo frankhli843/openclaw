@@ -584,6 +584,8 @@ describe("delivery-queue recovery", () => {
       { channel: "demo-channel-a", to: "+1", payloads: [{ text: "a" }] },
       tmpDir(),
     );
+    // [frankclaw] Backdate so the MIN_ENTRY_AGE_MS guard treats this as a crash-recovery entry.
+    setQueuedEntryState(tmpDir(), id, { retryCount: 0, enqueuedAt: Date.now() - 60_000 });
     const order: string[] = [];
     const result = attachOutboundDeliveryCommitHook(
       { channel: "demo-channel-a", messageId: "m1" },

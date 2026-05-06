@@ -179,9 +179,9 @@
       "static": [
         {
           "file": "extensions/whatsapp/src/auto-reply/monitor/inbound-dispatch.ts",
-          "pattern": "resolveChannelSourceReplyDeliveryMode",
+          "pattern": "sourceReplyDeliveryMode",
           "minCount": 1,
-          "note": "WhatsApp auto-reply delivery mode is resolved dynamically (defaults to automatic for groups). Do not hard-code message_tool_only."
+          "note": "WhatsApp auto-reply delivery mode is resolved dynamically (defaults to automatic for groups). Do not hard-code message_tool_only. Upstream refactored resolveChannelSourceReplyDeliveryMode() into inline sourceReplyDeliveryMode computation."
         },
         {
           "file": "src/auto-reply/note-to-self.frankclaw.ts",
