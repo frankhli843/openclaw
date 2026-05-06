@@ -156,7 +156,7 @@ export type DiagnosticSessionLongRunningEvent = DiagnosticSessionAttentionBaseEv
 
 export type DiagnosticSessionStalledEvent = DiagnosticSessionAttentionBaseEvent & {
   type: "session.stalled";
-  classification: "blocked_tool_call" | "stalled_agent_run";
+  classification: "blocked_tool_call" | "stalled_agent_run" | "stale_completed_tool_call";
 };
 
 export type DiagnosticSessionStuckEvent = DiagnosticSessionAttentionBaseEvent & {
