@@ -1,5 +1,6 @@
 import { enqueueCommandInLane } from "../../process/command-queue.js";
 import { CommandLane } from "../../process/lanes.js";
+import { DEFAULT_AGENT_ID } from "../../routing/session-key.js";
 import { normalizeLowercaseStringOrEmpty } from "../../shared/string-coerce.js";
 import {
   completeTaskRunByRunId,
@@ -30,6 +31,7 @@ import type {
   CronSortDir,
 } from "./list-page-types.js";
 import { locked } from "./locked.js";
+import { normalizeOptionalAgentId } from "./normalize.js";
 import type { CronServiceState } from "./state.js";
 import { ensureLoaded, persist, warnIfDisabled } from "./store.js";
 import {
@@ -284,6 +286,14 @@ function sortJobs(jobs: CronJob[], sortBy: CronJobsSortBy, sortDir: CronSortDir)
   });
 }
 
+function resolveEffectiveJobAgentId(job: CronJob, defaultAgentId: string | undefined) {
+  return (
+    normalizeOptionalAgentId(job.agentId) ??
+    normalizeOptionalAgentId(defaultAgentId) ??
+    DEFAULT_AGENT_ID
+  );
+}
+
 export async function listPage(state: CronServiceState, opts?: CronListPageOptions) {
   // frankclaw: readOnly — no disk write, skip cross-process file lock
   return await locked(
@@ -294,12 +304,19 @@ export async function listPage(state: CronServiceState, opts?: CronListPageOptio
       const enabledFilter = resolveEnabledFilter(opts);
       const sortBy = opts?.sortBy ?? "nextRunAtMs";
       const sortDir = opts?.sortDir ?? "asc";
+      const requestedAgentId = normalizeOptionalAgentId(opts?.agentId);
       const source = state.store?.jobs ?? [];
       const filtered = source.filter((job) => {
         if (enabledFilter === "enabled" && !isJobEnabled(job)) {
           return false;
         }
         if (enabledFilter === "disabled" && isJobEnabled(job)) {
+          return false;
+        }
+        if (
+          requestedAgentId &&
+          resolveEffectiveJobAgentId(job, state.deps.defaultAgentId) !== requestedAgentId
+        ) {
           return false;
         }
         if (!query) {
