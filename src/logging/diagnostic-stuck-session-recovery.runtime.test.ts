@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   abortEmbeddedPiRun: vi.fn(),
   forceClearEmbeddedPiRun: vi.fn(),
+  forceClearDiagnosticSessionActivity: vi.fn<() => number>().mockReturnValue(0),
   isEmbeddedPiRunActive: vi.fn(),
   isEmbeddedPiRunHandleActive: vi.fn(),
   getCommandLaneSnapshot: vi.fn(),
@@ -60,6 +61,15 @@ vi.mock("./diagnostic-runtime.js", () => ({
   diagnosticLogger: mocks.diag,
 }));
 
+vi.mock("./diagnostic-run-activity.js", () => ({
+  forceClearDiagnosticSessionActivity: (params: unknown) =>
+    mocks.forceClearDiagnosticSessionActivity(params),
+}));
+
+vi.mock("./frankclaw-diag.frankclaw.js", () => ({
+  logStuckToolCallRecovery: vi.fn(),
+}));
+
 import {
   __testing,
   recoverStuckDiagnosticSession,
@@ -69,6 +79,8 @@ function resetMocks() {
   __testing.resetRecoveriesInFlight();
   mocks.abortEmbeddedPiRun.mockReset();
   mocks.forceClearEmbeddedPiRun.mockReset();
+  mocks.forceClearDiagnosticSessionActivity.mockReset();
+  mocks.forceClearDiagnosticSessionActivity.mockReturnValue(0);
   mocks.isEmbeddedPiRunActive.mockReset();
   mocks.isEmbeddedPiRunHandleActive.mockReset();
   mocks.getCommandLaneSnapshot.mockReset();
@@ -321,6 +333,132 @@ describe("stuck session recovery", () => {
     expect(mocks.abortEmbeddedPiRun).not.toHaveBeenCalled();
     expect(mocks.resolveEmbeddedSessionLane).toHaveBeenCalledWith("session-only");
     expect(mocks.resetCommandLane).toHaveBeenCalledWith("session:session-only");
+  });
+
+  it("clears stale tool markers and returns released for blocked_tool_call", async () => {
+    mocks.forceClearDiagnosticSessionActivity.mockReturnValue(1);
+    mocks.resolveActiveEmbeddedRunHandleSessionId.mockReturnValue(undefined);
+
+    const result = await recoverStuckDiagnosticSession({
+      sessionId: "group-session",
+      sessionKey: "agent:main:whatsapp:group:120363405743307729@g.us",
+      ageMs: 600_000, // 10 min
+      queueDepth: 3,
+      classification: "blocked_tool_call",
+      activeWorkKind: "tool_call",
+    });
+
+    expect(mocks.forceClearDiagnosticSessionActivity).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: "group-session",
+        sessionKey: "agent:main:whatsapp:group:120363405743307729@g.us",
+        reason: expect.stringContaining("blocked_tool_call"),
+      }),
+    );
+    expect(result.status).toBe("released");
+    expect(mocks.abortEmbeddedPiRun).not.toHaveBeenCalled();
+    expect(mocks.resetCommandLane).not.toHaveBeenCalled();
+    expect(mocks.diag.warn).toHaveBeenCalledWith(expect.stringContaining("stale tool marker"));
+  });
+
+  it("clears stale tool markers and returns released for stale_completed_tool_call", async () => {
+    mocks.forceClearDiagnosticSessionActivity.mockReturnValue(2);
+    mocks.resolveActiveEmbeddedRunHandleSessionId.mockReturnValue(undefined);
+
+    const result = await recoverStuckDiagnosticSession({
+      sessionId: "group-session",
+      sessionKey: "agent:main:whatsapp:group:120363405743307729@g.us",
+      ageMs: 60_000,
+      queueDepth: 1,
+      classification: "stale_completed_tool_call",
+      activeWorkKind: "tool_call",
+    });
+
+    expect(mocks.forceClearDiagnosticSessionActivity).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reason: expect.stringContaining("stale_completed_tool_call"),
+      }),
+    );
+    expect(result.status).toBe("released");
+    expect((result as { released?: number }).released).toBe(2);
+    expect(mocks.abortEmbeddedPiRun).not.toHaveBeenCalled();
+  });
+
+  it("falls through to lane release when no stale tool markers remain for blocked_tool_call", async () => {
+    // forceClearDiagnosticSessionActivity returns 0 → nothing cleared → lane release path
+    mocks.forceClearDiagnosticSessionActivity.mockReturnValue(0);
+    mocks.resolveActiveEmbeddedRunHandleSessionId.mockReturnValue(undefined);
+    mocks.resetCommandLane.mockReturnValue(1);
+
+    const result = await recoverStuckDiagnosticSession({
+      sessionId: "group-session",
+      sessionKey: "agent:main:whatsapp:group:120363405743307729@g.us",
+      ageMs: 600_000,
+      queueDepth: 1,
+      classification: "blocked_tool_call",
+      activeWorkKind: "tool_call",
+    });
+
+    // forceClearDiagnosticSessionActivity was called but returned 0, so recovery
+    // falls through to the standard lane release path
+    expect(mocks.forceClearDiagnosticSessionActivity).toHaveBeenCalled();
+    expect(mocks.resetCommandLane).toHaveBeenCalled();
+    expect(result.status).toBe("released");
+  });
+
+  it("clears stale tool markers from non-processing session and still returns skipped", async () => {
+    // stateGeneration set to 0 and no session registered → isDiagnosticSessionStateCurrent returns false
+    mocks.forceClearDiagnosticSessionActivity.mockReturnValue(1);
+
+    const result = await recoverStuckDiagnosticSession({
+      sessionId: "group-session",
+      sessionKey: "agent:main:whatsapp:group:120363405743307729@g.us",
+      ageMs: 600_000,
+      queueDepth: 1,
+      stateGeneration: 0,
+      classification: "stale_completed_tool_call",
+      activeWorkKind: "tool_call",
+    });
+
+    // Clears stale markers even for non-processing sessions
+    expect(mocks.forceClearDiagnosticSessionActivity).toHaveBeenCalledWith(
+      expect.objectContaining({ reason: expect.stringContaining("recovery_non_processing") }),
+    );
+    expect(result.status).toBe("skipped");
+    expect((result as { reason?: string }).reason).toBe("stale_session_state");
+    expect(mocks.diag.warn).toHaveBeenCalledWith(expect.stringContaining("non-processing session"));
+  });
+
+  it("does not send any messages during recovery (DNR orthogonality)", async () => {
+    // frankclaw: recovery must never trigger outbound sends. DNR enforcement happens
+    // later in the outbound adapter layer (enforceWhatsAppDnrWindow). During quiet hours
+    // the session must still become healthy — recovery clears stale markers and unblocks
+    // the queue; DNR then independently defers/suppresses actual message delivery.
+    // These two paths must not interact. See outbound-adapter.frankclaw.test.ts for
+    // the companion DNR outbound-suppression tests.
+    mocks.forceClearDiagnosticSessionActivity.mockReturnValue(1);
+    mocks.resolveActiveEmbeddedRunHandleSessionId.mockReturnValue(undefined);
+
+    // Simulate recovery during a DNR window (quiet hours). Recovery itself
+    // has no concept of quiet hours — it only clears stale tool markers.
+    const result = await recoverStuckDiagnosticSession({
+      sessionId: "dahong-session",
+      sessionKey: "agent:main:whatsapp:group:120363405743307729@g.us",
+      ageMs: 600_000,
+      queueDepth: 5,
+      classification: "blocked_tool_call",
+      activeWorkKind: "tool_call",
+    });
+
+    // Recovery clears stale markers and unblocks the session
+    expect(result.status).toBe("released");
+    expect(mocks.forceClearDiagnosticSessionActivity).toHaveBeenCalled();
+    // No send functions involved: recovery is a diagnostic operation only
+    expect(mocks.abortEmbeddedPiRun).not.toHaveBeenCalled();
+    expect(mocks.resetCommandLane).not.toHaveBeenCalled();
+    // Recovery log should NOT mention DNR — it is a distinct signal path
+    const warnMessages = mocks.diag.warn.mock.calls.flat().join(" ");
+    expect(warnMessages).not.toMatch(/dnr|quiet.hour/i);
   });
 
   it("coalesces duplicate recovery attempts for the same session", async () => {

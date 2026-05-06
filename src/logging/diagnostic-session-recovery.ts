@@ -24,6 +24,9 @@ export type StuckSessionRecoveryRequest = {
   queueDepth?: number;
   allowActiveAbort?: boolean;
   stateGeneration?: number;
+  // frankclaw: classification context so recovery can pick the right action
+  classification?: string;
+  activeWorkKind?: DiagnosticSessionActiveWorkKind;
 };
 
 type DiagnosticSessionRecoveryBaseOutcome = {

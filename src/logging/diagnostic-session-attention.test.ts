@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { classifySessionAttention } from "./diagnostic-session-attention.js";
+import {
+  BLOCKED_TOOL_CALL_RECOVERY_THRESHOLD_MS,
+  classifySessionAttention,
+} from "./diagnostic-session-attention.js";
 
 describe("classifySessionAttention", () => {
   it.each([
@@ -86,12 +89,85 @@ describe("classifySessionAttention", () => {
         recoveryEligible: false,
       },
     },
-  ])("$name", ({ activity, expected, queueDepth }) => {
+    {
+      name: "blocked tool call is not recovery eligible before 10-min threshold",
+      queueDepth: 0,
+      ageMs: BLOCKED_TOOL_CALL_RECOVERY_THRESHOLD_MS - 1,
+      activity: {
+        activeWorkKind: "tool_call" as const,
+        activeToolAgeMs: 31_000,
+        lastProgressAgeMs: 31_000,
+      },
+      expected: {
+        eventType: "session.stalled",
+        reason: "blocked_tool_call",
+        classification: "blocked_tool_call",
+        activeWorkKind: "tool_call",
+        recoveryEligible: false,
+      },
+    },
+    {
+      name: "blocked tool call is recovery eligible at 10-min threshold",
+      queueDepth: 0,
+      ageMs: BLOCKED_TOOL_CALL_RECOVERY_THRESHOLD_MS,
+      activity: {
+        activeWorkKind: "tool_call" as const,
+        activeToolAgeMs: 31_000,
+        lastProgressAgeMs: 31_000,
+      },
+      expected: {
+        eventType: "session.stalled",
+        reason: "blocked_tool_call",
+        classification: "blocked_tool_call",
+        activeWorkKind: "tool_call",
+        recoveryEligible: true,
+      },
+    },
+    {
+      // frankclaw: impossible state — lastProgress shows tool ended but tool still in activeTools
+      // This state is always recovery eligible regardless of session age.
+      name: "stale completed tool call is always recovery eligible",
+      queueDepth: 0,
+      ageMs: 0,
+      activity: {
+        activeWorkKind: "tool_call" as const,
+        activeToolAgeMs: 31_000,
+        lastProgressAgeMs: 31_000,
+        lastProgressReason: "tool:web_fetch:ended",
+      },
+      expected: {
+        eventType: "session.stalled",
+        reason: "stale_completed_tool_call",
+        classification: "stale_completed_tool_call",
+        activeWorkKind: "tool_call",
+        recoveryEligible: true,
+      },
+    },
+    {
+      name: "stale completed tool call: matches any tool name in pattern",
+      queueDepth: 1,
+      ageMs: 0,
+      activity: {
+        activeWorkKind: "tool_call" as const,
+        activeToolAgeMs: 31_000,
+        lastProgressAgeMs: 31_000,
+        lastProgressReason: "tool:bash:ended",
+      },
+      expected: {
+        eventType: "session.stalled",
+        reason: "stale_completed_tool_call",
+        classification: "stale_completed_tool_call",
+        activeWorkKind: "tool_call",
+        recoveryEligible: true,
+      },
+    },
+  ])("$name", ({ activity, expected, queueDepth, ageMs }) => {
     expect(
       classifySessionAttention({
         queueDepth,
         activity,
         staleMs: 30_000,
+        ageMs,
       }),
     ).toEqual(expected);
   });

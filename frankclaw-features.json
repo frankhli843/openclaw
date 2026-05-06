@@ -1777,6 +1777,66 @@
       "addedDate": "2026-04-26"
     },
     {
+      "name": "WhatsApp inbound worker timeout (3-min)",
+      "description": "Per-message inbound worker timeout for WhatsApp group sessions, matching Discord's 3-minute durable-worker timeout. Prevents a single stuck turn (e.g. hung web_fetch) from blocking the entire group chat session indefinitely. Timeout fires at the inbound layer via runWhatsAppInboundWithTimeout in on-message-timeout.frankclaw.ts.",
+      "category": "whatsapp",
+      "static": [
+        {
+          "file": "extensions/whatsapp/src/auto-reply/monitor/on-message-timeout.frankclaw.ts",
+          "pattern": "WHATSAPP_INBOUND_WORKER_TIMEOUT_MS",
+          "minCount": 1
+        },
+        {
+          "file": "extensions/whatsapp/src/auto-reply/monitor/monitor.ts",
+          "pattern": "runWhatsAppInboundWithTimeout",
+          "minCount": 1
+        }
+      ],
+      "tests": ["extensions/whatsapp/src/auto-reply/monitor/on-message-timeout.frankclaw.test.ts"],
+      "runtime": [],
+      "e2eTests": [],
+      "addedDate": "2026-05-06"
+    },
+    {
+      "name": "Stuck tool_call session recovery",
+      "description": "Classifies and recovers channel sessions blocked by a stale tool_call marker. Two new classifications: stale_completed_tool_call (impossible state where lastProgress shows :ended but tool is still in activeTools, always recoveryEligible) and blocked_tool_call (recoveryEligible after 10-minute threshold). Recovery calls forceClearDiagnosticSessionActivity to purge stale markers and unblock the queue. Logs recovery events to state/frankclaw-diag.log for the heartbeat detector. DNR enforcement is orthogonal and happens downstream in the outbound adapter.",
+      "category": "diagnostics",
+      "static": [
+        {
+          "file": "src/logging/diagnostic-session-attention.ts",
+          "pattern": "stale_completed_tool_call",
+          "minCount": 1
+        },
+        {
+          "file": "src/logging/diagnostic-session-attention.ts",
+          "pattern": "BLOCKED_TOOL_CALL_RECOVERY_THRESHOLD_MS",
+          "minCount": 1
+        },
+        {
+          "file": "src/logging/diagnostic-run-activity.ts",
+          "pattern": "forceClearDiagnosticSessionActivity",
+          "minCount": 1
+        },
+        {
+          "file": "src/logging/diagnostic-stuck-session-recovery.runtime.ts",
+          "pattern": "stuck_recovery",
+          "minCount": 1
+        },
+        {
+          "file": "src/logging/frankclaw-diag.frankclaw.ts",
+          "pattern": "logStuckToolCallRecovery",
+          "minCount": 1
+        }
+      ],
+      "tests": [
+        "src/logging/diagnostic-session-attention.test.ts",
+        "src/logging/diagnostic-stuck-session-recovery.runtime.test.ts"
+      ],
+      "runtime": [],
+      "e2eTests": [],
+      "addedDate": "2026-05-06"
+    },
+    {
       "name": "Fatal plugin load errors (no silent failures)",
       "description": "Gateway crashes on plugin load failures instead of silently continuing without broken plugins. Prevents masked bugs like zod v3/v4 mismatches killing channels silently.",
       "static": [

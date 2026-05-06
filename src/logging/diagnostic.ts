@@ -772,6 +772,8 @@ export function logSessionAttention(
     queueDepth: state.queueDepth,
     activity,
     staleMs: params.thresholdMs,
+    // frankclaw: pass ageMs so blocked_tool_call can become recoveryEligible after threshold
+    ageMs: params.ageMs,
   });
   const recoveryEligible =
     classification.recoveryEligible ||
@@ -1029,6 +1031,9 @@ export function startDiagnosticHeartbeat(
               ageMs,
               queueDepth: state.queueDepth,
               stateGeneration: state.generation,
+              // frankclaw: pass classification context so recovery can pick the right action
+              classification: classification.classification,
+              activeWorkKind: classification.activeWorkKind,
             },
           });
         } else if (
@@ -1049,6 +1054,8 @@ export function startDiagnosticHeartbeat(
               queueDepth: state.queueDepth,
               allowActiveAbort: true,
               stateGeneration: state.generation,
+              classification: classification.classification,
+              activeWorkKind: classification.activeWorkKind,
             },
           });
         }

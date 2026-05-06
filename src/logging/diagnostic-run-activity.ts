@@ -294,6 +294,34 @@ export function getDiagnosticSessionActivitySnapshot(
   };
 }
 
+/**
+ * frankclaw: Force-clear stale tool markers for a session without waiting for a
+ * run.completed event. Used by stuck-session recovery when a tool call has been
+ * stuck for too long (blocked_tool_call or stale_completed_tool_call) and the
+ * completion event was never emitted.
+ *
+ * Returns the number of stale tools that were cleared.
+ */
+export function forceClearDiagnosticSessionActivity(params: {
+  sessionId?: string;
+  sessionKey?: string;
+  reason: string;
+}): number {
+  const activity = resolveSessionActivity(params);
+  if (!activity) {
+    return 0;
+  }
+  const toolCount = activity.activeTools.size;
+  const modelCount = activity.activeModelCalls.size;
+  if (toolCount === 0 && modelCount === 0) {
+    return 0;
+  }
+  activity.activeTools.clear();
+  activity.activeModelCalls.clear();
+  touchSessionActivity(activity, `forced_clear:${params.reason}`);
+  return toolCount + modelCount;
+}
+
 export function markDiagnosticRunProgressForTest(params: {
   sessionId?: string;
   sessionKey?: string;

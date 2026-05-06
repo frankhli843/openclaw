@@ -34,6 +34,11 @@ import { whatsappHeartbeatLog, whatsappLog } from "./loggers.js";
 import { buildMentionConfig } from "./mentions.js";
 import { createWebChannelStatusController } from "./monitor-state.js";
 import { createEchoTracker } from "./monitor/echo.js";
+// frankclaw: per-message inbound timeout (mirrors Discord's 3-min durable worker timeout)
+import {
+  runWhatsAppInboundWithTimeout,
+  WHATSAPP_INBOUND_WORKER_TIMEOUT_MS,
+} from "./monitor/on-message-timeout.frankclaw.js";
 import { createWebOnMessageHandler } from "./monitor/on-message.js";
 import type { WebInboundMsg, WebMonitorTuning } from "./types.js";
 import { isLikelyWhatsAppCryptoError } from "./util.js";
@@ -310,7 +315,14 @@ export async function monitorWebChannel(
                 const inboundAt = Date.now();
                 controller.noteInbound(inboundAt);
                 statusController.noteInbound(inboundAt);
-                await onMessage(msg);
+                // frankclaw: bounded per-message timeout prevents a single stuck WhatsApp turn
+                // from blocking the entire chat session for hours (same pattern as Discord 3-min).
+                await runWhatsAppInboundWithTimeout({
+                  msg,
+                  run: () => onMessage(msg),
+                  timeoutMs: WHATSAPP_INBOUND_WORKER_TIMEOUT_MS,
+                  log: whatsappLog,
+                });
               },
               sock,
             })) as ManagedWhatsAppListener;
