@@ -317,7 +317,7 @@ run_runtime() {
   # Find the timestamp of the last gateway start
   # Look for "heartbeat: started" or "health-monitor.*started" as gateway boot markers
   local last_start_line
-  last_start_line=$(grep -n '"heartbeat: started"\|"health-monitor.*started"\|"Starting gateway"\|"Gateway started"' "$log_file" | tail -1 | cut -d: -f1)
+  last_start_line=$(grep -n '"heartbeat: started"\|"health-monitor.*started"\|"Starting gateway"\|"Gateway started"' "$log_file" 2>/dev/null | tail -1 | cut -d: -f1 || true)
 
   if [[ -z "$last_start_line" ]]; then
     echo -e "  ${YELLOW}⚠️  No gateway start marker found in today's log. Checking entire log.${RESET}"
