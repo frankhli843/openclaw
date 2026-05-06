@@ -216,9 +216,12 @@ export function buildEffectiveIdentifiers(
 ): Record<string, unknown> {
   const effective: Record<string, unknown> = {};
 
-  // chat_id: prefer trusted, fallback to untrusted conversation_label when id-like
+  // chat_id: prefer trusted, then routing chat_id from conversation_info (OriginatingTo),
+  // then id-like conversation_label as last resort
   if (trusted.chat_id) {
     effective.chat_id = trusted.chat_id;
+  } else if (isIdLikeString(conversationInfo.chat_id)) {
+    effective.chat_id = conversationInfo.chat_id;
   } else if (isIdLikeString(conversationInfo.conversation_label)) {
     effective.chat_id = conversationInfo.conversation_label;
   }

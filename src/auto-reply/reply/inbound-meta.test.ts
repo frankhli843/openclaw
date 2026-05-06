@@ -719,11 +719,11 @@ describe("joined inbound context block", () => {
     expect(joined["schema"]).toBe("openclaw.joined_inbound_context.v1");
 
     const trusted = joined["trusted"] as Record<string, unknown>;
-    expect(trusted["chat_id"]).toBe("telegram:-1001249586642");
     expect(trusted["channel"]).toBe("telegram");
 
     const untrusted = joined["untrusted"] as Record<string, unknown>;
     const convInfo = untrusted["conversation_info"] as Record<string, unknown>;
+    expect(convInfo["chat_id"]).toBe("telegram:-1001249586642");
     expect(convInfo["message_id"]).toBe("msg-100");
     expect(convInfo["sender_id"]).toBe("289522496");
 
