@@ -42,9 +42,23 @@ export async function maybeRedirectErrorToLogsGroup(params: {
     defaultRuntime.error(`Failed to send error to logs group: ${err}`);
   });
 
-  // Auto-reset on context overflow so next message works
+  // Auto-reset on context overflow so the retry works on a fresh session.
+  // Mark as retryable so the deferred retry system replays the message
+  // instead of dead-lettering it. The session is now clean, so the retry
+  // will succeed where the original failed. (Frank directive May 7 2026)
   if (params.isContextOverflow && params.resetSession) {
-    await params.resetSession("context overflow auto-reset").catch(() => {});
+    const didReset = await params.resetSession("context overflow auto-reset").catch(() => false);
+    if (didReset !== false) {
+      defaultRuntime.error(
+        `[frankclaw] context overflow auto-reset for ${sessionInfo}. Marking retryable.`,
+      );
+      return {
+        kind: "final",
+        payload: { text: SILENT_REPLY_TOKEN },
+        retryableFailure: true,
+        failureMessage: `context overflow auto-reset: session cleared, retry should succeed`,
+      };
+    }
   }
 
   return {
