@@ -7,7 +7,7 @@ import {
 describe("appendBackgroundTaskProgressSummary", () => {
   it("appends short chunks without truncation", () => {
     let s = appendBackgroundTaskProgressSummary("", "hello");
-    s = appendBackgroundTaskProgressSummary(s, "world");
+    s = appendBackgroundTaskProgressSummary(s, " world");
     expect(s).toBe("hello world");
   });
 
