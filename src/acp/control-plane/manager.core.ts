@@ -100,7 +100,7 @@ function summarizeBackgroundTaskText(text: string): string {
 }
 
 export function appendBackgroundTaskProgressSummary(current: string, chunk: string): string {
-  const normalizedChunk = normalizeText(chunk)?.replace(/\s+/g, " ");
+  const normalizedChunk = chunk.replace(/\s+/g, " ");
   if (!normalizedChunk) {
     return current;
   }
