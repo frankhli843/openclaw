@@ -544,7 +544,7 @@ describe("whatsapp inbound dispatch", () => {
     expect(groupHistories.get("whatsapp:default:group:123@g.us") ?? []).toHaveLength(0);
   });
 
-  it("delivers block and final WhatsApp payloads; suppresses text-only tool payloads but delivers media", async () => {
+  it("replaces duplicate media-only interim payloads with the final captioned WhatsApp media", async () => {
     const deliverReply = vi.fn(async () => acceptedDeliveryResult());
     const rememberSentText = vi.fn();
 
@@ -566,16 +566,8 @@ describe("whatsapp inbound dispatch", () => {
         kind: "tool",
       },
     );
-    expect(deliverReply).toHaveBeenCalledTimes(1);
-    expect(rememberSentText).toHaveBeenCalledTimes(1);
-    expect(deliverReply).toHaveBeenLastCalledWith(
-      expect.objectContaining({
-        replyResult: expect.objectContaining({
-          mediaUrls: ["/tmp/generated.jpg"],
-          text: undefined,
-        }),
-      }),
-    );
+    expect(deliverReply).not.toHaveBeenCalled();
+    expect(rememberSentText).not.toHaveBeenCalled();
 
     await deliver?.(
       { text: "generated image", mediaUrls: ["/tmp/generated.jpg"] },
@@ -583,8 +575,8 @@ describe("whatsapp inbound dispatch", () => {
         kind: "block",
       },
     );
-    expect(deliverReply).toHaveBeenCalledTimes(2);
-    expect(rememberSentText).toHaveBeenCalledTimes(2);
+    expect(deliverReply).toHaveBeenCalledTimes(1);
+    expect(rememberSentText).toHaveBeenCalledTimes(1);
     expect(deliverReply).toHaveBeenLastCalledWith(
       expect.objectContaining({
         replyResult: expect.objectContaining({
@@ -596,8 +588,8 @@ describe("whatsapp inbound dispatch", () => {
 
     await deliver?.({ text: "block payload" }, { kind: "block" });
     await deliver?.({ text: "final payload" }, { kind: "final" });
-    expect(deliverReply).toHaveBeenCalledTimes(4);
-    expect(rememberSentText).toHaveBeenCalledTimes(4);
+    expect(deliverReply).toHaveBeenCalledTimes(3);
+    expect(rememberSentText).toHaveBeenCalledTimes(3);
   });
 
   it("queues final WhatsApp payloads through durable outbound delivery", async () => {

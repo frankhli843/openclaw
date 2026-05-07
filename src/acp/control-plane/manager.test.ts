@@ -313,7 +313,32 @@ describe("AcpSessionManager", () => {
         yield {
           type: "text_delta" as const,
           stream: "output" as const,
-          text: "Write failed: permission denied for /root/oc-acp-write-should-fail.txt.",
+          text: "Write failed: ",
+        };
+        yield {
+          type: "text_delta" as const,
+          stream: "output" as const,
+          text: "permission ",
+        };
+        yield {
+          type: "text_delta" as const,
+          stream: "output" as const,
+          text: "denied for ",
+        };
+        yield {
+          type: "text_delta" as const,
+          stream: "output" as const,
+          text: "/root/",
+        };
+        yield {
+          type: "text_delta" as const,
+          stream: "output" as const,
+          text: "oc-acp-write-",
+        };
+        yield {
+          type: "text_delta" as const,
+          stream: "output" as const,
+          text: "should-fail.txt.",
         };
         yield { type: "done" as const };
       });
@@ -374,15 +399,33 @@ describe("AcpSessionManager", () => {
     });
   }, 300_000);
 
-  it("marks parented direct ACP turns blocked when they stop at a progress checkpoint", async () => {
+  it("preserves token-streamed ACP progress boundaries in parented task summaries", async () => {
     await withAcpManagerTaskStateDir(async () => {
       const runtimeState = createRuntime();
+      const chunks = [
+        "현재 ",
+        "작업 ",
+        "디",
+        "렉토",
+        "리는 ",
+        "/home/",
+        "by",
+        "kim",
+        "0119/",
+        ".open",
+        "claw/",
+        "workspace",
+        "\n\t",
+        "입니다",
+      ];
       runtimeState.runTurn.mockImplementation(async function* () {
-        yield {
-          type: "text_delta" as const,
-          stream: "output" as const,
-          text: "I have full understanding of the codebase. Let me now execute the patches.",
-        };
+        for (const text of chunks) {
+          yield {
+            type: "text_delta" as const,
+            stream: "output" as const,
+            text,
+          };
+        }
         yield { type: "done" as const };
       });
       hoisted.requireAcpRuntimeBackendMock.mockReturnValue({
@@ -391,15 +434,15 @@ describe("AcpSessionManager", () => {
       });
       hoisted.readAcpSessionEntryMock.mockImplementation((paramsUnknown: unknown) => {
         const sessionKey = (paramsUnknown as { sessionKey?: string }).sessionKey;
-        if (sessionKey === "agent:codex:acp:child-2") {
+        if (sessionKey === "agent:codex:acp:child-1") {
           return {
             sessionKey,
             storeSessionKey: sessionKey,
             entry: {
-              sessionId: "child-2",
+              sessionId: "child-1",
               updatedAt: Date.now(),
               spawnedBy: "agent:quant:telegram:quant:direct:822430204",
-              label: "Quant patch follow-up",
+              label: "Korean path",
             },
             acp: readySessionMeta(),
           };
@@ -420,25 +463,22 @@ describe("AcpSessionManager", () => {
       const manager = new AcpSessionManager();
       await manager.runTurn({
         cfg: baseCfg,
-        sessionKey: "agent:codex:acp:child-2",
-        text: "Implement the feature and report back",
+        sessionKey: "agent:codex:acp:child-1",
+        text: "Print the current directory in Korean",
         mode: "prompt",
-        requestId: "direct-parented-run-progress-checkpoint",
+        requestId: "direct-parented-korean-path-run",
       });
       await flushMicrotasks();
 
-      expect(findTaskByRunId("direct-parented-run-progress-checkpoint")).toMatchObject({
+      expect(findTaskByRunId("direct-parented-korean-path-run")).toMatchObject({
         runtime: "acp",
         ownerKey: "agent:quant:telegram:quant:direct:822430204",
         scopeKind: "session",
-        childSessionKey: "agent:codex:acp:child-2",
-        label: "Quant patch follow-up",
-        task: "Implement the feature and report back",
+        childSessionKey: "agent:codex:acp:child-1",
+        label: "Korean path",
+        task: "Print the current directory in Korean",
         status: "succeeded",
-        progressSummary:
-          "I have full understanding of the codebase. Let me now execute the patches.",
-        terminalOutcome: "blocked",
-        terminalSummary: "ACP run stopped at a progress checkpoint instead of a terminal result.",
+        progressSummary: "현재 작업 디렉토리는 /home/bykim0119/.openclaw/workspace 입니다",
       });
     });
   }, 300_000);
