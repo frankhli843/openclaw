@@ -129,6 +129,7 @@ export type DiagnosticSessionActiveWorkKind = "embedded_run" | "model_call" | "t
 export type DiagnosticSessionAttentionClassification =
   | "long_running"
   | "blocked_tool_call"
+  | "stale_completed_tool_call"
   | "stalled_agent_run"
   | "stale_session_state";
 
