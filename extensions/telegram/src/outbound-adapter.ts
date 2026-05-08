@@ -25,7 +25,6 @@ import { resolveTelegramInlineButtons } from "./button-types.js";
 import { markdownToTelegramHtmlChunks } from "./format.js";
 import { resolveTelegramInteractiveTextFallback } from "./interactive-fallback.js";
 import { parseTelegramReplyToMessageId, parseTelegramThreadId } from "./outbound-params.js";
-import { pinMessageTelegram } from "./send.js";
 
 /** Enforce Telegram DNR quiet hours; throws DiscordDnrSuppressedError if in window. */
 function enforceTelegramDnr(): void {
@@ -35,15 +34,26 @@ function enforceTelegramDnr(): void {
 }
 
 export const TELEGRAM_TEXT_CHUNK_LIMIT = 4000;
+export const TELEGRAM_POLL_OPTION_LIMIT = 10;
 
 type TelegramSendFn = typeof import("./send.js").sendMessageTelegram;
+type TelegramSendModule = typeof import("./send.js");
 type TelegramSendOpts = Parameters<TelegramSendFn>[2];
+type ResolveTelegramSendFn = (deps?: OutboundSendDeps) => Promise<TelegramSendFn>;
+type LoadTelegramSendModuleFn = () => Promise<TelegramSendModule>;
 
 let telegramSendModulePromise: Promise<typeof import("./send.js")> | undefined;
 
-async function loadTelegramSendModule() {
+async function loadTelegramSendModule(): Promise<TelegramSendModule> {
   telegramSendModulePromise ??= import("./send.js");
   return await telegramSendModulePromise;
+}
+
+async function resolveDefaultTelegramSend(deps?: OutboundSendDeps): Promise<TelegramSendFn> {
+  return (
+    resolveOutboundSendDep<TelegramSendFn>(deps, "telegram") ??
+    (await loadTelegramSendModule()).sendMessageTelegram
+  );
 }
 
 async function resolveTelegramSendContext(params: {
@@ -54,6 +64,7 @@ async function resolveTelegramSendContext(params: {
   threadId?: string | number | null;
   silent?: boolean;
   gatewayClientScopes?: readonly string[];
+  resolveSend: ResolveTelegramSendFn;
 }): Promise<{
   send: TelegramSendFn;
   baseOpts: {
@@ -67,9 +78,7 @@ async function resolveTelegramSendContext(params: {
     gatewayClientScopes?: readonly string[];
   };
 }> {
-  const send =
-    resolveOutboundSendDep<TelegramSendFn>(params.deps, "telegram") ??
-    (await loadTelegramSendModule()).sendMessageTelegram;
+  const send = await params.resolveSend(params.deps);
   return {
     send,
     baseOpts: {
@@ -84,6 +93,16 @@ async function resolveTelegramSendContext(params: {
     },
   };
 }
+
+export type CreateTelegramOutboundAdapterOptions = {
+  resolveSend?: ResolveTelegramSendFn;
+  loadSendModule?: LoadTelegramSendModuleFn;
+  beforeDeliverPayload?: ChannelOutboundAdapter["beforeDeliverPayload"];
+  shouldSuppressLocalPayloadPrompt?: ChannelOutboundAdapter["shouldSuppressLocalPayloadPrompt"];
+  shouldTreatDeliveredTextAsVisible?: ChannelOutboundAdapter["shouldTreatDeliveredTextAsVisible"];
+  targetsMatchForReplySuppression?: ChannelOutboundAdapter["targetsMatchForReplySuppression"];
+  preferFinalAssistantVisibleText?: boolean;
+};
 
 export async function sendTelegramPayloadMessages(params: {
   send: TelegramSendFn;
@@ -131,60 +150,140 @@ export async function sendTelegramPayloadMessages(params: {
   });
 }
 
-export const telegramOutbound: ChannelOutboundAdapter = {
-  deliveryMode: "direct",
-  chunker: markdownToTelegramHtmlChunks,
-  chunkerMode: "markdown",
-  extractMarkdownImages: true,
-  textChunkLimit: TELEGRAM_TEXT_CHUNK_LIMIT,
-  sanitizeText: ({ text }) => sanitizeForPlainText(text),
-  shouldSkipPlainTextSanitization: ({ payload }) => Boolean(payload.channelData),
-  presentationCapabilities: {
-    supported: true,
-    buttons: true,
-    selects: true,
-    context: true,
-    divider: false,
-  },
-  deliveryCapabilities: {
-    pin: true,
-    durableFinal: {
-      text: true,
-      media: true,
-      payload: true,
-      silent: true,
-      replyTo: true,
-      thread: true,
-      nativeQuote: false,
-      messageSendingHooks: true,
-      batch: true,
+export function createTelegramOutboundAdapter(
+  options: CreateTelegramOutboundAdapterOptions = {},
+): ChannelOutboundAdapter {
+  const resolveSend = options.resolveSend ?? resolveDefaultTelegramSend;
+  const loadSendModule = options.loadSendModule ?? loadTelegramSendModule;
+
+  return {
+    deliveryMode: "direct",
+    chunker: markdownToTelegramHtmlChunks,
+    chunkerMode: "markdown",
+    extractMarkdownImages: true,
+    textChunkLimit: TELEGRAM_TEXT_CHUNK_LIMIT,
+    sanitizeText: ({ text }) => sanitizeForPlainText(text),
+    shouldSkipPlainTextSanitization: ({ payload }) => Boolean(payload.channelData),
+    shouldSuppressLocalPayloadPrompt: options.shouldSuppressLocalPayloadPrompt,
+    beforeDeliverPayload: options.beforeDeliverPayload,
+    shouldTreatDeliveredTextAsVisible: options.shouldTreatDeliveredTextAsVisible,
+    targetsMatchForReplySuppression: options.targetsMatchForReplySuppression,
+    preferFinalAssistantVisibleText: options.preferFinalAssistantVisibleText,
+    presentationCapabilities: {
+      supported: true,
+      buttons: true,
+      selects: true,
+      context: true,
+      divider: false,
     },
-  },
-  renderPresentation: ({ payload, presentation }) => ({
-    ...payload,
-    text: renderMessagePresentationFallbackText({ text: payload.text, presentation }),
-    interactive: presentationToInteractiveReply(presentation),
-  }),
-  pinDeliveredMessage: async ({ cfg, target, messageId, pin }) => {
-    await pinMessageTelegram(target.to, messageId, {
-      cfg,
-      accountId: target.accountId ?? undefined,
-      notify: pin.notify,
-      verbose: false,
-    });
-  },
-  resolveEffectiveTextChunkLimit: ({ fallbackLimit }) =>
-    typeof fallbackLimit === "number" ? Math.min(fallbackLimit, 4096) : 4096,
-  ...createAttachedChannelResultAdapter({
-    channel: "telegram",
-    sendText: async ({
+    deliveryCapabilities: {
+      pin: true,
+      durableFinal: {
+        text: true,
+        media: true,
+        payload: true,
+        silent: true,
+        replyTo: true,
+        thread: true,
+        nativeQuote: false,
+        messageSendingHooks: true,
+        batch: true,
+      },
+    },
+    renderPresentation: ({ payload, presentation }) => ({
+      ...payload,
+      text: renderMessagePresentationFallbackText({ text: payload.text, presentation }),
+      interactive: presentationToInteractiveReply(presentation),
+    }),
+    pinDeliveredMessage: async ({ cfg, target, messageId, pin }) => {
+      const { pinMessageTelegram } = await loadSendModule();
+      await pinMessageTelegram(target.to, messageId, {
+        cfg,
+        accountId: target.accountId ?? undefined,
+        notify: pin.notify,
+        verbose: false,
+      });
+    },
+    resolveEffectiveTextChunkLimit: ({ fallbackLimit }) =>
+      typeof fallbackLimit === "number" ? Math.min(fallbackLimit, 4096) : 4096,
+    pollMaxOptions: TELEGRAM_POLL_OPTION_LIMIT,
+    supportsPollDurationSeconds: true,
+    supportsAnonymousPolls: true,
+    ...createAttachedChannelResultAdapter({
+      channel: "telegram",
+      sendText: async ({
+        cfg,
+        to,
+        text,
+        accountId,
+        deps,
+        replyToId,
+        threadId,
+        silent,
+        gatewayClientScopes,
+      }) => {
+        // frankclaw: throws DiscordDnrSuppressedError when in DNR window; propagates
+        // to deliver.ts which calls deferDelivery() so the queue entry is not lost.
+        enforceTelegramDnr();
+        const { send, baseOpts } = await resolveTelegramSendContext({
+          cfg,
+          deps,
+          accountId,
+          replyToId,
+          threadId,
+          silent,
+          gatewayClientScopes,
+          resolveSend,
+        });
+        return await send(to, text, {
+          ...baseOpts,
+        });
+      },
+      sendMedia: async ({
+        cfg,
+        to,
+        text,
+        mediaUrl,
+        mediaLocalRoots,
+        mediaReadFile,
+        accountId,
+        deps,
+        replyToId,
+        threadId,
+        forceDocument,
+        silent,
+        gatewayClientScopes,
+      }) => {
+        const { send, baseOpts } = await resolveTelegramSendContext({
+          cfg,
+          deps,
+          accountId,
+          replyToId,
+          threadId,
+          silent,
+          gatewayClientScopes,
+          resolveSend,
+        });
+        return await send(to, text, {
+          ...baseOpts,
+          mediaUrl,
+          mediaLocalRoots,
+          mediaReadFile,
+          forceDocument: forceDocument ?? false,
+        });
+      },
+    }),
+    sendPayload: async ({
       cfg,
       to,
-      text,
+      payload,
+      mediaLocalRoots,
+      mediaReadFile,
       accountId,
       deps,
       replyToId,
       threadId,
+      forceDocument,
       silent,
       gatewayClientScopes,
     }) => {
@@ -199,81 +298,42 @@ export const telegramOutbound: ChannelOutboundAdapter = {
         threadId,
         silent,
         gatewayClientScopes,
+        resolveSend,
       });
-      return await send(to, text, {
-        ...baseOpts,
+      const result = await sendTelegramPayloadMessages({
+        send,
+        to,
+        payload,
+        baseOpts: {
+          ...baseOpts,
+          mediaLocalRoots,
+          mediaReadFile,
+          forceDocument: forceDocument ?? false,
+        },
       });
+      return attachChannelToResult("telegram", result);
     },
-    sendMedia: async ({
+    sendPoll: async ({
       cfg,
       to,
-      text,
-      mediaUrl,
-      mediaLocalRoots,
-      mediaReadFile,
+      poll,
       accountId,
-      deps,
-      replyToId,
       threadId,
-      forceDocument,
       silent,
+      isAnonymous,
       gatewayClientScopes,
     }) => {
-      const { send, baseOpts } = await resolveTelegramSendContext({
+      const { sendPollTelegram } = await loadSendModule();
+      return await sendPollTelegram(to, poll, {
         cfg,
-        deps,
-        accountId,
-        replyToId,
-        threadId,
-        silent,
+        accountId: accountId ?? undefined,
+        messageThreadId: parseTelegramThreadId(threadId),
+        silent: silent ?? undefined,
+        isAnonymous: isAnonymous ?? undefined,
         gatewayClientScopes,
       });
-      return await send(to, text, {
-        ...baseOpts,
-        mediaUrl,
-        mediaLocalRoots,
-        mediaReadFile,
-        forceDocument: forceDocument ?? false,
-      });
     },
-  }),
-  sendPayload: async ({
-    cfg,
-    to,
-    payload,
-    mediaLocalRoots,
-    mediaReadFile,
-    accountId,
-    deps,
-    replyToId,
-    threadId,
-    forceDocument,
-    silent,
-    gatewayClientScopes,
-  }) => {
-    // frankclaw: throws DiscordDnrSuppressedError when in DNR window; propagates
-    // to deliver.ts which calls deferDelivery() so the queue entry is not lost.
-    enforceTelegramDnr();
-    const { send, baseOpts } = await resolveTelegramSendContext({
-      cfg,
-      deps,
-      accountId,
-      replyToId,
-      threadId,
-      silent,
-      gatewayClientScopes,
-    });
-    const result = await sendTelegramPayloadMessages({
-      send,
-      to,
-      payload,
-      baseOpts: {
-        ...baseOpts,
-        mediaLocalRoots,
-        mediaReadFile,
-        forceDocument: forceDocument ?? false,
-      },
-    });
-    return attachChannelToResult("telegram", result);
-  },
-};
+  };
+}
+
+export const telegramOutbound: ChannelOutboundAdapter = createTelegramOutboundAdapter();

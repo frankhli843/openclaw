@@ -29,8 +29,10 @@ import { shouldRunMaintenance } from "./store-maintenance-throttle.frankclaw.js"
 import {
   capEntryCount,
   getActiveSessionMaintenanceWarning,
+  pruneQuotaSuspensions,
   pruneStaleEntries,
   shouldRunSessionEntryMaintenance,
+  type QuotaSuspensionMaintenanceResult,
   type ResolvedSessionMaintenanceConfig,
   type SessionMaintenanceWarning,
 } from "./store-maintenance.js";
@@ -460,6 +462,28 @@ export async function updateSessionStore<T>(
   });
 }
 
+export async function runQuotaSuspensionMaintenance(params: {
+  storePath: string;
+  now?: number;
+  ttlMs?: number;
+  log?: boolean;
+}): Promise<QuotaSuspensionMaintenanceResult> {
+  if (!fs.existsSync(params.storePath)) {
+    return { resumed: [], cleared: 0 };
+  }
+  return await updateSessionStore(
+    params.storePath,
+    (store) =>
+      pruneQuotaSuspensions({
+        store,
+        now: params.now ?? Date.now(),
+        ttlMs: params.ttlMs,
+        log: params.log,
+      }),
+    { skipMaintenance: true },
+  );
+}
+
 function getErrorCode(error: unknown): string | null {
   if (!error || typeof error !== "object" || !("code" in error)) {
     return null;
@@ -508,7 +532,7 @@ async function writeSessionStoreAtomic(params: {
   store: Record<string, SessionEntry>;
   serialized: string;
 }): Promise<void> {
-  await writeTextAtomic(params.storePath, params.serialized, { mode: 0o600 });
+  await writeTextAtomic(params.storePath, params.serialized, { durable: false, mode: 0o600 });
   updateSessionStoreWriteCaches({
     storePath: params.storePath,
     store: params.store,
