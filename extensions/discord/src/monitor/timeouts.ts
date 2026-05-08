@@ -1,7 +1,10 @@
 // Compatibility constants for existing imports. Discord no longer enforces
 // channel-owned listener or inbound run timeouts.
 export const DISCORD_DEFAULT_LISTENER_TIMEOUT_MS = 120_000;
-export const DISCORD_DEFAULT_INBOUND_WORKER_TIMEOUT_MS = 3 * 60_000;
+// frankclaw: increased from 3min to 10min. Complex messages (MLS API research,
+// task creation, tool chains) regularly exceed 3min and get dead-lettered.
+// 10min gives the agent time to finish without dropping real messages.
+export const DISCORD_DEFAULT_INBOUND_WORKER_TIMEOUT_MS = 10 * 60_000;
 
 export const DISCORD_ATTACHMENT_IDLE_TIMEOUT_MS = 60_000;
 export const DISCORD_ATTACHMENT_TOTAL_TIMEOUT_MS = 120_000;
