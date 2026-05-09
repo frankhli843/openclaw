@@ -761,7 +761,7 @@ describe("deliverWebReply", () => {
     });
 
     expect(hoisted.runFfmpeg).toHaveBeenCalledWith(
-      expect.arrayContaining(["-c:a", "libopus", "-ar", "48000", "-b:a", "64k"]),
+      expect.arrayContaining(["-c:a", "libopus", "-ar", "48000", "-b:a", "64k", "-f", "ogg"]),
     );
     expect(msg.sendMedia).toHaveBeenCalledWith(
       expect.objectContaining({
