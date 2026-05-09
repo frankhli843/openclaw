@@ -356,6 +356,18 @@ type RunPreparedReplyParams = {
 function resolveCurrentTurnPromptContext(
   ctx: TemplateContext,
 ): CurrentTurnPromptContext | undefined {
+  const replyChain = Array.isArray(ctx.ReplyChain)
+    ? ctx.ReplyChain.filter(
+        (entry) =>
+          entry.body?.trim() ||
+          entry.mediaType?.trim() ||
+          entry.mediaPath?.trim() ||
+          entry.mediaRef?.trim(),
+      )
+    : undefined;
+  if (replyChain && replyChain.length > 0) {
+    return { replyChain };
+  }
   const replyBody = normalizeOptionalString(ctx.ReplyToBody);
   if (!replyBody) {
     return undefined;
@@ -908,13 +920,11 @@ export async function runPreparedReply(
         agentId,
         sessionKey: runtimePolicySessionKey,
       });
-  const resolveAcceptedAuthProfileProviders = (entry: SessionEntry | undefined) =>
+  const resolveAcceptedAuthProfileProviders = () =>
     agentHarnessPolicy
       ? listOpenAIAuthProfileProvidersForAgentRuntime({
           provider,
           harnessRuntime: agentHarnessPolicy.runtime,
-          sessionAgentHarnessId: entry?.agentHarnessId,
-          sessionAgentRuntimeOverride: entry?.agentRuntimeOverride,
         })
       : [provider];
   let authProfileId = useFastReplyRuntime
@@ -923,9 +933,7 @@ export async function runPreparedReply(
         resolveSessionAuthProfileOverride({
           cfg,
           provider,
-          acceptedProviderIds: resolveAcceptedAuthProfileProviders(
-            preparedSessionState.sessionEntry,
-          ),
+          acceptedProviderIds: resolveAcceptedAuthProfileProviders(),
           agentDir,
           sessionEntry: preparedSessionState.sessionEntry,
           sessionStore,
@@ -984,9 +992,7 @@ export async function runPreparedReply(
           : await resolveSessionAuthProfileOverride({
               cfg,
               provider,
-              acceptedProviderIds: resolveAcceptedAuthProfileProviders(
-                preparedSessionState.sessionEntry,
-              ),
+              acceptedProviderIds: resolveAcceptedAuthProfileProviders(),
               agentDir,
               sessionEntry: preparedSessionState.sessionEntry,
               sessionStore,

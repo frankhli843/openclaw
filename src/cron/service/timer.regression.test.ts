@@ -121,6 +121,7 @@ describe("cron service timer regressions", () => {
     expect(state.activeTicks).toBe(1);
     expect(state.running).toBe(true);
     expect(timeoutSpy).toHaveBeenCalled();
+    expect(state.timer).toEqual(expect.anything());
     const delays = timeoutSpy.mock.calls
       .map(([, delay]) => delay)
       .filter((d): d is number => typeof d === "number");
@@ -1096,7 +1097,7 @@ describe("cron service timer regressions", () => {
 
     await onTimer(state);
 
-    expect(state.store?.jobs).toEqual([]);
+    expect(state.store?.jobs).toStrictEqual([]);
     expect(log.warn).not.toHaveBeenCalledWith(
       expect.anything(),
       "cron: applyOutcomeToStoredJob — job not found after forceReload, result discarded",
@@ -1150,7 +1151,7 @@ describe("cron service timer regressions", () => {
 
     await onTimer(state);
 
-    expect(state.store?.jobs).toEqual([]);
+    expect(state.store?.jobs).toStrictEqual([]);
     expect(log.warn).toHaveBeenCalledWith(
       { jobId: failedJob.id },
       "cron: applyOutcomeToStoredJob — job not found after forceReload, result discarded",

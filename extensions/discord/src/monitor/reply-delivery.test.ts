@@ -3,8 +3,11 @@ import type { RuntimeEnv } from "openclaw/plugin-sdk/runtime-env";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RequestClient } from "../internal/discord.js";
 
-const deliverOutboundPayloadsMock = vi.hoisted(() =>
-  vi.fn(async () => [{ messageId: "msg-1", channelId: "channel-1" }]),
+const sendDurableMessageBatchMock = vi.hoisted(() =>
+  vi.fn(async () => ({
+    status: "sent" as const,
+    results: [{ messageId: "msg-1", channelId: "channel-1" }],
+  })),
 );
 const sendMessageDiscordMock = vi.hoisted(() => vi.fn());
 const sendVoiceMessageDiscordMock = vi.hoisted(() => vi.fn());
@@ -29,13 +32,13 @@ vi.mock("openclaw/plugin-sdk/infra-runtime", () => ({
   deferDelivery: dnrMocks.deferDelivery,
 }));
 
-vi.mock("openclaw/plugin-sdk/outbound-runtime", async () => {
-  const actual = await vi.importActual<typeof import("openclaw/plugin-sdk/outbound-runtime")>(
-    "openclaw/plugin-sdk/outbound-runtime",
+vi.mock("openclaw/plugin-sdk/channel-message", async () => {
+  const actual = await vi.importActual<typeof import("openclaw/plugin-sdk/channel-message")>(
+    "openclaw/plugin-sdk/channel-message",
   );
   return {
     ...actual,
-    deliverOutboundPayloads: deliverOutboundPayloadsMock,
+    sendDurableMessageBatch: sendDurableMessageBatchMock,
   };
 });
 
@@ -51,7 +54,7 @@ vi.mock("../send.js", async () => {
 let deliverDiscordReply: typeof import("./reply-delivery.js").deliverDiscordReply;
 
 function firstDeliverParams() {
-  const calls = deliverOutboundPayloadsMock.mock.calls as unknown as Array<
+  const calls = sendDurableMessageBatchMock.mock.calls as unknown as Array<
     [
       {
         cfg?: OpenClawConfig;
@@ -62,7 +65,7 @@ function firstDeliverParams() {
   >;
   const params = calls[0]?.[0];
   if (!params) {
-    throw new Error("deliverOutboundPayloads was not called");
+    throw new Error("sendDurableMessageBatch was not called");
   }
   return params;
 }
@@ -78,8 +81,11 @@ describe("deliverDiscordReply", () => {
   });
 
   beforeEach(() => {
-    deliverOutboundPayloadsMock.mockClear();
-    deliverOutboundPayloadsMock.mockResolvedValue([{ messageId: "msg-1", channelId: "channel-1" }]);
+    sendDurableMessageBatchMock.mockClear();
+    sendDurableMessageBatchMock.mockResolvedValue({
+      status: "sent",
+      results: [{ messageId: "msg-1", channelId: "channel-1" }],
+    });
     sendMessageDiscordMock.mockReset().mockResolvedValue({
       messageId: "msg-1",
       channelId: "channel-1",
@@ -110,7 +116,7 @@ describe("deliverDiscordReply", () => {
       replyToMode: "all",
     });
 
-    expect(deliverOutboundPayloadsMock).toHaveBeenCalledWith(
+    expect(sendDurableMessageBatchMock).toHaveBeenCalledWith(
       expect.objectContaining({
         channel: "discord",
         to: "channel:101",
@@ -131,7 +137,7 @@ describe("deliverDiscordReply", () => {
   });
 
   it("fails when shared outbound accepts a final reply but delivers no Discord message", async () => {
-    deliverOutboundPayloadsMock.mockResolvedValueOnce([]);
+    sendDurableMessageBatchMock.mockResolvedValueOnce({ status: "sent", results: [] });
 
     await expect(
       deliverDiscordReply({
@@ -166,7 +172,7 @@ describe("deliverDiscordReply", () => {
       textLimit: 2000,
     });
 
-    expect(deliverOutboundPayloadsMock).toHaveBeenCalledWith(
+    expect(sendDurableMessageBatchMock).toHaveBeenCalledWith(
       expect.objectContaining({
         payloads: [{ text: "Visible reply." }],
       }),
@@ -189,7 +195,7 @@ describe("deliverDiscordReply", () => {
       textLimit: 2000,
     });
 
-    expect(deliverOutboundPayloadsMock).toHaveBeenCalledWith(
+    expect(sendDurableMessageBatchMock).toHaveBeenCalledWith(
       expect.objectContaining({
         payloads: [{ mediaUrl: "https://example.com/result.png", text: undefined }],
       }),
@@ -230,7 +236,7 @@ describe("deliverDiscordReply", () => {
       textLimit: 2000,
     });
 
-    expect(deliverOutboundPayloadsMock).toHaveBeenCalledWith(
+    expect(sendDurableMessageBatchMock).toHaveBeenCalledWith(
       expect.objectContaining({
         payloads: [{ channelData, text: undefined }],
       }),
@@ -263,7 +269,7 @@ describe("deliverDiscordReply", () => {
       textLimit: 2000,
     });
 
-    expect(deliverOutboundPayloadsMock).toHaveBeenCalledWith(
+    expect(sendDurableMessageBatchMock).toHaveBeenCalledWith(
       expect.objectContaining({
         payloads: [{ presentation, text: undefined }],
       }),
@@ -283,7 +289,7 @@ describe("deliverDiscordReply", () => {
       textLimit: 2000,
     });
 
-    expect(deliverOutboundPayloadsMock).toHaveBeenCalledWith(
+    expect(sendDurableMessageBatchMock).toHaveBeenCalledWith(
       expect.objectContaining({
         payloads: [{ text }],
       }),
@@ -308,7 +314,7 @@ describe("deliverDiscordReply", () => {
       textLimit: 2000,
     });
 
-    expect(deliverOutboundPayloadsMock).toHaveBeenCalledWith(
+    expect(sendDurableMessageBatchMock).toHaveBeenCalledWith(
       expect.objectContaining({
         payloads: [{ text }],
       }),
@@ -374,7 +380,7 @@ describe("deliverDiscordReply", () => {
       mediaLocalRoots: ["/tmp/openclaw-media"],
     });
 
-    expect(deliverOutboundPayloadsMock).toHaveBeenCalledWith(
+    expect(sendDurableMessageBatchMock).toHaveBeenCalledWith(
       expect.objectContaining({
         payloads: replies,
         replyToId: undefined,
@@ -438,7 +444,7 @@ describe("deliverDiscordReply", () => {
       threadBindings,
     });
 
-    expect(deliverOutboundPayloadsMock).toHaveBeenCalledWith(
+    expect(sendDurableMessageBatchMock).toHaveBeenCalledWith(
       expect.objectContaining({
         to: "channel:parent-1",
         threadId: "thread-1",

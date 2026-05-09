@@ -38,7 +38,6 @@ import {
 import { createLiveTargetMatcher } from "../agents/live-target-matcher.js";
 import { isLiveProfileKeyModeEnabled, isLiveTestEnabled } from "../agents/live-test-helpers.js";
 import { getApiKeyForModel, resolveEnvApiKey } from "../agents/model-auth.js";
-import { normalizeStaticProviderModelId } from "../agents/model-ref-shared.js";
 import { normalizeProviderId } from "../agents/model-selection.js";
 import { shouldSuppressBuiltInModel } from "../agents/model-suppression.js";
 import { ensureOpenClawModelsJson } from "../agents/models-config.js";
@@ -119,10 +118,13 @@ function parseFilter(raw?: string): Set<string> | null {
   if (!trimmed || trimmed === "all") {
     return null;
   }
-  const ids = trimmed
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
+  const ids: string[] = [];
+  for (const rawId of trimmed.split(",")) {
+    const id = rawId.trim();
+    if (id.length > 0) {
+      ids.push(id);
+    }
+  }
   return ids.length ? new Set(ids) : null;
 }
 
@@ -395,7 +397,7 @@ function isMeaningful(text: string): boolean {
   if (trimmed.length < 60) {
     return false;
   }
-  const words = trimmed.split(/\s+/g).filter(Boolean);
+  const words = trimmed.split(/\s+/g);
   if (words.length < 12) {
     return false;
   }
@@ -1389,17 +1391,17 @@ function extractTranscriptMessageText(message: unknown): string {
   if (!Array.isArray(record.content)) {
     return "";
   }
-  return record.content
-    .map((entry) => {
-      if (!entry || typeof entry !== "object") {
-        return "";
-      }
+  const textParts: string[] = [];
+  for (const entry of record.content) {
+    if (entry && typeof entry === "object") {
       const text = (entry as { text?: unknown }).text;
-      return typeof text === "string" && text.trim() ? text.trim() : "";
-    })
-    .filter(Boolean)
-    .join("\n")
-    .trim();
+      const trimmed = typeof text === "string" ? text.trim() : "";
+      if (trimmed.length > 0) {
+        textParts.push(trimmed);
+      }
+    }
+  }
+  return textParts.join("\n").trim();
 }
 
 async function readSessionAssistantTexts(sessionKey: string, modelKey?: string): Promise<string[]> {
@@ -1658,9 +1660,11 @@ function parseExplicitLiveModelRef(
   const slash = trimmed.indexOf("/");
   if (slash !== -1) {
     const provider = normalizeProviderId(trimmed.slice(0, slash));
-    const modelId = provider
-      ? normalizeStaticProviderModelId(provider, trimmed.slice(slash + 1)).trim()
-      : "";
+    const rawModelId = trimmed.slice(slash + 1).trim();
+    const modelId =
+      provider === "google" || provider === "google-gemini-cli" || provider === "google-vertex"
+        ? normalizeGoogleModelId(rawModelId)
+        : rawModelId;
     return provider && modelId ? { provider, modelId } : null;
   }
   if (!providerFilter || providerFilter.size !== 1) {

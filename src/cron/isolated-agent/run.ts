@@ -766,8 +766,6 @@ async function prepareCronRunContext(params: {
               agentId,
               sessionKey: agentSessionKey,
             }).runtime,
-            sessionAgentHarnessId: cronSession.sessionEntry.agentHarnessId,
-            sessionAgentRuntimeOverride: cronSession.sessionEntry.agentRuntimeOverride,
           }),
           agentDir,
           sessionEntry: cronSession.sessionEntry,

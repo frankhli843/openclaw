@@ -867,8 +867,6 @@ async function agentCommandInternal(
         const acceptedAuthProviders = listOpenAIAuthProfileProvidersForAgentRuntime({
           provider: providerForAuthProfileValidation,
           harnessRuntime: validationHarnessPolicy.runtime,
-          sessionAgentHarnessId: sessionEntry.agentHarnessId,
-          sessionAgentRuntimeOverride: sessionEntry.agentRuntimeOverride,
         }).map((candidateProvider) =>
           resolveProviderIdForAuth(candidateProvider, { config: cfg, workspaceDir }),
         );
@@ -1070,7 +1068,9 @@ async function agentCommandInternal(
               allowTransientCooldownProbe: runOptions?.allowTransientCooldownProbe,
               sessionHasHistory:
                 !isNewSession || (await attemptExecutionRuntime.sessionFileHasContent(sessionFile)),
-              suppressPromptPersistenceOnRetry: isFallbackRetry && currentTurnUserMessagePersisted,
+              suppressPromptPersistenceOnRetry:
+                opts.suppressPromptPersistence === true ||
+                (isFallbackRetry && currentTurnUserMessagePersisted),
               onUserMessagePersisted: () => {
                 currentTurnUserMessagePersisted = true;
               },

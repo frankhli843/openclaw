@@ -35,10 +35,13 @@ function createDueRecurringJob(params: {
 }
 
 function createDeferred<T>() {
-  let resolve!: (value: T) => void;
+  let resolve: ((value: T) => void) | undefined;
   const promise = new Promise<T>((res) => {
     resolve = res;
   });
+  if (!resolve) {
+    throw new Error("Expected deferred resolver to be initialized");
+  }
   return { promise, resolve };
 }
 
@@ -81,7 +84,9 @@ describe("CronService - timer re-arm when running (#12025)", () => {
     // With overlapping ticks, a second onTimer call proceeds normally.
     await onTimer(state);
 
-    expect(state.timer).not.toBeNull();
+    // The timer must be re-armed so the scheduler continues ticking,
+    // with a fixed 60s delay to avoid hot-looping.
+    expect(state.timer).toEqual(expect.anything());
     expect(timeoutSpy).toHaveBeenCalled();
 
     // state.running still true: pre-existing tick keeps activeTicks > 0.
@@ -139,7 +144,7 @@ describe("CronService - timer re-arm when running (#12025)", () => {
     await Promise.resolve();
     expect(settled).toBe(false);
     expect(state.running).toBe(true);
-    expect(state.timer).not.toBeNull();
+    expect(state.timer).toEqual(expect.anything());
 
     const delays = timeoutSpy.mock.calls
       .map(([, delay]) => delay)

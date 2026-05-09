@@ -979,6 +979,83 @@ describe("runCodexAppServerAttempt", () => {
     expect(queueAgentHarnessMessage("session-1", "after timeout")).toBe(false);
   });
 
+  it("does not count account rate-limit updates as turn completion activity", async () => {
+    let notify: (notification: CodexServerNotification) => Promise<void> = async () => undefined;
+    let handleRequest:
+      | ((request: { id: string; method: string; params?: unknown }) => Promise<unknown>)
+      | undefined;
+    const warn = vi.spyOn(embeddedAgentLog, "warn").mockImplementation(() => undefined);
+    const request = vi.fn(async (method: string) => {
+      if (method === "thread/start") {
+        return threadStartResult("thread-1");
+      }
+      if (method === "turn/start") {
+        return turnStartResult("turn-1", "inProgress");
+      }
+      return {};
+    });
+    __testing.setCodexAppServerClientFactoryForTests(
+      async () =>
+        ({
+          request,
+          addNotificationHandler: (handler: typeof notify) => {
+            notify = handler;
+            return () => undefined;
+          },
+          addRequestHandler: (
+            handler: (request: {
+              id: string;
+              method: string;
+              params?: unknown;
+            }) => Promise<unknown>,
+          ) => {
+            handleRequest = handler;
+            return () => undefined;
+          },
+        }) as never,
+    );
+    const params = createParams(
+      path.join(tempDir, "session.jsonl"),
+      path.join(tempDir, "workspace"),
+    );
+    params.timeoutMs = 60_000;
+
+    const run = runCodexAppServerAttempt(params, {
+      turnCompletionIdleTimeoutMs: 5,
+      turnTerminalIdleTimeoutMs: 60_000,
+    });
+    await vi.waitFor(() => expect(handleRequest).toBeTypeOf("function"), { interval: 1 });
+
+    await expect(
+      handleRequest?.({
+        id: "request-tool-1",
+        method: "item/tool/call",
+        params: {
+          threadId: "thread-1",
+          turnId: "turn-1",
+          callId: "call-1",
+          namespace: null,
+          tool: "message",
+          arguments: { action: "send", text: "already sent" },
+        },
+      }),
+    ).resolves.toMatchObject({ success: false });
+    await notify(rateLimitsUpdated(Math.ceil(Date.now() / 1000) + 120));
+
+    await expect(run).resolves.toMatchObject({
+      aborted: true,
+      timedOut: true,
+      promptError: "codex app-server turn idle timed out waiting for turn/completed",
+    });
+    expect(warn).toHaveBeenCalledWith(
+      "codex app-server turn idle timed out waiting for completion",
+      expect.objectContaining({
+        timeoutMs: 5,
+        lastActivityReason: "request:item/tool/call:response",
+      }),
+    );
+  });
+
   it("keeps waiting when Codex emits a raw assistant item after a dynamic tool response", async () => {
     let notify: (notification: CodexServerNotification) => Promise<void> = async () => undefined;
     let handleRequest:
@@ -1749,16 +1826,20 @@ describe("runCodexAppServerAttempt", () => {
     const sessionFile = path.join(tempDir, "session.jsonl");
     const workspaceDir = path.join(tempDir, "workspace");
     const resetsAt = Math.ceil(Date.now() / 1000) + 120;
-    let harness!: ReturnType<typeof createStartedThreadHarness>;
-    harness = createStartedThreadHarness(async (method) => {
+    const harnessRef: { current?: ReturnType<typeof createStartedThreadHarness> } = {};
+    const harness = createStartedThreadHarness(async (method) => {
       if (method === "turn/start") {
-        await harness.notify(rateLimitsUpdated(resetsAt));
+        if (!harnessRef.current) {
+          throw new Error("Expected Codex app-server harness to be initialized");
+        }
+        await harnessRef.current.notify(rateLimitsUpdated(resetsAt));
         throw Object.assign(new Error("You've reached your usage limit."), {
           data: { codexErrorInfo: "usageLimitExceeded" },
         });
       }
       return undefined;
     });
+    harnessRef.current = harness;
 
     const runError = runCodexAppServerAttempt(createParams(sessionFile, workspaceDir)).catch(
       (error: unknown) => error,
@@ -1982,13 +2063,12 @@ describe("runCodexAppServerAttempt", () => {
     await waitForMethod("turn/start");
 
     expect(queueAgentHarnessMessage("session-1", "more context", { debounceMs: 1 })).toBe(true);
-    await vi.waitFor(
-      () => expect(requests.some((entry) => entry.method === "turn/steer")).toBe(true),
-      { interval: 1 },
-    );
+    await vi.waitFor(() => expect(requests.map((entry) => entry.method)).toContain("turn/steer"), {
+      interval: 1,
+    });
     expect(abortAgentHarnessRun("session-1")).toBe(true);
     await vi.waitFor(
-      () => expect(requests.some((entry) => entry.method === "turn/interrupt")).toBe(true),
+      () => expect(requests.map((entry) => entry.method)).toContain("turn/interrupt"),
       { interval: 1 },
     );
 
@@ -2164,7 +2244,7 @@ describe("runCodexAppServerAttempt", () => {
     params.onBlockReply = vi.fn();
     const run = runCodexAppServerAttempt(params);
     await vi.waitFor(
-      () => expect(request.mock.calls.some(([method]) => method === "turn/start")).toBe(true),
+      () => expect(request.mock.calls.map(([method]) => method)).toContain("turn/start"),
       { interval: 1 },
     );
     await vi.waitFor(() => expect(handleRequest).toBeTypeOf("function"), { interval: 1 });
@@ -2238,7 +2318,7 @@ describe("runCodexAppServerAttempt", () => {
 
       await expect(run).resolves.toMatchObject({ aborted: true });
       await new Promise((resolve) => setImmediate(resolve));
-      expect(unhandledRejections).toEqual([]);
+      expect(unhandledRejections).toStrictEqual([]);
     } finally {
       process.off("unhandledRejection", onUnhandledRejection);
     }
@@ -2409,7 +2489,7 @@ describe("runCodexAppServerAttempt", () => {
     };
     const run = runCodexAppServerAttempt(params);
     await vi.waitFor(() =>
-      expect(request.mock.calls.some(([method]) => method === "turn/start")).toBe(true),
+      expect(request.mock.calls.map(([method]) => method)).toContain("turn/start"),
     );
     await notify({
       method: "turn/completed",
