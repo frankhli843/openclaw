@@ -191,9 +191,9 @@
         },
         {
           "file": "extensions/discord/src/monitor/timeouts.ts",
-          "pattern": "DISCORD_DEFAULT_INBOUND_WORKER_TIMEOUT_MS = 3 \\* 60_000",
+          "pattern": "DISCORD_DEFAULT_INBOUND_WORKER_TIMEOUT_MS = 10 \\* 60_000",
           "minCount": 1,
-          "note": "Chat inbound turns should fail and recover quickly; long work belongs in background workers."
+          "note": "Discord durable worker timeout increased to 10min to accommodate longer agent turns. Long work beyond this still belongs in background workers."
         },
         {
           "file": "extensions/discord/src/monitor/inbound-worker.durable.frankclaw.ts",
