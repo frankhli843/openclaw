@@ -1788,6 +1788,14 @@
     "typescript": "^6.0.3",
     "vitest": "^4.1.5"
   },
+  "peerDependencies": {
+    "vitest": "^4.1.5"
+  },
+  "peerDependenciesMeta": {
+    "vitest": {
+      "optional": true
+    }
+  },
   "optionalDependencies": {
     "sqlite-vec": "0.1.9"
   },
