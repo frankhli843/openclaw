@@ -150,6 +150,7 @@ async function tryRunGatewayRunFastPath(
     { VERSION },
     { emitCliBanner },
     { resolveCliStartupPolicy },
+    { enableConsoleCapture },
   ] = await startupTrace.measure("gateway-run-imports", () =>
     Promise.all([
       import("commander"),
@@ -157,6 +158,7 @@ async function tryRunGatewayRunFastPath(
       import("../version.js"),
       import("./banner.js"),
       import("./command-startup-policy.js"),
+      import("../logging.js"),
     ]),
   );
   const invocation = resolveCliArgvInvocation(argv);
@@ -182,6 +184,7 @@ async function tryRunGatewayRunFastPath(
   addGatewayRunCommand(
     gateway.command("run").description("Run the WebSocket Gateway (foreground)"),
   );
+  enableConsoleCapture();
   try {
     await startupTrace.measure("gateway-run-parse", () => program.parseAsync(argv));
   } catch (error) {
@@ -338,6 +341,21 @@ async function resolveUnownedCliPrimary(params: {
   return primary;
 }
 
+async function resolveUnownedCliPrimaryMessage(params: {
+  primary: string;
+  config: OpenClawConfig;
+}): Promise<string> {
+  const { resolveManifestCommandAliasOwner, resolveManifestToolOwner } =
+    await import("../plugins/manifest-command-aliases.runtime.js");
+  return (
+    resolveMissingPluginCommandMessageFromPolicy(params.primary, params.config, {
+      resolveCommandAliasOwner: resolveManifestCommandAliasOwner,
+      resolveToolOwner: resolveManifestToolOwner,
+    }) ??
+    `Unknown command: openclaw ${params.primary}. No built-in command or plugin CLI metadata owns "${params.primary}".`
+  );
+}
+
 async function bootstrapCliProxyCaptureAndDispatcher(
   startupTrace: ReturnType<typeof createGatewayCliMainStartupTrace>,
   options: { ensureDispatcher?: boolean } = {},
@@ -386,9 +404,11 @@ export async function runCli(argv: string[] = process.argv) {
     return;
   }
   let normalizedArgv = parsedProfile.argv;
+  const normalizedInvocation = resolveCliArgvInvocation(normalizedArgv);
+  const isHelpOrVersionInvocation = normalizedInvocation.hasHelpOrVersion;
   startupTrace.mark("argv");
 
-  if (shouldLoadCliDotEnv()) {
+  if (!isHelpOrVersionInvocation && shouldLoadCliDotEnv()) {
     await startupTrace.measure("dotenv", async () => {
       const { loadCliDotEnv } = await import("./dotenv.js");
       loadCliDotEnv({ quiet: true });
@@ -428,13 +448,11 @@ export async function runCli(argv: string[] = process.argv) {
     proxyHandle = null;
     handle?.kill("SIGTERM");
   };
-  if (shouldStartProxyForCli(normalizedArgv)) {
+  if (!isHelpOrVersionInvocation && shouldStartProxyForCli(normalizedArgv)) {
     const config = await readBestEffortCliConfig();
     const unownedPrimary = await resolveUnownedCliPrimary({ argv: normalizedArgv, config });
     if (unownedPrimary) {
-      throw new Error(
-        `Unknown command: openclaw ${unownedPrimary}. No built-in command or plugin CLI metadata owns "${unownedPrimary}".`,
-      );
+      throw new Error(await resolveUnownedCliPrimaryMessage({ primary: unownedPrimary, config }));
     }
     const { startProxy } = await import("../infra/net/proxy/proxy-lifecycle.js");
     proxyHandle = await startProxy(config?.proxy ?? undefined);
@@ -530,7 +548,8 @@ export async function runCli(argv: string[] = process.argv) {
       return;
     }
 
-    const shouldUseCliEnvProxy = shouldStartProxyForCli(normalizedArgv);
+    const shouldUseCliEnvProxy =
+      !isHelpOrVersionInvocation && shouldStartProxyForCli(normalizedArgv);
     const bootstrapProxyBeforeFastPath =
       shouldUseCliEnvProxy && shouldBootstrapCliProxyBeforeFastPath();
     if (
@@ -540,9 +559,11 @@ export async function runCli(argv: string[] = process.argv) {
       return;
     }
 
-    await bootstrapCliProxyCaptureAndDispatcher(startupTrace, {
-      ensureDispatcher: shouldUseCliEnvProxy,
-    });
+    if (!isHelpOrVersionInvocation) {
+      await bootstrapCliProxyCaptureAndDispatcher(startupTrace, {
+        ensureDispatcher: shouldUseCliEnvProxy,
+      });
+    }
 
     if (
       bootstrapProxyBeforeFastPath &&
@@ -673,13 +694,14 @@ export async function runCli(argv: string[] = process.argv) {
               (command) => command.name() === primary || command.aliases().includes(primary),
             )
           ) {
-            const { resolveManifestCommandAliasOwner } =
+            const { resolveManifestCommandAliasOwner, resolveManifestToolOwner } =
               await import("../plugins/manifest-command-aliases.runtime.js");
             const missingPluginCommandMessage = resolveMissingPluginCommandMessageFromPolicy(
               primary,
               config,
               {
                 resolveCommandAliasOwner: resolveManifestCommandAliasOwner,
+                resolveToolOwner: resolveManifestToolOwner,
               },
             );
             if (missingPluginCommandMessage) {

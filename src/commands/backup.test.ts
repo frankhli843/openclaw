@@ -126,8 +126,7 @@ describe("backup commands", () => {
 
   function expectOnlyAssetKind(assets: Array<{ kind: string }>, kind: string) {
     expect(assets).toHaveLength(1);
-    const [asset] = assets;
-    expect(asset).toMatchObject({ kind });
+    expect(assets.map((asset) => asset.kind)).toStrictEqual([kind]);
   }
 
   it("collapses default config, credentials, and workspace into the state backup root", async () => {
@@ -313,6 +312,51 @@ describe("backup commands", () => {
     } finally {
       delete process.env.OPENCLAW_CONFIG_PATH;
       await fs.rm(externalWorkspace, { recursive: true, force: true });
+      await fs.rm(backupDir, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps volatile-skip notices out of json output", async () => {
+    const stateDir = path.join(tempHome.home, ".openclaw");
+    const backupDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-backups-json-"));
+    try {
+      const runtime = createBackupTestRuntime();
+      await mockStateOnlyBackupPlan(stateDir);
+      tarCreateMock.mockImplementationOnce(
+        async (
+          options: { file: string; filter?: (entryPath: string) => boolean },
+          entryPaths: string[],
+        ) => {
+          const manifestPath = entryPaths[0];
+          const stateRoot = entryPaths[1];
+          expect(manifestPath).toBeDefined();
+          expect(stateRoot).toBeDefined();
+          if (!manifestPath || !stateRoot) {
+            throw new Error("backup test expected manifest and state entries");
+          }
+          expect(options.filter?.(manifestPath)).toBe(true);
+          expect(
+            options.filter?.(path.join(stateRoot, "agents", "main", "sessions", "s.jsonl")),
+          ).toBe(false);
+          await fs.writeFile(options.file, "archive-bytes", "utf8");
+        },
+      );
+
+      const result = await backupCreateCommand(runtime, {
+        output: backupDir,
+        json: true,
+      });
+
+      expect(result.skippedVolatileCount).toBe(1);
+      expect(runtime.log).toHaveBeenCalledTimes(1);
+      const payload = vi.mocked(runtime.log).mock.calls[0]?.[0];
+      if (typeof payload !== "string") {
+        throw new Error("backup test expected JSON string output");
+      }
+      expect(payload).not.toContain("Backup skipped");
+      const parsedPayload = JSON.parse(payload) as { skippedVolatileCount?: unknown };
+      expect(parsedPayload.skippedVolatileCount).toBe(1);
+    } finally {
       await fs.rm(backupDir, { recursive: true, force: true });
     }
   });

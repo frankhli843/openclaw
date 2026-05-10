@@ -1,6 +1,7 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const enqueueSystemEventMock = vi.hoisted(() => vi.fn());
+const requestHeartbeatMock = vi.hoisted(() => vi.fn());
 type DispatchPluginInteractiveHandlerResult = {
   matched: boolean;
   handled: boolean;
@@ -29,12 +30,16 @@ vi.mock("openclaw/plugin-sdk/system-event-runtime", async (importOriginal) => {
   };
 });
 
+vi.mock("openclaw/plugin-sdk/heartbeat-runtime", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("openclaw/plugin-sdk/heartbeat-runtime")>();
+  return {
+    ...actual,
+    requestHeartbeat: (...args: unknown[]) => requestHeartbeatMock(...args),
+  };
+});
+
 vi.mock("openclaw/plugin-sdk/approval-gateway-runtime", () => ({
   resolveApprovalOverGateway: (arg: unknown) => resolveApprovalOverGatewayMock(arg),
-}));
-
-vi.mock("openclaw/plugin-sdk/security-runtime", () => ({
-  readStoreAllowFromForDmPolicy: async () => [],
 }));
 
 vi.mock("../../interactive-dispatch.js", () => ({
@@ -307,7 +312,9 @@ describe("registerSlackInteractionEvents", () => {
   });
 
   beforeEach(() => {
-    enqueueSystemEventMock.mockClear();
+    enqueueSystemEventMock.mockReset();
+    enqueueSystemEventMock.mockReturnValue(true);
+    requestHeartbeatMock.mockClear();
     dispatchPluginInteractiveHandlerMock.mockClear();
     resolvePluginConversationBindingApprovalMock.mockClear();
     resolvePluginConversationBindingApprovalMock.mockResolvedValue({ status: "expired" });
@@ -394,6 +401,7 @@ describe("registerSlackInteractionEvents", () => {
       channelId: "C1",
       channelType: "channel",
       senderId: "U123",
+      threadTs: "100.100",
     });
     expect(trackEvent).toHaveBeenCalledTimes(1);
     expect(app.client.chat.update).toHaveBeenCalledTimes(1);
@@ -642,7 +650,7 @@ describe("registerSlackInteractionEvents", () => {
   });
 
   it("treats Slack reply buttons as plain interaction events instead of plugin dispatch", async () => {
-    const { ctx, app, getHandler } = createContext();
+    const { ctx, app, getHandler, resolveSessionKey } = createContext();
     registerSlackInteractionEvents({ ctx: ctx as never });
 
     const handler = getHandler();
@@ -679,8 +687,31 @@ describe("registerSlackInteractionEvents", () => {
     expect(dispatchPluginInteractiveHandlerMock).not.toHaveBeenCalled();
     expect(enqueueSystemEventMock).toHaveBeenCalledWith(
       expect.stringContaining('"actionId":"openclaw:reply_button"'),
-      expect.any(Object),
+      expect.objectContaining({
+        contextKey: "slack:interaction:C1:100.200:openclaw:reply_button",
+        deliveryContext: {
+          accountId: "default",
+          channel: "slack",
+          threadId: "100.100",
+          to: "channel:C1",
+        },
+        sessionKey: "agent:ops:slack:channel:C1",
+        trusted: false,
+      }),
     );
+    expect(resolveSessionKey).toHaveBeenCalledWith({
+      channelId: "C1",
+      channelType: "channel",
+      senderId: "U123",
+      threadTs: "100.100",
+    });
+    expect(requestHeartbeatMock).toHaveBeenCalledWith({
+      source: "hook",
+      intent: "immediate",
+      reason: "hook:slack-interaction",
+      sessionKey: "agent:ops:slack:channel:C1",
+      heartbeat: { target: "last" },
+    });
     expect(app.client.chat.update).toHaveBeenCalledTimes(1);
   });
 
@@ -1459,6 +1490,7 @@ describe("registerSlackInteractionEvents", () => {
       channelId: "C222",
       channelType: "channel",
       senderId: "U111",
+      threadTs: "222.111",
     });
     expect(enqueueSystemEventMock).toHaveBeenCalledTimes(1);
     const [eventText] = enqueueSystemEventMock.mock.calls[0] as [string];

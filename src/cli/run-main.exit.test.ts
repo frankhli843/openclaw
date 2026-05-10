@@ -23,6 +23,8 @@ const registerCoreCliByNameMock = vi.hoisted(() => vi.fn());
 const registerSubCliByNameMock = vi.hoisted(() => vi.fn());
 const registerPluginCliCommandsFromValidatedConfigMock = vi.hoisted(() => vi.fn(async () => ({})));
 const resolvePluginCliRootOwnerIdsMock = vi.hoisted(() => vi.fn());
+const resolveManifestCommandAliasOwnerMock = vi.hoisted(() => vi.fn());
+const resolveManifestToolOwnerMock = vi.hoisted(() => vi.fn());
 const restoreTerminalStateMock = vi.hoisted(() => vi.fn());
 const hasEnvHttpProxyAgentConfiguredMock = vi.hoisted(() => vi.fn(() => false));
 const ensureGlobalUndiciEnvProxyDispatcherMock = vi.hoisted(() => vi.fn());
@@ -32,6 +34,7 @@ const runCrestodianMock = vi.hoisted(() =>
 const commanderParseAsyncMock = vi.hoisted(() => vi.fn(async () => {}));
 const addGatewayRunCommandMock = vi.hoisted(() => vi.fn((command: unknown) => command));
 const emitCliBannerMock = vi.hoisted(() => vi.fn());
+const enableConsoleCaptureMock = vi.hoisted(() => vi.fn());
 const progressDoneMock = vi.hoisted(() => vi.fn());
 const createCliProgressMock = vi.hoisted(() =>
   vi.fn(() => ({
@@ -91,6 +94,11 @@ vi.mock("../version.js", () => ({
 
 vi.mock("./banner.js", () => ({
   emitCliBanner: emitCliBannerMock,
+}));
+
+vi.mock("../logging.js", async () => ({
+  ...(await vi.importActual<typeof import("../logging.js")>("../logging.js")),
+  enableConsoleCapture: enableConsoleCaptureMock,
 }));
 
 vi.mock("./container-target.js", () => ({
@@ -170,6 +178,11 @@ vi.mock("../plugins/cli-registry-loader.js", () => ({
   resolvePluginCliRootOwnerIds: resolvePluginCliRootOwnerIdsMock,
 }));
 
+vi.mock("../plugins/manifest-command-aliases.runtime.js", () => ({
+  resolveManifestCommandAliasOwner: resolveManifestCommandAliasOwnerMock,
+  resolveManifestToolOwner: resolveManifestToolOwnerMock,
+}));
+
 vi.mock("../terminal/restore.js", () => ({
   restoreTerminalState: restoreTerminalStateMock,
 }));
@@ -237,6 +250,8 @@ describe("runCli exit behavior", () => {
       ({ primaryCommand }: { primaryCommand?: string }) =>
         primaryCommand === "googlemeet" ? ["google-meet"] : [],
     );
+    resolveManifestCommandAliasOwnerMock.mockReturnValue(undefined);
+    resolveManifestToolOwnerMock.mockReturnValue(undefined);
     delete process.env.OPENCLAW_DISABLE_CLI_STARTUP_HELP_FAST_PATH;
     delete process.env.OPENCLAW_HIDE_BANNER;
   });
@@ -314,6 +329,17 @@ describe("runCli exit behavior", () => {
       "gateway",
       "--force",
     ]);
+  });
+
+  it("installs console capture before parsing the gateway foreground fast path", async () => {
+    await runCli(["node", "openclaw", "gateway", "--force"]);
+
+    expect(enableConsoleCaptureMock).toHaveBeenCalledTimes(1);
+    expect(commanderParseAsyncMock).toHaveBeenCalledTimes(1);
+    const captureOrder = enableConsoleCaptureMock.mock.invocationCallOrder[0] ?? 0;
+    const parseOrder = commanderParseAsyncMock.mock.invocationCallOrder[0] ?? 0;
+    expect(captureOrder).toBeGreaterThan(0);
+    expect(parseOrder).toBeGreaterThan(captureOrder);
   });
 
   it("honors banner suppression on the gateway foreground fast path", async () => {
@@ -459,6 +485,22 @@ describe("runCli exit behavior", () => {
     expect(startProxyMock).not.toHaveBeenCalled();
     expect(tryRouteCliMock).not.toHaveBeenCalled();
     expect(buildProgramMock).not.toHaveBeenCalled();
+    expect(registerPluginCliCommandsFromValidatedConfigMock).not.toHaveBeenCalled();
+  });
+
+  it("reports plugin tool command mistakes before proxy startup", async () => {
+    resolveManifestToolOwnerMock.mockReturnValueOnce({
+      toolName: "lcm_recent",
+      pluginId: "lossless-claw",
+      availability: "loaded",
+    });
+
+    await expect(runCli(["node", "openclaw", "lcm_recent"])).rejects.toThrow(
+      '"lcm_recent" is an agent tool available from the "lossless-claw" plugin',
+    );
+
+    expect(startProxyMock).not.toHaveBeenCalled();
+    expect(tryRouteCliMock).not.toHaveBeenCalled();
     expect(registerPluginCliCommandsFromValidatedConfigMock).not.toHaveBeenCalled();
   });
 

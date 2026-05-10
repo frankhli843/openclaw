@@ -2983,6 +2983,10 @@ public struct TalkClientCreateParams: Codable, Sendable {
     public let provider: String?
     public let model: String?
     public let voice: String?
+    public let vadthreshold: Double?
+    public let silencedurationms: Int?
+    public let prefixpaddingms: Int?
+    public let reasoningeffort: String?
     public let mode: AnyCodable?
     public let transport: AnyCodable?
     public let brain: AnyCodable?
@@ -2992,6 +2996,10 @@ public struct TalkClientCreateParams: Codable, Sendable {
         provider: String?,
         model: String?,
         voice: String?,
+        vadthreshold: Double?,
+        silencedurationms: Int?,
+        prefixpaddingms: Int?,
+        reasoningeffort: String?,
         mode: AnyCodable?,
         transport: AnyCodable?,
         brain: AnyCodable?)
@@ -3000,6 +3008,10 @@ public struct TalkClientCreateParams: Codable, Sendable {
         self.provider = provider
         self.model = model
         self.voice = voice
+        self.vadthreshold = vadthreshold
+        self.silencedurationms = silencedurationms
+        self.prefixpaddingms = prefixpaddingms
+        self.reasoningeffort = reasoningeffort
         self.mode = mode
         self.transport = transport
         self.brain = brain
@@ -3010,6 +3022,10 @@ public struct TalkClientCreateParams: Codable, Sendable {
         case provider
         case model
         case voice
+        case vadthreshold = "vadThreshold"
+        case silencedurationms = "silenceDurationMs"
+        case prefixpaddingms = "prefixPaddingMs"
+        case reasoningeffort = "reasoningEffort"
         case mode
         case transport
         case brain
@@ -3163,6 +3179,10 @@ public struct TalkSessionCreateParams: Codable, Sendable {
     public let provider: String?
     public let model: String?
     public let voice: String?
+    public let vadthreshold: Double?
+    public let silencedurationms: Int?
+    public let prefixpaddingms: Int?
+    public let reasoningeffort: String?
     public let mode: AnyCodable?
     public let transport: AnyCodable?
     public let brain: AnyCodable?
@@ -3173,6 +3193,10 @@ public struct TalkSessionCreateParams: Codable, Sendable {
         provider: String?,
         model: String?,
         voice: String?,
+        vadthreshold: Double?,
+        silencedurationms: Int?,
+        prefixpaddingms: Int?,
+        reasoningeffort: String?,
         mode: AnyCodable?,
         transport: AnyCodable?,
         brain: AnyCodable?,
@@ -3182,6 +3206,10 @@ public struct TalkSessionCreateParams: Codable, Sendable {
         self.provider = provider
         self.model = model
         self.voice = voice
+        self.vadthreshold = vadthreshold
+        self.silencedurationms = silencedurationms
+        self.prefixpaddingms = prefixpaddingms
+        self.reasoningeffort = reasoningeffort
         self.mode = mode
         self.transport = transport
         self.brain = brain
@@ -3193,6 +3221,10 @@ public struct TalkSessionCreateParams: Codable, Sendable {
         case provider
         case model
         case voice
+        case vadthreshold = "vadThreshold"
+        case silencedurationms = "silenceDurationMs"
+        case prefixpaddingms = "prefixPaddingMs"
+        case reasoningeffort = "reasoningEffort"
         case mode
         case transport
         case brain
@@ -3406,21 +3438,25 @@ public struct TalkSessionSubmitToolResultParams: Codable, Sendable {
     public let sessionid: String
     public let callid: String
     public let result: AnyCodable
+    public let options: [String: AnyCodable]?
 
     public init(
         sessionid: String,
         callid: String,
-        result: AnyCodable)
+        result: AnyCodable,
+        options: [String: AnyCodable]?)
     {
         self.sessionid = sessionid
         self.callid = callid
         self.result = result
+        self.options = options
     }
 
     private enum CodingKeys: String, CodingKey {
         case sessionid = "sessionId"
         case callid = "callId"
         case result
+        case options
     }
 }
 
@@ -4874,6 +4910,80 @@ public struct SkillsDetailResult: Codable, Sendable {
     }
 }
 
+public struct SkillsUploadBeginParams: Codable, Sendable {
+    public let kind: String
+    public let slug: String
+    public let sizebytes: Int
+    public let sha256: String?
+    public let force: Bool?
+    public let idempotencykey: String?
+
+    public init(
+        kind: String,
+        slug: String,
+        sizebytes: Int,
+        sha256: String?,
+        force: Bool?,
+        idempotencykey: String?)
+    {
+        self.kind = kind
+        self.slug = slug
+        self.sizebytes = sizebytes
+        self.sha256 = sha256
+        self.force = force
+        self.idempotencykey = idempotencykey
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case kind
+        case slug
+        case sizebytes = "sizeBytes"
+        case sha256
+        case force
+        case idempotencykey = "idempotencyKey"
+    }
+}
+
+public struct SkillsUploadChunkParams: Codable, Sendable {
+    public let uploadid: String
+    public let offset: Int
+    public let database64: String
+
+    public init(
+        uploadid: String,
+        offset: Int,
+        database64: String)
+    {
+        self.uploadid = uploadid
+        self.offset = offset
+        self.database64 = database64
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case uploadid = "uploadId"
+        case offset
+        case database64 = "dataBase64"
+    }
+}
+
+public struct SkillsUploadCommitParams: Codable, Sendable {
+    public let uploadid: String
+    public let sha256: String?
+
+    public init(
+        uploadid: String,
+        sha256: String?)
+    {
+        self.uploadid = uploadid
+        self.sha256 = sha256
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case uploadid = "uploadId"
+        case sha256
+    }
+}
+
 public struct CronJob: Codable, Sendable {
     public let id: String
     public let agentid: String?
@@ -5819,6 +5929,7 @@ public struct ChatSendParams: Codable, Sendable {
     public let sessionid: String?
     public let message: String
     public let thinking: String?
+    public let fastmode: Bool?
     public let deliver: Bool?
     public let originatingchannel: String?
     public let originatingto: String?
@@ -5835,6 +5946,7 @@ public struct ChatSendParams: Codable, Sendable {
         sessionid: String?,
         message: String,
         thinking: String?,
+        fastmode: Bool?,
         deliver: Bool?,
         originatingchannel: String?,
         originatingto: String?,
@@ -5850,6 +5962,7 @@ public struct ChatSendParams: Codable, Sendable {
         self.sessionid = sessionid
         self.message = message
         self.thinking = thinking
+        self.fastmode = fastmode
         self.deliver = deliver
         self.originatingchannel = originatingchannel
         self.originatingto = originatingto
@@ -5867,6 +5980,7 @@ public struct ChatSendParams: Codable, Sendable {
         case sessionid = "sessionId"
         case message
         case thinking
+        case fastmode = "fastMode"
         case deliver
         case originatingchannel = "originatingChannel"
         case originatingto = "originatingTo"

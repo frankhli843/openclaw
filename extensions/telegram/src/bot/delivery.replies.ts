@@ -702,6 +702,7 @@ export async function deliverReplies(params: {
   replyQuoteByMessageId?: TelegramNativeQuoteCandidateByMessageId;
   /** Override media loader (tests). */
   mediaLoader?: typeof loadWebMedia;
+  transcriptMirror?: (payload: { text?: string; mediaUrls?: string[] }) => Promise<void> | void;
 }): Promise<{ delivered: boolean }> {
   // Enforce Telegram DNR quiet hours (frankclaw extension).
   // Throws DiscordDnrSuppressedError when in DNR window; propagates to deliver.ts
@@ -728,6 +729,8 @@ export async function deliverReplies(params: {
     deliveredCount: 0,
   };
   const mediaLoader = params.mediaLoader ?? loadWebMedia;
+  const transcriptMirror = params.transcriptMirror;
+  const deliveredContents: Array<{ text: string; mediaUrls: string[] }> = [];
   const hookRunner = getGlobalHookRunner();
   const hasMessageSendingHooks = hookRunner?.hasHooks("message_sending") ?? false;
   const hasMessageSentHooks = hookRunner?.hasHooks("message_sent") ?? false;
@@ -892,6 +895,10 @@ export async function deliverReplies(params: {
         firstDeliveredMessageId,
       });
 
+      if (progress.deliveredCount > deliveredCountBeforeReply && transcriptMirror) {
+        deliveredContents.push({ text: contentForSentHook, mediaUrls: mediaList });
+      }
+
       emitMessageSentHooks({
         hookRunner,
         enabled: hasMessageSentHooks,
@@ -918,6 +925,24 @@ export async function deliverReplies(params: {
         groupId: params.mirrorGroupId,
       });
       throw error;
+    }
+  }
+
+  if (progress.hasDelivered && transcriptMirror) {
+    const text = deliveredContents
+      .map((content) => content.text)
+      .filter(Boolean)
+      .join("\n\n");
+    const mediaUrls = deliveredContents.flatMap((content) => content.mediaUrls);
+    if (text || mediaUrls.length > 0) {
+      try {
+        await transcriptMirror({
+          text: text || undefined,
+          mediaUrls: mediaUrls.length > 0 ? mediaUrls : undefined,
+        });
+      } catch (mirrorErr) {
+        logVerbose(`telegram transcriptMirror failed: ${formatErrorMessage(mirrorErr)}`);
+      }
     }
   }
 

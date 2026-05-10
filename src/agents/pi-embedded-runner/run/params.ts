@@ -1,6 +1,9 @@
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { ImageContent } from "@mariozechner/pi-ai";
-import type { SourceReplyDeliveryMode } from "../../../auto-reply/get-reply-options.types.js";
+import type {
+  PartialReplyPayload,
+  SourceReplyDeliveryMode,
+} from "../../../auto-reply/get-reply-options.types.js";
 import type { ReplyPayload } from "../../../auto-reply/reply-payload.js";
 import type { ReplyOperation } from "../../../auto-reply/reply/reply-run-registry.js";
 import type { ReasoningLevel, ThinkLevel, VerboseLevel } from "../../../auto-reply/thinking.js";
@@ -26,29 +29,7 @@ export type { ClientToolDefinition } from "../../command/shared-types.js";
 export type EmbeddedRunTrigger = "cron" | "heartbeat" | "manual" | "memory" | "overflow" | "user";
 
 export type CurrentTurnPromptContext = {
-  reply?: {
-    body: string;
-    senderLabel?: string;
-    isQuote?: boolean;
-  };
-  replyChain?: Array<{
-    messageId?: string;
-    threadId?: string;
-    sender?: string;
-    senderId?: string;
-    senderUsername?: string;
-    timestamp?: number;
-    body?: string;
-    isQuote?: boolean;
-    mediaType?: string;
-    mediaPath?: string;
-    mediaRef?: string;
-    replyToId?: string;
-    forwardedFrom?: string;
-    forwardedFromId?: string;
-    forwardedFromUsername?: string;
-    forwardedDate?: number;
-  }>;
+  text: string;
 };
 
 export type RunEmbeddedPiAgentParams = {
@@ -173,7 +154,7 @@ export type RunEmbeddedPiAgentParams = {
   replyOperation?: ReplyOperation;
   shouldEmitToolResult?: () => boolean;
   shouldEmitToolOutput?: () => boolean;
-  onPartialReply?: (payload: { text?: string; mediaUrls?: string[] }) => void | Promise<void>;
+  onPartialReply?: (payload: PartialReplyPayload) => void | Promise<void>;
   onAssistantMessageStart?: () => void | Promise<void>;
   onBlockReply?: (payload: BlockReplyPayload) => void | Promise<void>;
   onBlockReplyFlush?: () => void | Promise<void>;

@@ -32,6 +32,7 @@ import { countActiveRunsForSession, registerSubagentRun } from "./subagent-regis
 import { resolveSubagentSpawnAcceptedNote } from "./subagent-spawn-accepted-note.js";
 import { runSpawnSubagentWithDurableQueue } from "./subagent-spawn.frankclaw.js";
 import { resolveSubagentTargetPolicy } from "./subagent-target-policy.js";
+import { normalizeSubagentTaskName } from "./subagent-task-name.js";
 export {
   SUBAGENT_SPAWN_ACCEPTED_NOTE,
   SUBAGENT_SPAWN_SESSION_ACCEPTED_NOTE,
@@ -75,9 +76,6 @@ import {
   isAdminOnlyMethod,
 } from "./subagent-spawn.runtime.js";
 import {
-  SUBAGENT_SPAWN_CONTEXT_MODES,
-  SUBAGENT_SPAWN_MODES,
-  SUBAGENT_SPAWN_SANDBOX_MODES,
   type SpawnSubagentContextMode,
   type SpawnSubagentMode,
   type SpawnSubagentSandboxMode,
@@ -644,6 +642,14 @@ async function spawnSubagentDirectCore(
   ctx: SpawnSubagentContext,
 ): Promise<SpawnSubagentResult> {
   const task = params.task;
+  const taskNameResult = normalizeSubagentTaskName(params.taskName);
+  if (taskNameResult.error) {
+    return {
+      status: "error",
+      error: taskNameResult.error,
+    };
+  }
+  const taskName = taskNameResult.taskName;
   const label = params.label?.trim() || "";
   const requestedAgentId = params.agentId?.trim();
 
@@ -1201,6 +1207,7 @@ async function spawnSubagentDirectCore(
       requesterOrigin,
       requesterDisplayKey,
       task,
+      taskName,
       cleanup,
       label: label || undefined,
       model: resolvedModel,
@@ -1288,6 +1295,7 @@ async function spawnSubagentDirectCore(
     childSessionKey,
     runId: childRunId,
     mode: spawnMode,
+    taskName,
     note: preparedSpawnContext.forkFallbackNote
       ? `${acceptedNote} ${preparedSpawnContext.forkFallbackNote}`
       : acceptedNote,
