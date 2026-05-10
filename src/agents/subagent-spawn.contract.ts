@@ -9,6 +9,7 @@ export type SpawnSubagentParams = {
   label?: string;
   agentId?: string;
   model?: string;
+  taskName?: string;
   thinking?: string;
   runTimeoutSeconds?: number;
   thread?: boolean;
@@ -47,6 +48,7 @@ export type SpawnSubagentResult = {
   childSessionKey?: string;
   runId?: string;
   mode?: SpawnSubagentMode;
+  taskName?: string;
   note?: string;
   modelApplied?: boolean;
   error?: string;
