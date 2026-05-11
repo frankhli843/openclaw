@@ -474,7 +474,11 @@ describe("server-channels auto restart", () => {
       () => hoisted.sleepWithAbort.mock.calls.length > 0,
       "expected recovery restart backoff to be scheduled",
     );
-    expect(hoisted.sleepWithAbort).toHaveBeenCalledWith(10, expect.any(AbortSignal));
+    const sleepCall = hoisted.sleepWithAbort.mock.calls[0] as
+      | [number, AbortSignal | undefined]
+      | undefined;
+    expect(sleepCall?.[0]).toBe(10);
+    expect(sleepCall?.[1]).toBeInstanceOf(AbortSignal);
 
     await manager.stopChannel("discord", DEFAULT_ACCOUNT_ID);
     await vi.advanceTimersByTimeAsync(10);
@@ -531,7 +535,9 @@ describe("server-channels auto restart", () => {
     await manager.startChannels();
     expect(startAccount).toHaveBeenCalledTimes(1);
     const [ctx] = startAccount.mock.calls[0] ?? [];
-    expect(ctx?.channelRuntime).toMatchObject({ marker: "channel-runtime" });
+    expect((ctx?.channelRuntime as { marker?: string } | undefined)?.marker).toBe(
+      "channel-runtime",
+    );
     expect(ctx?.channelRuntime).not.toBe(channelRuntime);
   });
 
@@ -622,7 +628,9 @@ describe("server-channels auto restart", () => {
     expect(resolveChannelRuntime).toHaveBeenCalledTimes(1);
     expect(startAccount).toHaveBeenCalledTimes(1);
     const [ctx] = startAccount.mock.calls[0] ?? [];
-    expect(ctx?.channelRuntime).toMatchObject({ marker: "lazy-channel-runtime" });
+    expect((ctx?.channelRuntime as { marker?: string } | undefined)?.marker).toBe(
+      "lazy-channel-runtime",
+    );
     expect(ctx?.channelRuntime).not.toBe(channelRuntime);
   });
 
@@ -648,7 +656,9 @@ describe("server-channels auto restart", () => {
     expect(resolveChannelRuntime).not.toHaveBeenCalled();
     expect(startAccount).toHaveBeenCalledTimes(1);
     const [ctx] = startAccount.mock.calls[0] ?? [];
-    expect(ctx?.channelRuntime).toMatchObject({ marker: "startup-channel-runtime" });
+    expect((ctx?.channelRuntime as { marker?: string } | undefined)?.marker).toBe(
+      "startup-channel-runtime",
+    );
     expect(ctx?.channelRuntime).not.toBe(startupRuntime);
   });
 
@@ -673,7 +683,9 @@ describe("server-channels auto restart", () => {
     expect(resolveStartupChannelRuntime).not.toHaveBeenCalled();
     expect(resolveChannelRuntime).toHaveBeenCalledTimes(1);
     const [ctx] = startAccount.mock.calls[0] ?? [];
-    expect(ctx?.channelRuntime).toMatchObject({ marker: "full-channel-runtime" });
+    expect((ctx?.channelRuntime as { marker?: string } | undefined)?.marker).toBe(
+      "full-channel-runtime",
+    );
   });
 
   it("does not resolve channelRuntime for disabled accounts", async () => {
@@ -786,14 +798,10 @@ describe("server-channels auto restart", () => {
     await manager.startChannels();
 
     const names = measureMock.mock.calls.map(([name]) => name);
-    expect(names).toEqual(
-      expect.arrayContaining([
-        "channels.discord.start",
-        "channels.discord.list-accounts",
-        "channels.discord.runtime",
-        "channels.discord.approval-bootstrap",
-      ]),
-    );
+    expect(names).toContain("channels.discord.start");
+    expect(names).toContain("channels.discord.list-accounts");
+    expect(names).toContain("channels.discord.runtime");
+    expect(names).toContain("channels.discord.approval-bootstrap");
   });
 
   it("limits whole-channel account startup fanout to four", async () => {

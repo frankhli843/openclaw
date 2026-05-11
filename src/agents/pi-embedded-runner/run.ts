@@ -32,9 +32,8 @@ import {
   type AuthProfileFailureReason,
   type AuthProfileStore,
   markAuthProfileFailure,
+  markAuthProfileSuccess,
   resolveAuthProfileEligibility,
-  markAuthProfileGood,
-  markAuthProfileUsed,
 } from "../auth-profiles.js";
 import { listActiveProcessSessionReferences } from "../bash-process-references.js";
 import {
@@ -418,6 +417,15 @@ export async function runEmbeddedPiAgent(
       const started = Date.now();
       const startupStages = createEmbeddedRunStageTracker();
       let startupStagesEmitted = false;
+      const notifyExecutionPhase = (
+        phase: Parameters<NonNullable<RunEmbeddedPiAgentParams["onExecutionPhase"]>>[0]["phase"],
+        extra?: Omit<
+          Parameters<NonNullable<RunEmbeddedPiAgentParams["onExecutionPhase"]>>[0],
+          "phase"
+        >,
+      ) => {
+        params.onExecutionPhase?.({ phase, ...extra });
+      };
       const emitStartupStageSummary = (phase: string) => {
         const summary = startupStages.snapshot();
         const shouldWarn = shouldWarnEmbeddedRunStageSummary(summary);
@@ -435,6 +443,7 @@ export async function runEmbeddedPiAgent(
         }
       };
       params.onExecutionStarted?.();
+      notifyExecutionPhase("runner_entered");
       const workspaceResolution = resolveRunWorkspaceDir({
         workspaceDir: params.workspaceDir,
         sessionKey: params.sessionKey,
@@ -455,12 +464,14 @@ export async function runEmbeddedPiAgent(
         );
       }
       startupStages.mark("workspace");
+      notifyExecutionPhase("workspace");
       ensureRuntimePluginsLoaded({
         config: params.config,
         workspaceDir: resolvedWorkspace,
         allowGatewaySubagentBinding: params.allowGatewaySubagentBinding,
       });
       startupStages.mark("runtime-plugins");
+      notifyExecutionPhase("runtime_plugins");
 
       let provider = (params.provider ?? DEFAULT_PROVIDER).trim() || DEFAULT_PROVIDER;
       let modelId = (params.model ?? DEFAULT_MODEL).trim() || DEFAULT_MODEL;
@@ -586,6 +597,7 @@ export async function runEmbeddedPiAgent(
       const ctxInfo = resolvedRuntimeModel.ctxInfo;
       let effectiveModel = resolvedRuntimeModel.effectiveModel;
       startupStages.mark("model-resolution");
+      notifyExecutionPhase("model_resolution", { provider, model: modelId });
 
       const authStore = pluginHarnessOwnsTransport
         ? createEmptyAuthProfileStore()
@@ -796,6 +808,7 @@ export async function runEmbeddedPiAgent(
         lastProfileId = forwardedPluginHarnessProfileId;
       }
       startupStages.mark("auth");
+      notifyExecutionPhase("auth", { provider, model: modelId });
       const runAttemptAuthProfileStore = pluginHarnessOwnsTransport
         ? createScopedAuthProfileStore(attemptAuthProfileStore, lastProfileId)
         : attemptAuthProfileStore;
@@ -987,6 +1000,7 @@ export async function runEmbeddedPiAgent(
       });
       const contextEnginePluginId = resolveContextEngineOwnerPluginId(contextEngine);
       startupStages.mark("context-engine");
+      notifyExecutionPhase("context_engine", { provider, model: modelId });
       try {
         const resolveActiveHookContext = () => ({
           ...hookCtx,
@@ -1155,6 +1169,7 @@ export async function runEmbeddedPiAgent(
           });
           if (!startupStagesEmitted) {
             startupStages.mark("attempt-dispatch");
+            notifyExecutionPhase("attempt_dispatch", { provider, model: modelId });
             emitStartupStageSummary("attempt-dispatch");
             startupStagesEmitted = true;
           }
@@ -1262,6 +1277,7 @@ export async function runEmbeddedPiAgent(
             onReasoningEnd: params.onReasoningEnd,
             onToolResult: params.onToolResult,
             onAgentEvent: params.onAgentEvent,
+            onExecutionPhase: params.onExecutionPhase,
             extraSystemPrompt: params.extraSystemPrompt,
             sourceReplyDeliveryMode: params.sourceReplyDeliveryMode,
             inputProvenance: params.inputProvenance,
@@ -2865,14 +2881,9 @@ export async function runEmbeddedPiAgent(
             `embedded run done: runId=${params.runId} sessionId=${params.sessionId} durationMs=${Date.now() - started} aborted=${aborted}`,
           );
           if (lastProfileId) {
-            await markAuthProfileGood({
+            await markAuthProfileSuccess({
               store: authStore,
               provider,
-              profileId: lastProfileId,
-              agentDir: params.agentDir,
-            });
-            await markAuthProfileUsed({
-              store: authStore,
               profileId: lastProfileId,
               agentDir: params.agentDir,
             });

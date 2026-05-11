@@ -142,6 +142,7 @@ async function loadChannelBootstrapRuntime() {
 type ChannelHandler = {
   chunker: ChannelOutboundAdapter["chunker"] | null;
   chunkerMode?: "text" | "markdown";
+  chunkedTextFormatting?: OutboundDeliveryFormattingOptions;
   textChunkLimit?: number;
   supportsMedia: boolean;
   sanitizeText?: (payload: ReplyPayload) => string;
@@ -351,6 +352,7 @@ function createPluginHandler(
     replyToIdSource?: "explicit" | "implicit";
     threadId?: string | number | null;
     audioAsVoice?: boolean;
+    formatting?: OutboundDeliveryFormattingOptions;
   }): Omit<ChannelOutboundContext, "text" | "mediaUrl"> => ({
     ...baseCtx,
     replyToId: overrides && "replyToId" in overrides ? overrides.replyToId : baseCtx.replyToId,
@@ -360,6 +362,10 @@ function createPluginHandler(
         : baseCtx.replyToIdSource,
     threadId: overrides && "threadId" in overrides ? overrides.threadId : baseCtx.threadId,
     audioAsVoice: overrides?.audioAsVoice,
+    formatting:
+      overrides && "formatting" in overrides
+        ? { ...baseCtx.formatting, ...overrides.formatting }
+        : baseCtx.formatting,
   });
   const buildTargetRef = (overrides?: {
     threadId?: string | number | null;
@@ -372,13 +378,19 @@ function createPluginHandler(
   return {
     chunker,
     chunkerMode,
+    chunkedTextFormatting: outbound?.chunkedTextFormatting,
     textChunkLimit: outbound?.textChunkLimit,
     supportsMedia: Boolean(messageMedia ?? sendMedia),
     sanitizeText: outbound?.sanitizeText
       ? (payload) => outbound.sanitizeText!({ text: payload.text ?? "", payload })
       : undefined,
     normalizePayload: outbound?.normalizePayload
-      ? (payload) => outbound.normalizePayload!({ payload })
+      ? (payload) =>
+          outbound.normalizePayload!({
+            payload,
+            cfg: params.cfg,
+            accountId: params.accountId,
+          })
       : undefined,
     sendTextOnlyErrorPayloads: outbound?.sendTextOnlyErrorPayloads === true,
     renderPresentation: outbound?.renderPresentation
@@ -1407,6 +1419,7 @@ async function deliverOutboundPayloadsCore(
       overrides,
       chunker: handler.chunker,
       chunkerMode: handler.chunkerMode,
+      chunkedTextFormatting: handler.chunkedTextFormatting,
       textLimit,
       chunkMode,
       formatting: params.formatting,

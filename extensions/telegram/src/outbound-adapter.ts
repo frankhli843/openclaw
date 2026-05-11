@@ -9,6 +9,7 @@ import {
   renderMessagePresentationFallbackText,
 } from "openclaw/plugin-sdk/interactive-runtime";
 import { sanitizeForPlainText } from "openclaw/plugin-sdk/outbound-runtime";
+import type { OutboundDeliveryFormattingOptions } from "openclaw/plugin-sdk/outbound-runtime";
 import {
   resolveOutboundSendDep,
   type OutboundSendDeps,
@@ -22,7 +23,7 @@ import { createSubsystemLogger } from "openclaw/plugin-sdk/runtime-env";
 import { enforceDiscordDnrWindow } from "../../../src/infra/outbound/discord-dnr.js";
 import type { TelegramInlineButtons } from "./button-types.js";
 import { resolveTelegramInlineButtons } from "./button-types.js";
-import { markdownToTelegramHtmlChunks } from "./format.js";
+import { markdownToTelegramHtmlChunks, splitTelegramHtmlChunks } from "./format.js";
 import { resolveTelegramInteractiveTextFallback } from "./interactive-fallback.js";
 import { parseTelegramReplyToMessageId, parseTelegramThreadId } from "./outbound-params.js";
 
@@ -56,12 +57,23 @@ async function resolveDefaultTelegramSend(deps?: OutboundSendDeps): Promise<Tele
   );
 }
 
+function chunkTelegramOutboundText(
+  text: string,
+  limit: number,
+  ctx?: { formatting?: OutboundDeliveryFormattingOptions },
+): string[] {
+  return ctx?.formatting?.parseMode === "HTML"
+    ? splitTelegramHtmlChunks(text, limit)
+    : markdownToTelegramHtmlChunks(text, limit);
+}
+
 async function resolveTelegramSendContext(params: {
   cfg: NonNullable<TelegramSendOpts>["cfg"];
   deps?: OutboundSendDeps;
   accountId?: string | null;
   replyToId?: string | null;
   threadId?: string | number | null;
+  formatting?: OutboundDeliveryFormattingOptions;
   silent?: boolean;
   gatewayClientScopes?: readonly string[];
   resolveSend: ResolveTelegramSendFn;
@@ -70,7 +82,7 @@ async function resolveTelegramSendContext(params: {
   baseOpts: {
     cfg: NonNullable<TelegramSendOpts>["cfg"];
     verbose: false;
-    textMode: "html";
+    textMode?: "html";
     messageThreadId?: number;
     replyToMessageId?: number;
     accountId?: string;
@@ -83,13 +95,13 @@ async function resolveTelegramSendContext(params: {
     send,
     baseOpts: {
       verbose: false,
-      textMode: "html",
       cfg: params.cfg,
       messageThreadId: parseTelegramThreadId(params.threadId),
       replyToMessageId: parseTelegramReplyToMessageId(params.replyToId),
       accountId: params.accountId ?? undefined,
       silent: params.silent,
       gatewayClientScopes: params.gatewayClientScopes,
+      ...(params.formatting?.parseMode === "HTML" ? { textMode: "html" as const } : {}),
     },
   };
 }
@@ -158,8 +170,9 @@ export function createTelegramOutboundAdapter(
 
   return {
     deliveryMode: "direct",
-    chunker: markdownToTelegramHtmlChunks,
+    chunker: chunkTelegramOutboundText,
     chunkerMode: "markdown",
+    chunkedTextFormatting: { parseMode: "HTML" },
     extractMarkdownImages: true,
     textChunkLimit: TELEGRAM_TEXT_CHUNK_LIMIT,
     sanitizeText: ({ text }) => sanitizeForPlainText(text),
@@ -219,6 +232,7 @@ export function createTelegramOutboundAdapter(
         deps,
         replyToId,
         threadId,
+        formatting,
         silent,
         gatewayClientScopes,
       }) => {
@@ -231,6 +245,7 @@ export function createTelegramOutboundAdapter(
           accountId,
           replyToId,
           threadId,
+          formatting,
           silent,
           gatewayClientScopes,
           resolveSend,
@@ -250,6 +265,7 @@ export function createTelegramOutboundAdapter(
         deps,
         replyToId,
         threadId,
+        formatting,
         forceDocument,
         silent,
         gatewayClientScopes,
@@ -260,6 +276,7 @@ export function createTelegramOutboundAdapter(
           accountId,
           replyToId,
           threadId,
+          formatting,
           silent,
           gatewayClientScopes,
           resolveSend,
@@ -283,6 +300,7 @@ export function createTelegramOutboundAdapter(
       deps,
       replyToId,
       threadId,
+      formatting,
       forceDocument,
       silent,
       gatewayClientScopes,
@@ -296,6 +314,7 @@ export function createTelegramOutboundAdapter(
         accountId,
         replyToId,
         threadId,
+        formatting,
         silent,
         gatewayClientScopes,
         resolveSend,

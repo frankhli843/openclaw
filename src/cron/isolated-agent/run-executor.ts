@@ -5,7 +5,7 @@ import type { ThinkLevel, VerboseLevel } from "../../auto-reply/thinking.js";
 import type { AgentDefaultsConfig } from "../../config/types.agent-defaults.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { createLazyImportLoader } from "../../shared/lazy-promise.js";
-import type { CronJob } from "../types.js";
+import type { CronAgentExecutionPhaseUpdate, CronJob } from "../types.js";
 import {
   resolveCronChannelOutputPolicy,
   resolveCurrentChannelTarget,
@@ -104,6 +104,10 @@ export function createCronPromptExecutor(params: {
   abortSignal?: AbortSignal;
   abortReason: () => string;
   onExecutionStarted?: () => void;
+  onExecutionPhase?: (
+    info: Pick<CronAgentExecutionPhaseUpdate, "phase"> &
+      Partial<Omit<CronAgentExecutionPhaseUpdate, "jobId" | "phase">>,
+  ) => void;
 }) {
   const sessionFile =
     params.cronSession.sessionEntry.sessionFile?.trim() ||
@@ -173,6 +177,7 @@ export function createCronPromptExecutor(params: {
             messageChannel: params.messageChannel,
             abortSignal: params.abortSignal,
             onExecutionStarted: params.onExecutionStarted,
+            onExecutionPhase: params.onExecutionPhase,
             bootstrapPromptWarningSignaturesSeen,
             bootstrapPromptWarningSignature,
             senderIsOwner: true,
@@ -244,6 +249,7 @@ export function createCronPromptExecutor(params: {
           allowTransientCooldownProbe: runOptions?.allowTransientCooldownProbe,
           abortSignal: params.abortSignal,
           onExecutionStarted: params.onExecutionStarted,
+          onExecutionPhase: params.onExecutionPhase,
           bootstrapPromptWarningSignaturesSeen,
           bootstrapPromptWarningSignature,
         });
@@ -305,6 +311,10 @@ export async function executeCronRun(params: {
   abortReason: () => string;
   isAborted: () => boolean;
   onExecutionStarted?: () => void;
+  onExecutionPhase?: (
+    info: Pick<CronAgentExecutionPhaseUpdate, "phase"> &
+      Partial<Omit<CronAgentExecutionPhaseUpdate, "jobId" | "phase">>,
+  ) => void;
   thinkLevel: ThinkLevel | undefined;
   timeoutMs: number;
   suppressExecNotifyOnExit: boolean;
@@ -342,6 +352,7 @@ export async function executeCronRun(params: {
     abortSignal: params.abortSignal,
     abortReason: params.abortReason,
     onExecutionStarted: params.onExecutionStarted,
+    onExecutionPhase: params.onExecutionPhase,
   });
 
   const runStartedAt = params.runStartedAt ?? Date.now();
