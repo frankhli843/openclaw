@@ -591,6 +591,17 @@ const isDeliveryAbortError = (err: unknown): boolean =>
   (err instanceof OutboundDeliveryError &&
     isAbortError((err as Error & { cause?: unknown }).cause));
 
+// frankclaw: unwrap OutboundDeliveryError.cause to find the original DNR error.
+function extractDnrCause(
+  err: unknown,
+): DiscordDnrSuppressedError | WhatsAppDnrSuppressedError | null {
+  const inner = err instanceof OutboundDeliveryError ? err.cause : err;
+  if (inner instanceof DiscordDnrSuppressedError || inner instanceof WhatsAppDnrSuppressedError) {
+    return inner;
+  }
+  return null;
+}
+
 async function markQueuedPlatformSendAttemptStarted(params: {
   queueId: string;
   queuePolicy: OutboundDeliveryQueuePolicy;
@@ -1328,34 +1339,44 @@ async function deliverOutboundPayloadsWithQueueCleanup(
     if (queueId) {
       if (isDeliveryAbortError(err)) {
         await ackDelivery(queueId).catch(() => {});
-      } else if (err instanceof DiscordDnrSuppressedError && params.channel === "telegram") {
-        // frankclaw: Telegram reuses Discord DNR. Send bed indicator, then defer.
-        await sendChannelDnrBedIndicator({
-          cfg: params.cfg,
-          channel: params.channel,
-          to: params.to,
-          accountId: params.accountId,
-          nextEligibleAtMs: err.nextEligibleAtMs,
-        });
-        await deferDelivery(queueId, err.nextEligibleAtMs, "telegram-dnr-window").catch(() => {});
-        return [];
-      } else if (err instanceof DiscordDnrSuppressedError) {
-        // frankclaw: Discord outbound DNR (non-Telegram). Defer without incrementing retry count.
-        await deferDelivery(queueId, err.nextEligibleAtMs, "discord-dnr-window").catch(() => {});
-        return [];
-      } else if (err instanceof WhatsAppDnrSuppressedError) {
-        // frankclaw: WhatsApp DNR. Send bed indicator, then defer.
-        await sendChannelDnrBedIndicator({
-          cfg: params.cfg,
-          channel: params.channel,
-          to: params.to,
-          accountId: params.accountId,
-          nextEligibleAtMs: err.nextEligibleAtMs,
-        });
-        await deferDelivery(queueId, err.nextEligibleAtMs, "whatsapp-dnr-window").catch(() => {});
-        return [];
-      } else if (!platformResultsReturned) {
-        await failDelivery(queueId, formatErrorMessage(err)).catch(() => {});
+      } else {
+        // frankclaw: unwrap potential OutboundDeliveryError wrapper to detect DNR errors.
+        const dnrCause = extractDnrCause(err);
+        if (dnrCause instanceof DiscordDnrSuppressedError && params.channel === "telegram") {
+          // frankclaw: Telegram reuses Discord DNR. Send bed indicator, then defer.
+          await sendChannelDnrBedIndicator({
+            cfg: params.cfg,
+            channel: params.channel,
+            to: params.to,
+            accountId: params.accountId,
+            nextEligibleAtMs: dnrCause.nextEligibleAtMs,
+          });
+          await deferDelivery(queueId, dnrCause.nextEligibleAtMs, "telegram-dnr-window").catch(
+            () => {},
+          );
+          return [];
+        } else if (dnrCause instanceof DiscordDnrSuppressedError) {
+          // frankclaw: Discord outbound DNR (non-Telegram). Defer without incrementing retry count.
+          await deferDelivery(queueId, dnrCause.nextEligibleAtMs, "discord-dnr-window").catch(
+            () => {},
+          );
+          return [];
+        } else if (dnrCause instanceof WhatsAppDnrSuppressedError) {
+          // frankclaw: WhatsApp DNR. Send bed indicator, then defer.
+          await sendChannelDnrBedIndicator({
+            cfg: params.cfg,
+            channel: params.channel,
+            to: params.to,
+            accountId: params.accountId,
+            nextEligibleAtMs: dnrCause.nextEligibleAtMs,
+          });
+          await deferDelivery(queueId, dnrCause.nextEligibleAtMs, "whatsapp-dnr-window").catch(
+            () => {},
+          );
+          return [];
+        } else if (!platformResultsReturned) {
+          await failDelivery(queueId, formatErrorMessage(err)).catch(() => {});
+        }
       }
     }
     throw err;
