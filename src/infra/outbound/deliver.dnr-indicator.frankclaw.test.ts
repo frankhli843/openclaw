@@ -4,7 +4,6 @@
  * Also verifies that the indicator is NOT called for Discord outbound DNR (different path).
  */
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { OutboundDeliveryError } from "./deliver-types.js";
 import { DiscordDnrSuppressedError, WhatsAppDnrSuppressedError } from "./discord-dnr.js";
 
 // ── Hoisted mocks ────────────────────────────────────────────────────────────
@@ -204,19 +203,37 @@ describe("deliver.ts DNR bed indicator integration", () => {
     const { deliverOutboundPayloads } = await import("./deliver.js");
 
     // With skipQueue=true, queueId is null, so neither indicator nor deferDelivery fires.
-    // The error propagates as OutboundDeliveryError (wrapping WhatsAppDnrSuppressedError)
-    // because the refactored deliver.ts core wraps all adapter errors.
-    const rejection = await deliverOutboundPayloads({
-      cfg,
-      channel: "whatsapp",
-      to: "120363025@g.us",
-      payloads: [{ text: "replay" }],
-      skipQueue: true,
-    }).catch((e: unknown) => e);
-    expect(rejection).toBeInstanceOf(OutboundDeliveryError);
-    expect((rejection as OutboundDeliveryError).cause).toBeInstanceOf(WhatsAppDnrSuppressedError);
+    await expect(
+      deliverOutboundPayloads({
+        cfg,
+        channel: "whatsapp",
+        to: "120363025@g.us",
+        payloads: [{ text: "replay" }],
+        skipQueue: true,
+      }),
+    ).rejects.toBeInstanceOf(WhatsAppDnrSuppressedError);
 
     expect(indicatorMock.sendChannelDnrBedIndicator).not.toHaveBeenCalled();
     expect(deferMock.deferDelivery).not.toHaveBeenCalled();
+  });
+
+  it("forwards replyToId to sendChannelDnrBedIndicator for WhatsApp DNR", async () => {
+    adapterSendTextThrows = () => {
+      throw new WhatsAppDnrSuppressedError(nextEligibleAtMs);
+    };
+
+    const { deliverOutboundPayloads } = await import("./deliver.js");
+
+    await deliverOutboundPayloads({
+      cfg,
+      channel: "whatsapp",
+      to: "120363025@g.us",
+      payloads: [{ text: "hello" }],
+      replyToId: "inbound-msg-xyz",
+    });
+
+    expect(indicatorMock.sendChannelDnrBedIndicator).toHaveBeenCalledWith(
+      expect.objectContaining({ replyToId: "inbound-msg-xyz" }),
+    );
   });
 });
