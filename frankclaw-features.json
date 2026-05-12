@@ -406,6 +406,52 @@
       ]
     },
     {
+      "name": "WhatsApp DNR bed indicator",
+      "description": "Sends a \ud83d\udecf\ufe0f text reply to WhatsApp when an outbound message is deferred by DNR quiet hours, so sender knows the message was received but will deliver when quiet hours end. Fires before deferDelivery() in deliver.ts catch block; never triggers on replay (queueId=null).",
+      "static": [
+        {
+          "file": "src/infra/outbound/deliver.ts",
+          "pattern": "sendChannelDnrBedIndicator",
+          "minCount": 2,
+          "note": "Must appear in both WhatsApp and Telegram DNR catch blocks."
+        },
+        {
+          "file": "src/infra/outbound/channel-dnr-indicator.frankclaw.ts",
+          "pattern": "sendChannelDnrBedIndicator",
+          "minCount": 1
+        }
+      ],
+      "tests": [
+        "src/infra/outbound/channel-dnr-indicator.frankclaw.test.ts",
+        "src/infra/outbound/deliver.dnr-indicator.frankclaw.test.ts"
+      ],
+      "runtime": [],
+      "e2eTests": ["test/frankclaw-features-e2e.test.ts"]
+    },
+    {
+      "name": "Telegram DNR bed indicator",
+      "description": "Sends a \ud83d\udecf\ufe0f text reply to Telegram when an outbound message is deferred by DNR quiet hours. Uses the same channel-dnr-indicator.frankclaw.ts module as WhatsApp. Only fires for channel=telegram (not Discord outbound which also uses DiscordDnrSuppressedError).",
+      "static": [
+        {
+          "file": "src/infra/outbound/deliver.ts",
+          "pattern": "params.channel === \"telegram\"",
+          "minCount": 1,
+          "note": "Guards the Telegram-specific DNR catch branch; prevents indicator from firing for Discord outbound DNR."
+        },
+        {
+          "file": "src/infra/outbound/channel-dnr-indicator.frankclaw.ts",
+          "pattern": "sendChannelDnrBedIndicator",
+          "minCount": 1
+        }
+      ],
+      "tests": [
+        "src/infra/outbound/channel-dnr-indicator.frankclaw.test.ts",
+        "src/infra/outbound/deliver.dnr-indicator.frankclaw.test.ts"
+      ],
+      "runtime": [],
+      "e2eTests": ["test/frankclaw-features-e2e.test.ts"]
+    },
+    {
       "name": "Discord autoThread",
       "description": "Auto-creates threads for all Discord replies when autoThread config is enabled. Implementation lives in threading.auto-thread.ts after the upstream threading split (commit 7e1acf2f1e); threading.ts is now a re-export barrel.",
       "static": [
