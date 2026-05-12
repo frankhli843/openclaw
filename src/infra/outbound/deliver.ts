@@ -36,6 +36,7 @@ import { diagnosticErrorCategory } from "../diagnostic-error-metadata.js";
 import { emitDiagnosticEvent, type DiagnosticMessageDeliveryKind } from "../diagnostic-events.js";
 import { formatErrorMessage } from "../errors.js";
 import { throwIfAborted } from "./abort.js";
+import { sendChannelDnrBedIndicator } from "./channel-dnr-indicator.frankclaw.js";
 import type { OutboundDeliveryResult } from "./deliver-types.js";
 import { deferDelivery } from "./delivery-queue.frankclaw.js";
 import {
@@ -913,12 +914,30 @@ async function deliverOutboundPayloadsWithQueueCleanup(
     if (queueId) {
       if (isAbortError(err)) {
         await ackDelivery(queueId).catch(() => {});
-      } else if (err instanceof DiscordDnrSuppressedError) {
-        // frankclaw: Telegram reuses Discord DNR. Defer without incrementing retry count.
+      } else if (err instanceof DiscordDnrSuppressedError && params.channel === "telegram") {
+        // frankclaw: Telegram reuses Discord DNR. Send bed indicator, then defer.
+        await sendChannelDnrBedIndicator({
+          cfg: params.cfg,
+          channel: params.channel,
+          to: params.to,
+          accountId: params.accountId,
+          nextEligibleAtMs: err.nextEligibleAtMs,
+        });
         await deferDelivery(queueId, err.nextEligibleAtMs, "telegram-dnr-window").catch(() => {});
         return [];
+      } else if (err instanceof DiscordDnrSuppressedError) {
+        // frankclaw: Discord outbound DNR (non-Telegram). Defer without incrementing retry count.
+        await deferDelivery(queueId, err.nextEligibleAtMs, "discord-dnr-window").catch(() => {});
+        return [];
       } else if (err instanceof WhatsAppDnrSuppressedError) {
-        // frankclaw: defer WhatsApp queue entry until DNR window ends.
+        // frankclaw: WhatsApp DNR. Send bed indicator, then defer.
+        await sendChannelDnrBedIndicator({
+          cfg: params.cfg,
+          channel: params.channel,
+          to: params.to,
+          accountId: params.accountId,
+          nextEligibleAtMs: err.nextEligibleAtMs,
+        });
         await deferDelivery(queueId, err.nextEligibleAtMs, "whatsapp-dnr-window").catch(() => {});
         return [];
       } else {
