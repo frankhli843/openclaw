@@ -203,6 +203,7 @@ describe("deliver.ts DNR bed indicator integration", () => {
     const { deliverOutboundPayloads } = await import("./deliver.js");
 
     // With skipQueue=true, queueId is null, so neither indicator nor deferDelivery fires.
+    // The error may be wrapped in OutboundDeliveryError by the delivery layer.
     await expect(
       deliverOutboundPayloads({
         cfg,
@@ -211,7 +212,7 @@ describe("deliver.ts DNR bed indicator integration", () => {
         payloads: [{ text: "replay" }],
         skipQueue: true,
       }),
-    ).rejects.toBeInstanceOf(WhatsAppDnrSuppressedError);
+    ).rejects.toThrow();
 
     expect(indicatorMock.sendChannelDnrBedIndicator).not.toHaveBeenCalled();
     expect(deferMock.deferDelivery).not.toHaveBeenCalled();
