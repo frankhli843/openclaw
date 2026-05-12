@@ -33,14 +33,26 @@ function expectQueuedRunAck(result: unknown) {
   expect(typeof ack.runId).toBe("string");
 }
 
+function requireMockCall(
+  mock: { mock: { calls: unknown[][] } },
+  callIndex: number,
+  label: string,
+): unknown[] {
+  const call = mock.mock.calls.at(callIndex);
+  if (!call) {
+    throw new Error(`expected ${label} call ${callIndex}`);
+  }
+  return call;
+}
+
 function expectIsolatedRunJobId(
   runIsolatedAgentJob: ReturnType<typeof vi.fn>,
   callIndex: number,
   jobId: string,
 ) {
-  const params = runIsolatedAgentJob.mock.calls[callIndex]?.[0] as
-    | { job?: { id?: string } }
-    | undefined;
+  const [params] = requireMockCall(runIsolatedAgentJob, callIndex, "runIsolatedAgentJob") as [
+    { job?: { id?: string } }?,
+  ];
   expect(params?.job?.id).toBe(jobId);
 }
 
@@ -326,10 +338,12 @@ describe("cron service ops regressions", () => {
     const result = await run(state, "stale-running", "force");
     expect(result).toEqual({ ok: true, ran: true });
     expect(enqueueSystemEvent).toHaveBeenCalledTimes(1);
-    expect(enqueueSystemEvent.mock.calls[0]?.[0]).toBe("stale-running");
-    expect(
-      (enqueueSystemEvent.mock.calls[0]?.[1] as { agentId?: unknown } | undefined)?.agentId,
-    ).toBeUndefined();
+    const [text, options] = requireMockCall(enqueueSystemEvent, 0, "enqueueSystemEvent") as [
+      string,
+      { agentId?: unknown }?,
+    ];
+    expect(text).toBe("stale-running");
+    expect(options?.agentId).toBeUndefined();
   });
 
   it("queues manual cron.run requests behind the cron execution lane", async () => {
@@ -428,9 +442,12 @@ describe("cron service ops regressions", () => {
 
     const dueAt = Date.parse("2026-02-06T10:05:03.000Z");
     const job = createDueIsolatedJob({ id: "queued-failure", nowMs: dueAt, nextRunAtMs: dueAt });
+    const errorLogged = createDeferred<void>();
     const log = {
       ...noopLogger,
-      error: vi.fn<(payload: unknown, message?: string) => void>(),
+      error: vi.fn<(payload: unknown, message?: string) => void>().mockImplementation(() => {
+        errorLogged.resolve();
+      }),
     };
     const badStore = `${opsRegressionFixtures.makeStorePath().storePath}.dir`;
     await fs.mkdir(badStore, { recursive: true });
@@ -443,6 +460,12 @@ describe("cron service ops regressions", () => {
 
     const result = await enqueueRun(state, job.id, "force");
     expectQueuedRunAck(result);
+
+    await errorLogged.promise;
+    expect(log.error).toHaveBeenCalledTimes(1);
+    expect(requireMockCall(log.error, 0, "logger error")[1]).toBe(
+      "cron: queued manual run background execution failed",
+    );
 
     clearCommandLane(CommandLane.Cron);
   });

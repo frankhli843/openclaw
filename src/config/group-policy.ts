@@ -5,6 +5,7 @@ import {
   normalizeLowercaseStringOrEmpty,
   normalizeOptionalString,
 } from "../shared/string-coerce.js";
+import { normalizeMessageChannel } from "../utils/message-channel-core.js";
 import type { GateMode } from "./types.base.js";
 import type { OpenClawConfig } from "./types.openclaw.js";
 import {
@@ -60,13 +61,14 @@ function resolveChannelGroupConfig(
 }
 
 type GroupToolPolicySender = {
+  messageProvider?: string | null;
   senderId?: string | null;
   senderName?: string | null;
   senderUsername?: string | null;
   senderE164?: string | null;
 };
 
-type SenderKeyType = "id" | "e164" | "username" | "name";
+type SenderKeyType = ToolsBySenderKeyType;
 type CompiledSenderPolicy = {
   buckets: SenderPolicyBuckets;
   wildcard?: GroupToolPolicyConfig;
@@ -99,9 +101,34 @@ function normalizeSenderKey(
 }
 
 function normalizeTypedSenderKey(value: string, type: SenderKeyType): string {
+  if (type === "channel") {
+    return normalizeChannelSenderKey(value);
+  }
   return normalizeSenderKey(value, {
     stripLeadingAt: type === "username",
   });
+}
+
+function normalizeSenderPolicyChannel(value: string | null | undefined): string {
+  const trimmed = normalizeOptionalString(value);
+  if (!trimmed) {
+    return "";
+  }
+  return normalizeMessageChannel(trimmed) ?? normalizeSenderKey(trimmed);
+}
+
+function normalizeChannelSenderKey(value: string): string {
+  const trimmed = value.trim();
+  const separatorIndex = trimmed.indexOf(":");
+  if (separatorIndex <= 0 || separatorIndex === trimmed.length - 1) {
+    return "";
+  }
+  const channel = normalizeSenderPolicyChannel(trimmed.slice(0, separatorIndex));
+  const senderId = normalizeTypedSenderKey(trimmed.slice(separatorIndex + 1), "id");
+  if (!channel || !senderId) {
+    return "";
+  }
+  return `${channel}:${senderId}`;
 }
 
 function normalizeLegacySenderKey(value: string): string {
@@ -117,7 +144,7 @@ function warnLegacyToolsBySenderKey(rawKey: string) {
   }
   warnedLegacyToolsBySenderKeys.add(trimmed);
   process.emitWarning(
-    `toolsBySender key "${trimmed}" is deprecated. Use explicit prefixes (id:, e164:, username:, name:). Legacy unprefixed keys are matched as id only.`,
+    `toolsBySender key "${trimmed}" is deprecated. Use explicit prefixes (channel:, id:, e164:, username:, name:). Legacy unprefixed keys are matched as id only.`,
     {
       type: "DeprecationWarning",
       code: "OPENCLAW_TOOLS_BY_SENDER_UNTYPED_KEY",
@@ -161,6 +188,7 @@ function parseSenderPolicyKey(rawKey: string): ParsedSenderPolicyKey | undefined
 
 function createSenderPolicyBuckets(): SenderPolicyBuckets {
   return {
+    channel: new Map<string, GroupToolPolicyConfig>(),
     id: new Map<string, GroupToolPolicyConfig>(),
     e164: new Map<string, GroupToolPolicyConfig>(),
     username: new Map<string, GroupToolPolicyConfig>(),
@@ -243,7 +271,17 @@ function matchToolsBySenderPolicy(
   compiled: CompiledSenderPolicy,
   params: GroupToolPolicySender,
 ): GroupToolPolicyConfig | undefined {
-  for (const senderIdCandidate of normalizeSenderIdCandidates(params.senderId)) {
+  const senderIdCandidates = normalizeSenderIdCandidates(params.senderId);
+  const channel = normalizeSenderPolicyChannel(params.messageProvider);
+  if (channel) {
+    for (const senderIdCandidate of senderIdCandidates) {
+      const match = compiled.buckets.channel.get(`${channel}:${senderIdCandidate}`);
+      if (match) {
+        return match;
+      }
+    }
+  }
+  for (const senderIdCandidate of senderIdCandidates) {
     const match = compiled.buckets.id.get(senderIdCandidate);
     if (match) {
       return match;
@@ -456,6 +494,7 @@ export function resolveChannelGroupToolsPolicy(
   const defaultConfig = groups?.["*"];
   const groupSenderPolicy = resolveToolsBySender({
     toolsBySender: groupConfig?.toolsBySender,
+    messageProvider: params.messageProvider ?? params.channel,
     senderId: params.senderId,
     senderName: params.senderName,
     senderUsername: params.senderUsername,
@@ -469,6 +508,7 @@ export function resolveChannelGroupToolsPolicy(
   }
   const defaultSenderPolicy = resolveToolsBySender({
     toolsBySender: defaultConfig?.toolsBySender,
+    messageProvider: params.messageProvider ?? params.channel,
     senderId: params.senderId,
     senderName: params.senderName,
     senderUsername: params.senderUsername,

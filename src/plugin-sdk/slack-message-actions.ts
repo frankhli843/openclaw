@@ -1,4 +1,4 @@
-import type { AgentToolResult } from "@mariozechner/pi-agent-core";
+import type { AgentToolResult } from "@earendil-works/pi-agent-core";
 import { parseSlackBlocksInput } from "../../extensions/slack/src/blocks-input.js";
 import { buildSlackInteractiveBlocks } from "../../extensions/slack/src/blocks-render.js";
 import { readNumberParam, readStringParam } from "../agents/tools/common.js";

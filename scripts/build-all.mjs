@@ -47,7 +47,7 @@ export const BUILD_ALL_STEPS = [
   {
     label: "write-plugin-sdk-entry-dts",
     kind: "node",
-    args: ["--import", "tsx", "scripts/write-plugin-sdk-entry-dts.ts"],
+    args: ["--experimental-strip-types", "scripts/write-plugin-sdk-entry-dts.ts"],
   },
   {
     label: "check-plugin-sdk-exports",
@@ -62,12 +62,12 @@ export const BUILD_ALL_STEPS = [
   {
     label: "copy-hook-metadata",
     kind: "node",
-    args: ["--import", "tsx", "scripts/copy-hook-metadata.ts"],
+    args: ["--experimental-strip-types", "scripts/copy-hook-metadata.ts"],
   },
   {
     label: "copy-export-html-templates",
     kind: "node",
-    args: ["--import", "tsx", "scripts/copy-export-html-templates.ts"],
+    args: ["--experimental-strip-types", "scripts/copy-export-html-templates.ts"],
     cache: {
       inputs: [
         "scripts/copy-export-html-templates.ts",
@@ -80,7 +80,7 @@ export const BUILD_ALL_STEPS = [
   {
     label: "write-build-info",
     kind: "node",
-    args: ["--import", "tsx", "scripts/write-build-info.ts"],
+    args: ["--experimental-strip-types", "scripts/write-build-info.ts"],
   },
   {
     label: "write-cli-startup-metadata",
@@ -90,7 +90,7 @@ export const BUILD_ALL_STEPS = [
   {
     label: "write-cli-compat",
     kind: "node",
-    args: ["--import", "tsx", "scripts/write-cli-compat.ts"],
+    args: ["--experimental-strip-types", "scripts/write-cli-compat.ts"],
   },
 ];
 
