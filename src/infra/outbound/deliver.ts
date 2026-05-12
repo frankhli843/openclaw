@@ -915,12 +915,13 @@ async function deliverOutboundPayloadsWithQueueCleanup(
       if (isAbortError(err)) {
         await ackDelivery(queueId).catch(() => {});
       } else if (err instanceof DiscordDnrSuppressedError && params.channel === "telegram") {
-        // frankclaw: Telegram reuses Discord DNR. Send bed indicator, then defer.
+        // frankclaw: Telegram reuses Discord DNR. Send bed reaction, then defer.
         await sendChannelDnrBedIndicator({
           cfg: params.cfg,
           channel: params.channel,
           to: params.to,
           accountId: params.accountId,
+          replyToId: params.replyToId,
           nextEligibleAtMs: err.nextEligibleAtMs,
         });
         await deferDelivery(queueId, err.nextEligibleAtMs, "telegram-dnr-window").catch(() => {});
@@ -930,12 +931,13 @@ async function deliverOutboundPayloadsWithQueueCleanup(
         await deferDelivery(queueId, err.nextEligibleAtMs, "discord-dnr-window").catch(() => {});
         return [];
       } else if (err instanceof WhatsAppDnrSuppressedError) {
-        // frankclaw: WhatsApp DNR. Send bed indicator, then defer.
+        // frankclaw: WhatsApp DNR. Send bed reaction, then defer.
         await sendChannelDnrBedIndicator({
           cfg: params.cfg,
           channel: params.channel,
           to: params.to,
           accountId: params.accountId,
+          replyToId: params.replyToId,
           nextEligibleAtMs: err.nextEligibleAtMs,
         });
         await deferDelivery(queueId, err.nextEligibleAtMs, "whatsapp-dnr-window").catch(() => {});

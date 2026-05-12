@@ -347,7 +347,7 @@
     },
     {
       "name": "WhatsApp DNR bed indicator",
-      "description": "Sends a \ud83d\udecf\ufe0f text reply to WhatsApp when an outbound message is deferred by DNR quiet hours, so sender knows the message was received but will deliver when quiet hours end. Fires before deferDelivery() in deliver.ts catch block; never triggers on replay (queueId=null).",
+      "description": "Adds a \ud83d\udecf\ufe0f emoji reaction to the trigger message on WhatsApp when an outbound message is deferred by DNR quiet hours. Uses sendReactionWhatsApp with the replyToId of the inbound message. Fires before deferDelivery() in deliver.ts catch block; silently no-ops if replyToId is absent; never triggers on replay (queueId=null).",
       "static": [
         {
           "file": "src/infra/outbound/deliver.ts",
@@ -357,7 +357,7 @@
         },
         {
           "file": "src/infra/outbound/channel-dnr-indicator.frankclaw.ts",
-          "pattern": "sendChannelDnrBedIndicator",
+          "pattern": "sendReactionWhatsApp",
           "minCount": 1
         }
       ],
@@ -370,7 +370,7 @@
     },
     {
       "name": "Telegram DNR bed indicator",
-      "description": "Sends a \ud83d\udecf\ufe0f text reply to Telegram when an outbound message is deferred by DNR quiet hours. Uses the same channel-dnr-indicator.frankclaw.ts module as WhatsApp. Only fires for channel=telegram (not Discord outbound which also uses DiscordDnrSuppressedError).",
+      "description": "Adds a \ud83d\udecf\ufe0f emoji reaction to the trigger message on Telegram when an outbound message is deferred by DNR quiet hours. Uses reactMessageTelegram with the replyToId of the inbound message. Only fires for channel=telegram (not Discord outbound which also uses DiscordDnrSuppressedError). Silently no-ops if replyToId is absent.",
       "static": [
         {
           "file": "src/infra/outbound/deliver.ts",
@@ -380,7 +380,7 @@
         },
         {
           "file": "src/infra/outbound/channel-dnr-indicator.frankclaw.ts",
-          "pattern": "sendChannelDnrBedIndicator",
+          "pattern": "reactMessageTelegram",
           "minCount": 1
         }
       ],

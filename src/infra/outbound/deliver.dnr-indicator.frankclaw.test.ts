@@ -216,4 +216,24 @@ describe("deliver.ts DNR bed indicator integration", () => {
     expect(indicatorMock.sendChannelDnrBedIndicator).not.toHaveBeenCalled();
     expect(deferMock.deferDelivery).not.toHaveBeenCalled();
   });
+
+  it("forwards replyToId to sendChannelDnrBedIndicator for WhatsApp DNR", async () => {
+    adapterSendTextThrows = () => {
+      throw new WhatsAppDnrSuppressedError(nextEligibleAtMs);
+    };
+
+    const { deliverOutboundPayloads } = await import("./deliver.js");
+
+    await deliverOutboundPayloads({
+      cfg,
+      channel: "whatsapp",
+      to: "120363025@g.us",
+      payloads: [{ text: "hello" }],
+      replyToId: "inbound-msg-xyz",
+    });
+
+    expect(indicatorMock.sendChannelDnrBedIndicator).toHaveBeenCalledWith(
+      expect.objectContaining({ replyToId: "inbound-msg-xyz" }),
+    );
+  });
 });

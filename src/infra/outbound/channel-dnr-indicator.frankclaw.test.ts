@@ -1,25 +1,21 @@
 /**
- * frankclaw: Tests for channel-agnostic DNR bed indicator.
- * Verifies that sendChannelDnrBedIndicator calls adapter.sendText with the
- * correct bed emoji text, uses runWithDirectAction, and swallows errors.
+ * frankclaw: Tests for channel-specific DNR bed emoji reaction indicator.
+ * Verifies that sendChannelDnrBedIndicator calls the correct native reaction
+ * function for WhatsApp and Telegram, and silently no-ops when replyToId
+ * is missing or when errors occur.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mockSendText = vi.fn().mockResolvedValue({ messageId: "m1" });
-const mockAdapter = { sendText: mockSendText, deliveryMode: "gateway" as const };
-let mockLoadReturn: unknown = mockAdapter;
+const mockSendReactionWhatsApp = vi.fn().mockResolvedValue(undefined);
+const mockReactMessageTelegram = vi.fn().mockResolvedValue({ ok: true });
 
-vi.mock("../../channels/plugins/outbound/load.js", () => ({
-  loadChannelOutboundAdapter: vi.fn().mockImplementation(() => Promise.resolve(mockLoadReturn)),
+vi.mock("../../../extensions/whatsapp/src/send.js", () => ({
+  sendReactionWhatsApp: mockSendReactionWhatsApp,
 }));
 
-// runWithDirectAction: just call fn() so indicator can send through.
-vi.mock("./direct-action-context.frankclaw.js", () => ({
-  runWithDirectAction: vi.fn().mockImplementation((fn: () => unknown) => fn()),
+vi.mock("../../../extensions/telegram/src/send.js", () => ({
+  reactMessageTelegram: mockReactMessageTelegram,
 }));
-
-const { loadChannelOutboundAdapter } = await import("../../channels/plugins/outbound/load.js");
-const { runWithDirectAction } = await import("./direct-action-context.frankclaw.js");
 
 describe("sendChannelDnrBedIndicator", () => {
   const cfg = {} as import("../../config/types.openclaw.js").OpenClawConfig;
@@ -27,10 +23,9 @@ describe("sendChannelDnrBedIndicator", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    mockLoadReturn = mockAdapter;
   });
 
-  it("calls sendText on the adapter with bed emoji and delivery time", async () => {
+  it("calls sendReactionWhatsApp with bed emoji for WhatsApp channel", async () => {
     const { sendChannelDnrBedIndicator } = await import("./channel-dnr-indicator.frankclaw.js");
 
     await sendChannelDnrBedIndicator({
@@ -38,58 +33,70 @@ describe("sendChannelDnrBedIndicator", () => {
       channel: "whatsapp",
       to: "120363025@g.us",
       accountId: "default",
+      replyToId: "msg-id-abc123",
       nextEligibleAtMs,
     });
 
-    expect(loadChannelOutboundAdapter).toHaveBeenCalledWith("whatsapp");
-    expect(runWithDirectAction).toHaveBeenCalledOnce();
-    expect(mockSendText).toHaveBeenCalledOnce();
-    const callArgs = mockSendText.mock.calls[0][0] as Record<string, unknown>;
-    expect(typeof callArgs.text).toBe("string");
-    expect(callArgs.text).toContain("🛏️");
-    expect(callArgs.to).toBe("120363025@g.us");
-    expect(callArgs.cfg).toBe(cfg);
+    expect(mockSendReactionWhatsApp).toHaveBeenCalledOnce();
+    expect(mockSendReactionWhatsApp).toHaveBeenCalledWith(
+      "120363025@g.us",
+      "msg-id-abc123",
+      "🛏️",
+      expect.objectContaining({ verbose: false, fromMe: false, cfg }),
+    );
+    expect(mockReactMessageTelegram).not.toHaveBeenCalled();
   });
 
-  it("works for telegram channel", async () => {
+  it("calls reactMessageTelegram with bed emoji for Telegram channel", async () => {
     const { sendChannelDnrBedIndicator } = await import("./channel-dnr-indicator.frankclaw.js");
 
     await sendChannelDnrBedIndicator({
       cfg,
       channel: "telegram",
       to: "-1001234567890",
+      replyToId: "987654",
       nextEligibleAtMs,
     });
 
-    expect(loadChannelOutboundAdapter).toHaveBeenCalledWith("telegram");
-    expect(mockSendText).toHaveBeenCalledOnce();
-    const text = (mockSendText.mock.calls[0][0] as Record<string, unknown>).text as string;
-    expect(text).toContain("🛏️");
-    expect(text).toContain("quiet hours");
+    expect(mockReactMessageTelegram).toHaveBeenCalledOnce();
+    expect(mockReactMessageTelegram).toHaveBeenCalledWith(
+      "-1001234567890",
+      "987654",
+      "🛏️",
+      expect.objectContaining({ cfg, verbose: false }),
+    );
+    expect(mockSendReactionWhatsApp).not.toHaveBeenCalled();
   });
 
-  it("silently no-ops when adapter has no sendText", async () => {
-    mockLoadReturn = { deliveryMode: "gateway" }; // no sendText
+  it("silently no-ops when replyToId is null", async () => {
+    const { sendChannelDnrBedIndicator } = await import("./channel-dnr-indicator.frankclaw.js");
+
+    await expect(
+      sendChannelDnrBedIndicator({
+        cfg,
+        channel: "whatsapp",
+        to: "120363025@g.us",
+        replyToId: null,
+        nextEligibleAtMs,
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(mockSendReactionWhatsApp).not.toHaveBeenCalled();
+    expect(mockReactMessageTelegram).not.toHaveBeenCalled();
+  });
+
+  it("silently no-ops when replyToId is undefined", async () => {
     const { sendChannelDnrBedIndicator } = await import("./channel-dnr-indicator.frankclaw.js");
 
     await expect(
       sendChannelDnrBedIndicator({ cfg, channel: "whatsapp", to: "x@g.us", nextEligibleAtMs }),
     ).resolves.toBeUndefined();
-    expect(mockSendText).not.toHaveBeenCalled();
+
+    expect(mockSendReactionWhatsApp).not.toHaveBeenCalled();
   });
 
-  it("silently no-ops when adapter is not found", async () => {
-    mockLoadReturn = undefined;
-    const { sendChannelDnrBedIndicator } = await import("./channel-dnr-indicator.frankclaw.js");
-
-    await expect(
-      sendChannelDnrBedIndicator({ cfg, channel: "whatsapp", to: "x@g.us", nextEligibleAtMs }),
-    ).resolves.toBeUndefined();
-    expect(mockSendText).not.toHaveBeenCalled();
-  });
-
-  it("swallows errors from sendText", async () => {
-    mockSendText.mockRejectedValueOnce(new Error("network failure"));
+  it("swallows errors from sendReactionWhatsApp", async () => {
+    mockSendReactionWhatsApp.mockRejectedValueOnce(new Error("network failure"));
     const { sendChannelDnrBedIndicator } = await import("./channel-dnr-indicator.frankclaw.js");
 
     await expect(
@@ -97,24 +104,26 @@ describe("sendChannelDnrBedIndicator", () => {
         cfg,
         channel: "whatsapp",
         to: "x@g.us",
+        replyToId: "some-msg-id",
         nextEligibleAtMs,
       }),
     ).resolves.toBeUndefined();
   });
 
-  it("indicator text includes 'quiet hours' and bed emoji", async () => {
+  it("silently no-ops for unknown channels", async () => {
     const { sendChannelDnrBedIndicator } = await import("./channel-dnr-indicator.frankclaw.js");
 
-    await sendChannelDnrBedIndicator({
-      cfg,
-      channel: "whatsapp",
-      to: "x@g.us",
-      nextEligibleAtMs,
-    });
+    await expect(
+      sendChannelDnrBedIndicator({
+        cfg,
+        channel: "discord",
+        to: "channel:123",
+        replyToId: "msg123",
+        nextEligibleAtMs,
+      }),
+    ).resolves.toBeUndefined();
 
-    const text = (mockSendText.mock.calls[0][0] as Record<string, unknown>).text as string;
-    expect(text).toMatch(/🛏️/);
-    expect(text).toMatch(/quiet hours/);
-    expect(text).toMatch(/will deliver at/);
+    expect(mockSendReactionWhatsApp).not.toHaveBeenCalled();
+    expect(mockReactMessageTelegram).not.toHaveBeenCalled();
   });
 });
