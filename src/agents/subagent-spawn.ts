@@ -15,6 +15,12 @@ import type { DeliveryContext } from "../utils/delivery-context.types.js";
 import { resolveAgentDir } from "./agent-scope-config.js";
 import type { BootstrapContextMode } from "./bootstrap-files.js";
 import {
+  inheritedToolAllowPatch,
+  inheritedToolDenyPatch,
+  normalizeInheritedToolAllowlist,
+  normalizeInheritedToolDenylist,
+} from "./inherited-tool-deny.js";
+import {
   mapToolContextToSpawnedRunMetadata,
   normalizeSpawnedRunMetadata,
   resolveSpawnedWorkspaceInheritance,
@@ -121,6 +127,7 @@ const SUBAGENT_CONTROL_GATEWAY_TIMEOUT_MS = 60_000;
 const DEFAULT_SUBAGENT_AGENT_GATEWAY_TIMEOUT_MS = 60_000;
 const MAX_SUBAGENT_AGENT_GATEWAY_TIMEOUT_MS = 300_000;
 
+// frankclaw: types extracted to subagent-spawn.contract.ts for frankclaw module isolation
 export type { SpawnSubagentContext, SpawnSubagentParams, SpawnSubagentResult };
 
 export { splitModelRef } from "./subagent-spawn-plan.js";
@@ -191,6 +198,14 @@ function buildDirectChildSessionPatch(patch: Record<string, unknown>): Partial<S
   }
   if (typeof patch.spawnedWorkspaceDir === "string" && patch.spawnedWorkspaceDir.trim()) {
     entry.spawnedWorkspaceDir = patch.spawnedWorkspaceDir.trim();
+  }
+  const inheritedToolDeny = normalizeInheritedToolDenylist(patch.inheritedToolDeny);
+  if (inheritedToolDeny.length > 0) {
+    entry.inheritedToolDeny = inheritedToolDeny;
+  }
+  const inheritedToolAllow = normalizeInheritedToolAllowlist(patch.inheritedToolAllow);
+  if (inheritedToolAllow.length > 0) {
+    entry.inheritedToolAllow = inheritedToolAllow;
   }
   if (typeof patch.thinkingLevel === "string" && patch.thinkingLevel.trim()) {
     entry.thinkingLevel = patch.thinkingLevel.trim();
@@ -864,6 +879,8 @@ async function spawnSubagentDirectCore(
     spawnDepth: childDepth,
     subagentRole: childCapabilities.role === "main" ? null : childCapabilities.role,
     subagentControlScope: childCapabilities.controlScope,
+    ...inheritedToolAllowPatch(ctx.inheritedToolAllowlist),
+    ...inheritedToolDenyPatch(ctx.inheritedToolDenylist),
     ...plan.initialSessionPatch,
   };
 

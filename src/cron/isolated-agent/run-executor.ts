@@ -85,6 +85,7 @@ export function createCronPromptExecutor(params: {
   resolvedVerboseLevel: VerboseLevel;
   thinkLevel: ThinkLevel | undefined;
   timeoutMs: number;
+  senderIsOwner: boolean;
   messageChannel: string | undefined;
   suppressExecNotifyOnExit: boolean;
   resolvedDelivery: {
@@ -180,7 +181,7 @@ export function createCronPromptExecutor(params: {
             onExecutionPhase: params.onExecutionPhase,
             bootstrapPromptWarningSignaturesSeen,
             bootstrapPromptWarningSignature,
-            senderIsOwner: true,
+            senderIsOwner: params.senderIsOwner,
           });
           bootstrapPromptWarningSignaturesSeen = resolveBootstrapWarningSignaturesSeen(
             result.meta?.systemPromptReport,
@@ -317,6 +318,7 @@ export async function executeCronRun(params: {
   ) => void;
   thinkLevel: ThinkLevel | undefined;
   timeoutMs: number;
+  senderIsOwner: boolean;
   suppressExecNotifyOnExit: boolean;
   runStartedAt?: number;
 }): Promise<CronExecutionResult> {
@@ -353,6 +355,7 @@ export async function executeCronRun(params: {
     abortReason: params.abortReason,
     onExecutionStarted: params.onExecutionStarted,
     onExecutionPhase: params.onExecutionPhase,
+    senderIsOwner: params.senderIsOwner,
   });
 
   const runStartedAt = params.runStartedAt ?? Date.now();

@@ -41,6 +41,8 @@ export type SpawnSubagentContext = {
   requesterAgentIdOverride?: string;
   /** Explicit workspace directory for subagent to inherit (optional). */
   workspaceDir?: string;
+  inheritedToolAllowlist?: string[];
+  inheritedToolDenylist?: string[];
 };
 
 export type SpawnSubagentResult = {

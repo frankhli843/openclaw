@@ -8,7 +8,6 @@ import {
   presentationToInteractiveReply,
   renderMessagePresentationFallbackText,
 } from "openclaw/plugin-sdk/interactive-runtime";
-import { sanitizeForPlainText } from "openclaw/plugin-sdk/outbound-runtime";
 import type { OutboundDeliveryFormattingOptions } from "openclaw/plugin-sdk/outbound-runtime";
 import {
   resolveOutboundSendDep,
@@ -175,8 +174,6 @@ export function createTelegramOutboundAdapter(
     chunkedTextFormatting: { parseMode: "HTML" },
     extractMarkdownImages: true,
     textChunkLimit: TELEGRAM_TEXT_CHUNK_LIMIT,
-    sanitizeText: ({ text }) => sanitizeForPlainText(text),
-    shouldSkipPlainTextSanitization: ({ payload }) => Boolean(payload.channelData),
     shouldSuppressLocalPayloadPrompt: options.shouldSuppressLocalPayloadPrompt,
     beforeDeliverPayload: options.beforeDeliverPayload,
     shouldTreatDeliveredTextAsVisible: options.shouldTreatDeliveredTextAsVisible,
