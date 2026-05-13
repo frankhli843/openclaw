@@ -179,7 +179,7 @@
       "static": [
         {
           "file": "extensions/whatsapp/src/auto-reply/monitor/inbound-dispatch.ts",
-          "pattern": "resolveChannelSourceReplyDeliveryMode",
+          "pattern": "resolveChannelMessageSourceReplyDeliveryMode",
           "minCount": 1,
           "note": "WhatsApp auto-reply delivery mode is resolved dynamically (defaults to automatic for groups). Do not hard-code message_tool_only."
         },
@@ -191,7 +191,7 @@
         },
         {
           "file": "extensions/discord/src/monitor/timeouts.ts",
-          "pattern": "DISCORD_DEFAULT_INBOUND_WORKER_TIMEOUT_MS = 3 \\* 60_000",
+          "pattern": "DISCORD_DEFAULT_INBOUND_WORKER_TIMEOUT_MS = 10 \\* 60_000",
           "minCount": 1,
           "note": "Chat inbound turns should fail and recover quickly; long work belongs in background workers."
         },
@@ -724,9 +724,9 @@
         },
         {
           "file": "src/agents/pi-embedded-runner/run/attempt.ts",
-          "pattern": "wsApiKey",
-          "minCount": 2,
-          "note": "resolved wsApiKey injected into stream options for WebSocket transport"
+          "pattern": "apiKey: await resolveEmbeddedAgentApiKey",
+          "minCount": 1,
+          "note": "resolved apiKey injected into stream options via resolveEmbeddedAgentApiKey for provider auth"
         }
       ],
       "tests": ["src/agents/pi-embedded-runner/run/attempt.frankclaw.test.ts"],

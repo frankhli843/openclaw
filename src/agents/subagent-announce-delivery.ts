@@ -72,6 +72,8 @@ type SubagentAnnounceDeliveryDeps = {
     isActive: boolean;
   };
   queueEmbeddedPiMessageWithOutcome: typeof queueEmbeddedPiMessageWithOutcome;
+  // frankclaw: sendMessage in deps for testability of sendCompletionFallback
+  sendMessage: typeof sendMessage;
 };
 
 const defaultSubagentAnnounceDeliveryDeps: SubagentAnnounceDeliveryDeps = {
@@ -87,6 +89,7 @@ const defaultSubagentAnnounceDeliveryDeps: SubagentAnnounceDeliveryDeps = {
     };
   },
   queueEmbeddedPiMessageWithOutcome,
+  sendMessage, // frankclaw: included in deps for testability
 };
 
 let subagentAnnounceDeliveryDeps: SubagentAnnounceDeliveryDeps =
@@ -742,7 +745,7 @@ async function sendCompletionFallback(params: {
       : "completion direct fallback send",
     signal: params.signal,
     run: async () =>
-      await sendMessage({
+      await subagentAnnounceDeliveryDeps.sendMessage({
         cfg: params.cfg,
         channel,
         to,
@@ -761,7 +764,6 @@ async function sendCompletionFallback(params: {
 function resolveCompletionFallbackPath(threadId: string | undefined) {
   return threadId ? ("direct-thread-fallback" as const) : ("direct-fallback" as const);
 }
-
 
 function stripNonDeliverableChannelForCompletionOrigin(
   context?: DeliveryContext,
