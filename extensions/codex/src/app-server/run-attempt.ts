@@ -154,6 +154,7 @@ const CODEX_USAGE_LIMIT_RATE_LIMIT_REFRESH_TIMEOUT_MS = 5_000;
 const CODEX_TURN_COMPLETION_IDLE_TIMEOUT_MS = 60_000;
 const CODEX_TURN_ASSISTANT_COMPLETION_IDLE_TIMEOUT_MS = 10_000;
 const CODEX_TURN_TERMINAL_IDLE_TIMEOUT_MS = 30 * 60_000;
+const CODEX_RAW_RESPONSE_ITEM_DRAIN_TIMEOUT_MS = 30_000;
 const CODEX_NATIVE_HOOK_RELAY_MIN_TTL_MS = 30 * 60_000;
 const CODEX_NATIVE_HOOK_RELAY_TTL_GRACE_MS = 5 * 60_000;
 const CODEX_STEER_ALL_DEBOUNCE_MS = 500;
@@ -443,6 +444,7 @@ export async function runCodexAppServerAttempt(
     turnCompletionIdleTimeoutMs?: number;
     turnAssistantCompletionIdleTimeoutMs?: number;
     turnTerminalIdleTimeoutMs?: number;
+    rawResponseItemDrainTimeoutMs?: number;
   } = {},
 ): Promise<EmbeddedRunAttemptResult> {
   const attemptStartedAt = Date.now();
@@ -924,6 +926,13 @@ export async function runCodexAppServerAttempt(
   let turnCompletionLastActivityDetails: Record<string, unknown> | undefined;
   let activeAppServerTurnRequests = 0;
   const activeTurnItemIds = new Set<string>();
+  const rawResponseItemDrainTimeoutMs = resolveCodexRawResponseItemDrainTimeoutMs(
+    options.rawResponseItemDrainTimeoutMs,
+  );
+  let rawResponseItemDrainTimer: ReturnType<typeof setTimeout> | undefined;
+  let rawResponseItemDrainArmed = false;
+  let rawResponseItemDrainLastActivityAt = Date.now();
+  let rawResponseItemDrainLastActivityDetails: Record<string, unknown> | undefined;
 
   const clearTurnCompletionIdleTimer = () => {
     if (turnCompletionIdleTimer) {
@@ -944,6 +953,68 @@ export async function runCodexAppServerAttempt(
       clearTimeout(turnAssistantCompletionIdleTimer);
       turnAssistantCompletionIdleTimer = undefined;
     }
+  };
+
+  const clearRawResponseItemDrainTimer = () => {
+    if (rawResponseItemDrainTimer) {
+      clearTimeout(rawResponseItemDrainTimer);
+      rawResponseItemDrainTimer = undefined;
+    }
+  };
+
+  const fireRawResponseItemDrainTimeout = () => {
+    if (completed || runAbortController.signal.aborted || !rawResponseItemDrainArmed) {
+      return;
+    }
+    rawResponseItemDrainArmed = false;
+    clearRawResponseItemDrainTimer();
+    trajectoryRecorder?.recordEvent("turn.raw_response_item_drain", {
+      threadId: thread.threadId,
+      turnId,
+      timeoutMs: rawResponseItemDrainTimeoutMs,
+      ...rawResponseItemDrainLastActivityDetails,
+    });
+    embeddedAgentLog.warn(
+      "codex app-server synthesizing turn completion after rawResponseItem/completed drain",
+      {
+        threadId: thread.threadId,
+        turnId,
+        timeoutMs: rawResponseItemDrainTimeoutMs,
+        ...rawResponseItemDrainLastActivityDetails,
+      },
+    );
+    if (turnId) {
+      interruptCodexTurnBestEffort(client, {
+        threadId: thread.threadId,
+        turnId,
+        timeoutMs: CODEX_APP_SERVER_INTERRUPT_TIMEOUT_MS,
+      });
+    }
+    completed = true;
+    resolveCompletion?.();
+  };
+
+  const scheduleRawResponseItemDrainWatch = () => {
+    clearRawResponseItemDrainTimer();
+    if (completed || runAbortController.signal.aborted || !rawResponseItemDrainArmed) {
+      return;
+    }
+    const elapsedMs = Math.max(0, Date.now() - rawResponseItemDrainLastActivityAt);
+    const delayMs = Math.max(1, rawResponseItemDrainTimeoutMs - elapsedMs);
+    rawResponseItemDrainTimer = setTimeout(fireRawResponseItemDrainTimeout, delayMs);
+    rawResponseItemDrainTimer.unref?.();
+  };
+
+  const disarmRawResponseItemDrainWatch = () => {
+    rawResponseItemDrainArmed = false;
+    clearRawResponseItemDrainTimer();
+  };
+
+  const armRawResponseItemDrainWatch = (details?: Record<string, unknown>) => {
+    rawResponseItemDrainArmed = true;
+    rawResponseItemDrainLastActivityAt = Date.now();
+    rawResponseItemDrainLastActivityDetails = details;
+    scheduleRawResponseItemDrainWatch();
   };
 
   const fireTurnAssistantCompletionIdleRelease = () => {
@@ -1264,6 +1335,16 @@ export async function runCodexAppServerAttempt(
     ) {
       disarmTurnAssistantCompletionIdleWatch();
     }
+    if (isCurrentTurnNotification && isTerminalAssistantRawResponseItem(notification)) {
+      armRawResponseItemDrainWatch(describeNotificationActivity(notification));
+    } else if (isTurnCompletion) {
+      disarmRawResponseItemDrainWatch();
+    } else if (
+      isCurrentTurnNotification &&
+      (notification.method === "item/started" || notification.method === "item/completed")
+    ) {
+      disarmRawResponseItemDrainWatch();
+    }
     if (
       turnCompletionIdleWatchArmed &&
       !turnCompletionIdleWatchPinnedByTerminalError &&
@@ -1302,6 +1383,7 @@ export async function runCodexAppServerAttempt(
         clearTurnCompletionIdleTimer();
         clearTurnAssistantCompletionIdleTimer();
         clearTurnTerminalIdleTimer();
+        clearRawResponseItemDrainTimer();
         resolveCompletion?.();
       }
     }
@@ -1851,6 +1933,7 @@ export async function runCodexAppServerAttempt(
     clearTurnCompletionIdleTimer();
     clearTurnAssistantCompletionIdleTimer();
     clearTurnTerminalIdleTimer();
+    clearRawResponseItemDrainTimer();
     notificationCleanup();
     requestCleanup();
     nativeHookRelay?.unregister();
@@ -2431,6 +2514,16 @@ function resolveCodexTurnTerminalIdleTimeoutMs(value: number | undefined): numbe
   return Math.max(1, Math.floor(value));
 }
 
+function resolveCodexRawResponseItemDrainTimeoutMs(value: number | undefined): number {
+  if (value === undefined) {
+    return CODEX_RAW_RESPONSE_ITEM_DRAIN_TIMEOUT_MS;
+  }
+  if (!Number.isFinite(value)) {
+    return CODEX_RAW_RESPONSE_ITEM_DRAIN_TIMEOUT_MS;
+  }
+  return Math.max(1, Math.floor(value));
+}
+
 function readDynamicToolCallParams(
   value: JsonValue | undefined,
 ): CodexDynamicToolCallParams | undefined {
@@ -2693,6 +2786,17 @@ function shouldDisarmAssistantCompletionIdleWatch(notification: CodexServerNotif
     return true;
   }
   return false;
+}
+
+function isTerminalAssistantRawResponseItem(notification: CodexServerNotification): boolean {
+  if (notification.method !== "rawResponseItem/completed" || !isJsonObject(notification.params)) {
+    return false;
+  }
+  const item = isJsonObject(notification.params.item) ? notification.params.item : undefined;
+  if (!item) {
+    return false;
+  }
+  return readString(item, "role") === "assistant";
 }
 
 function readNotificationItemId(notification: CodexServerNotification): string | undefined {
@@ -3208,6 +3312,7 @@ export const __testing = {
   CODEX_DYNAMIC_IMAGE_TOOL_TIMEOUT_MS,
   CODEX_TURN_COMPLETION_IDLE_TIMEOUT_MS,
   CODEX_TURN_TERMINAL_IDLE_TIMEOUT_MS,
+  CODEX_RAW_RESPONSE_ITEM_DRAIN_TIMEOUT_MS,
   createCodexSteeringQueue,
   buildCodexNativeHookRelayId,
   filterCodexDynamicTools,
