@@ -24,6 +24,7 @@ import {
 import { recordInboundSession } from "openclaw/plugin-sdk/conversation-runtime";
 import {
   hasFinalInboundReplyDispatch,
+  recordChannelBotPairLoopAndCheckSuppression,
   runInboundReplyTurn,
 } from "openclaw/plugin-sdk/inbound-reply-dispatch";
 // frankclaw: DNR window check for post-dispatch 🛏️ reaction
@@ -151,12 +152,22 @@ export async function processDiscordMessage(
     route,
     discordRestFetch,
     abortSignal,
+    botLoopProtection,
   } = ctx;
   // frankclaw: pre-run abort checks must throw (not return) so the durable
   // queue treats the job as failed and retries on next boot. A silent return
   // causes the queue to permanently delete the message.
   if (isProcessAborted(abortSignal)) {
     throw new Error("process aborted before run started");
+  }
+  if (botLoopProtection) {
+    const botLoopResult = recordChannelBotPairLoopAndCheckSuppression(botLoopProtection);
+    if (botLoopResult.suppressed) {
+      logVerbose(
+        `discord: bot-to-bot loop detected before dispatch setup, suppressing for ${Math.max(0, Math.ceil((botLoopResult.cooldownUntilMs - Date.now()) / 1000))}s`,
+      );
+      return;
+    }
   }
 
   const ssrfPolicy = cfg.browser?.ssrfPolicy;

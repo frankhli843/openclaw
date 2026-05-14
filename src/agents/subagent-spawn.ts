@@ -1035,16 +1035,12 @@ async function spawnSubagentDirectCore(
     : undefined;
 
   const childTaskMessage = prependSubagentInstructions(
-    [
-      buildSubagentInitialUserMessage({
-        childDepth,
-        maxSpawnDepth,
-        persistentSession: spawnMode === "session",
-      }),
-      `[Subagent Task]: ${task}`,
-    ]
-      .filter((line): line is string => Boolean(line))
-      .join("\n\n"),
+    buildSubagentInitialUserMessage({
+      childDepth,
+      maxSpawnDepth,
+      persistentSession: spawnMode === "session",
+      task,
+    }),
     subagentGlobalInstructions,
   );
 

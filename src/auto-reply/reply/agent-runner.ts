@@ -10,7 +10,7 @@ import { resolveModelAuthMode } from "../../agents/model-auth.js";
 import { isCliProvider } from "../../agents/model-selection.js";
 import {
   formatEmbeddedPiQueueFailureSummary,
-  queueEmbeddedPiMessageWithOutcome,
+  queueEmbeddedPiMessageWithOutcomeAsync,
 } from "../../agents/pi-embedded-runner/runs.js";
 import { deriveContextPromptTokens, hasNonzeroUsage, normalizeUsage } from "../../agents/usage.js";
 import { enqueueCommitmentExtraction } from "../../commitments/runtime.js";
@@ -92,7 +92,6 @@ import { resolveActiveRunQueueAction } from "./queue-policy.js";
 import {
   enqueueFollowupRun,
   refreshQueuedFollowupSession,
-  resolvePiSteeringModeForQueueMode,
   scheduleFollowupDrain,
   type FollowupRun,
   type QueueSettings,
@@ -1089,8 +1088,6 @@ export async function runReplyAgent(params: {
   let activeIsNewSession = isNewSession;
   const effectiveResetTriggered = resetTriggered === true;
   const activeRunQueueMode = effectiveResetTriggered ? "interrupt" : resolvedQueue.mode;
-  const effectiveShouldSteer = !effectiveResetTriggered && shouldSteer;
-  const effectiveShouldFollowup = !effectiveResetTriggered && shouldFollowup;
 
   // [frankclaw] Initialize deferred retry worker
   await initDeferredRetryWorker();
@@ -1110,6 +1107,8 @@ export async function runReplyAgent(params: {
       config: followupRun.run.config,
       attributes: traceAttributes,
     });
+  const effectiveShouldSteer = !isHeartbeat && !effectiveResetTriggered && shouldSteer;
+  const effectiveShouldFollowup = !effectiveResetTriggered && shouldFollowup;
   const typingSignals = createTypingSignaler({
     typing,
     mode: typingMode,
@@ -1149,21 +1148,21 @@ export async function runReplyAgent(params: {
     const steerSessionId =
       (sessionKey ? replyRunRegistry.resolveSessionId(sessionKey) : undefined) ??
       followupRun.run.sessionId;
-    const steerOutcome = queueEmbeddedPiMessageWithOutcome(steerSessionId, followupRun.prompt, {
-      steeringMode: resolvePiSteeringModeForQueueMode(resolvedQueue.mode),
-      ...(resolvedQueue.debounceMs !== undefined ? { debounceMs: resolvedQueue.debounceMs } : {}),
-    });
-    if (steerOutcome.queued && !effectiveShouldFollowup) {
+    const steerOutcome = await queueEmbeddedPiMessageWithOutcomeAsync(
+      steerSessionId,
+      followupRun.prompt,
+      {
+        steeringMode: "all",
+        ...(resolvedQueue.debounceMs !== undefined ? { debounceMs: resolvedQueue.debounceMs } : {}),
+      },
+    );
+    if (steerOutcome.queued) {
       await touchActiveSessionEntry();
       typing.cleanup();
       return undefined;
     }
-    if (!steerOutcome.queued) {
-      const summary = formatEmbeddedPiQueueFailureSummary(steerOutcome);
-      if (summary) {
-        logVerbose(`reply queue steering failed: ${summary}`);
-      }
-    }
+    const summary = formatEmbeddedPiQueueFailureSummary(steerOutcome);
+    logVerbose(`queue: active session ${steerSessionId} rejected steering injection: ${summary}`);
   }
 
   const activeRunQueueAction = resolveActiveRunQueueAction({

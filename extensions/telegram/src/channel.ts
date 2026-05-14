@@ -74,6 +74,7 @@ import {
   formatDuplicateTelegramTokenReason,
   telegramConfigAdapter,
 } from "./shared.js";
+import { withTelegramStartupProbeSlot } from "./startup-probe-limiter.js";
 import { detectTelegramLegacyStateMigrations } from "./state-migrations.js";
 import { collectTelegramStatusIssues } from "./status-issues.js";
 import { parseTelegramTarget } from "./targets.js";
@@ -897,16 +898,18 @@ export const telegramPlugin = createChatChannelPlugin({
         let unauthorizedTokenReason: string | null = null;
         let botInfo: TelegramBotInfo | undefined;
         try {
-          const probe = await resolveTelegramProbe()(
-            token,
-            resolveTelegramStartupProbeTimeoutMs(account.config.timeoutSeconds),
-            {
-              accountId: account.accountId,
-              proxyUrl: account.config.proxy,
-              network: account.config.network,
-              apiRoot: account.config.apiRoot,
-              includeWebhookInfo: false,
-            },
+          const probe = await withTelegramStartupProbeSlot(ctx.abortSignal, () =>
+            resolveTelegramProbe()(
+              token,
+              resolveTelegramStartupProbeTimeoutMs(account.config.timeoutSeconds),
+              {
+                accountId: account.accountId,
+                proxyUrl: account.config.proxy,
+                network: account.config.network,
+                apiRoot: account.config.apiRoot,
+                includeWebhookInfo: false,
+              },
+            ),
           );
           const username = probe.ok ? probe.bot?.username?.trim() : null;
           if (username) {
@@ -917,6 +920,9 @@ export const telegramPlugin = createChatChannelPlugin({
             unauthorizedTokenReason = formatTelegramUnauthorizedTokenError(account);
           }
         } catch (err) {
+          if (ctx.abortSignal.aborted) {
+            return;
+          }
           if (getTelegramRuntime().logging.shouldLogVerbose()) {
             ctx.log?.debug?.(`[${account.accountId}] bot probe failed: ${String(err)}`);
           }

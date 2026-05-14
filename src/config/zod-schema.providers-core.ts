@@ -117,6 +117,14 @@ const SlackCapabilitiesSchema = z.union([
     })
     .strict(),
 ]);
+const BotLoopProtectionSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    maxEventsPerWindow: z.number().int().positive().optional(),
+    windowSeconds: z.number().int().positive().optional(),
+    cooldownSeconds: z.number().int().positive().optional(),
+  })
+  .strict();
 
 const GateModeSchema = z
   .enum(["blocked", "silent", "frank-only", "allowlist", "mention", "open"])
@@ -623,6 +631,7 @@ export const DiscordAccountSchema = z
     gatewayReadyTimeoutMs: z.number().int().positive().max(120_000).optional(),
     gatewayRuntimeReadyTimeoutMs: z.number().int().positive().max(120_000).optional(),
     allowBots: z.union([z.boolean(), z.literal("mentions")]).optional(),
+    botLoopProtection: BotLoopProtectionSchema.optional(),
     dangerouslyAllowNameMatching: z.boolean().optional(),
     mentionAliases: z.record(z.string(), DiscordSnowflakeStringSchema).optional(),
     groupPolicy: GroupPolicySchema.optional().default("allowlist"),
@@ -895,6 +904,7 @@ export const GoogleChatGroupSchema = z
   .object({
     enabled: z.boolean().optional(),
     requireMention: z.boolean().optional(),
+    botLoopProtection: BotLoopProtectionSchema.optional(),
     users: z.array(z.union([z.string(), z.number()])).optional(),
     systemPrompt: z.string().optional(),
   })
@@ -907,6 +917,7 @@ export const GoogleChatAccountSchema = z
     enabled: z.boolean().optional(),
     configWrites: z.boolean().optional(),
     allowBots: z.boolean().optional(),
+    botLoopProtection: BotLoopProtectionSchema.optional(),
     dangerouslyAllowNameMatching: z.boolean().optional(),
     requireMention: z.boolean().optional(),
     groupPolicy: GroupPolicySchema.optional().default("allowlist"),
@@ -970,6 +981,7 @@ export const SlackChannelSchema = z
     tools: ToolPolicySchema,
     toolsBySender: ToolPolicyBySenderSchema,
     allowBots: z.union([z.boolean(), z.literal("mentions")]).optional(),
+    botLoopProtection: BotLoopProtectionSchema.optional(),
     users: z.array(z.union([z.string(), z.number()])).optional(),
     skills: z.array(z.string()).optional(),
     systemPrompt: z.string().optional(),
@@ -1028,6 +1040,7 @@ export const SlackAccountSchema = z
     userToken: SecretInputSchema.optional().register(sensitive),
     userTokenReadOnly: z.boolean().optional().default(true),
     allowBots: z.union([z.boolean(), z.literal("mentions")]).optional(),
+    botLoopProtection: BotLoopProtectionSchema.optional(),
     dangerouslyAllowNameMatching: z.boolean().optional(),
     requireMention: z.boolean().optional(),
     groupPolicy: GroupPolicySchema.optional(),

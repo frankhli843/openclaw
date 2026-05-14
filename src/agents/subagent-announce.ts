@@ -43,6 +43,7 @@ import {
 import { rewakeParentAfterAnnounce } from "./subagent-announce-rewake.frankclaw.js";
 import {
   callGateway,
+  dispatchGatewayMethodInProcess,
   isEmbeddedPiRunActive,
   getRuntimeConfig,
   waitForEmbeddedPiRunEnd,
@@ -54,12 +55,14 @@ import { isAnnounceSkip } from "./tools/sessions-send-tokens.js";
 
 type SubagentAnnounceDeps = {
   callGateway: typeof callGateway;
+  dispatchGatewayMethodInProcess: typeof dispatchGatewayMethodInProcess;
   getRuntimeConfig: typeof getRuntimeConfig;
   loadSubagentRegistryRuntime: typeof loadSubagentRegistryRuntime;
 };
 
 const defaultSubagentAnnounceDeps: SubagentAnnounceDeps = {
   callGateway,
+  dispatchGatewayMethodInProcess,
   getRuntimeConfig,
   loadSubagentRegistryRuntime,
 };
@@ -228,9 +231,9 @@ async function wakeSubagentRunAfterDescendants(params: {
       operation: "descendant wake agent call",
       signal: params.signal,
       run: async () =>
-        await subagentAnnounceDeps.callGateway({
-          method: "agent",
-          params: {
+        await subagentAnnounceDeps.dispatchGatewayMethodInProcess(
+          "agent",
+          {
             sessionKey: params.childSessionKey,
             message: wakeMessage,
             deliver: false,
@@ -242,8 +245,10 @@ async function wakeSubagentRunAfterDescendants(params: {
             },
             idempotencyKey: buildAnnounceIdempotencyKey(`${params.announceId}:wake`),
           },
-          timeoutMs: announceTimeoutMs,
-        }),
+          {
+            timeoutMs: announceTimeoutMs,
+          },
+        ),
     });
     wakeRunId = normalizeOptionalString(wakeResponse?.runId) ?? "";
   } catch {
@@ -705,11 +710,30 @@ export async function runSubagentAnnounceFlow(params: {
 }
 
 export const __testing = {
-  setDepsForTest(overrides?: Partial<SubagentAnnounceDeps>) {
+  setDepsForTest(
+    overrides?: Partial<SubagentAnnounceDeps> & {
+      callGateway?: typeof callGateway;
+    },
+  ) {
+    const callGatewayOverride = overrides?.callGateway;
+    const dispatchGatewayMethodInProcessOverride =
+      overrides?.dispatchGatewayMethodInProcess ??
+      (callGatewayOverride
+        ? ((async (method, agentParams, options) =>
+            await callGatewayOverride({
+              method,
+              params: agentParams,
+              expectFinal: options?.expectFinal,
+              timeoutMs: options?.timeoutMs,
+            })) satisfies typeof dispatchGatewayMethodInProcess)
+        : undefined);
     subagentAnnounceDeps = overrides
       ? {
           ...defaultSubagentAnnounceDeps,
           ...overrides,
+          ...(dispatchGatewayMethodInProcessOverride
+            ? { dispatchGatewayMethodInProcess: dispatchGatewayMethodInProcessOverride }
+            : {}),
         }
       : defaultSubagentAnnounceDeps;
   },

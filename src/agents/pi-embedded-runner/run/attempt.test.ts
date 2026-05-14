@@ -643,6 +643,10 @@ describe("remapInjectedContextFilesToWorkspace", () => {
             content: "tools",
           },
           {
+            path: "/real/workspace/..context/USER.md",
+            content: "dot-prefixed context",
+          },
+          {
             path: "/outside/README.md",
             content: "outside",
           },
@@ -658,6 +662,10 @@ describe("remapInjectedContextFilesToWorkspace", () => {
       {
         path: "/sandbox/workspace/nested/TOOLS.md",
         content: "tools",
+      },
+      {
+        path: "/sandbox/workspace/..context/USER.md",
+        content: "dot-prefixed context",
       },
       {
         path: "/outside/README.md",
