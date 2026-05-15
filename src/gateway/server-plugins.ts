@@ -16,7 +16,7 @@ import type { PluginRuntime } from "../plugins/runtime/types.js";
 import type { PluginLogger } from "../plugins/types.js";
 import { resolveGlobalSingleton } from "../shared/global-singleton.js";
 import { resolveSafeTimeoutDelayMs } from "../utils/timer-delay.js";
-import { ADMIN_SCOPE, WRITE_SCOPE } from "./method-scopes.js";
+import { ADMIN_SCOPE, APPROVALS_SCOPE, WRITE_SCOPE } from "./method-scopes.js";
 import { enforcePluginLoadSuccess } from "./plugin-load-guard.frankclaw.js"; // frankclaw: fail hard on plugin errors
 import { GATEWAY_CLIENT_IDS, GATEWAY_CLIENT_MODES } from "./protocol/client-info.js";
 import type { ErrorShape } from "./protocol/index.js";
@@ -267,6 +267,7 @@ function createSyntheticOperatorClient(params?: {
     },
     internal: {
       allowModelOverride: params?.allowModelOverride === true,
+      ...(params?.scopes?.includes(APPROVALS_SCOPE) ? { approvalRuntime: true } : {}),
       ...(pluginRuntimeOwnerId ? { pluginRuntimeOwnerId } : {}),
     },
   };
@@ -662,6 +663,8 @@ export function loadGatewayPlugins(params: {
       ["pluginIdsMs", pluginIdsMs],
       ["loadMs", 0],
       ["pluginIds", "0"],
+      ["pluginCount", 0],
+      ["gatewayHandlerCount", 0],
     ]);
     return {
       pluginRegistry,
@@ -693,6 +696,9 @@ export function loadGatewayPlugins(params: {
     },
     preferSetupRuntimeForChannelPlugins: params.preferSetupRuntimeForChannelPlugins,
     preferBuiltPluginArtifacts: true,
+    ...(params.startupTrace !== undefined && {
+      startupTrace: params.startupTrace,
+    }),
     ...(params.pluginLookUpTable?.manifestRegistry
       ? { manifestRegistry: params.pluginLookUpTable.manifestRegistry }
       : {}),
@@ -708,7 +714,9 @@ export function loadGatewayPlugins(params: {
     ["pluginIdsMs", pluginIdsMs],
     ["loadMs", loadMs],
     ["pluginIds", String(pluginIds.length)],
+    ["pluginCount", pluginIds.length],
     ["gatewayHandlers", String(pluginMethods.length)],
+    ["gatewayHandlerCount", pluginMethods.length],
     ["loaderCallsCount", loaderStatsAfter.calls - loaderStatsBefore.calls],
     ["loaderNativeHitsCount", loaderStatsAfter.nativeHits - loaderStatsBefore.nativeHits],
     ["loaderNativeMissesCount", loaderStatsAfter.nativeMisses - loaderStatsBefore.nativeMisses],
