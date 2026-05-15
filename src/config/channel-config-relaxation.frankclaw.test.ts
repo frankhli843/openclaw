@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ChannelsSchema } from "./zod-schema.providers.js";
+import { ChannelsSchema } from "./zod-schema.channels-config.js";
 
 describe("channel config additionalProperties relaxation", () => {
   it("accepts known defaults without error", () => {
