@@ -3440,7 +3440,9 @@ describe("AcpSessionManager", () => {
     expect(runtimeState.runTurn).toHaveBeenCalledTimes(1);
   });
 
-  it("fails turns when optional timeout config writes hit runtime failures", async () => {
+  // frankclaw: applyRuntimeControls is non-fatal — backend unavailability during control
+  // application does not abort the turn (oneshot sessions close connections before controls apply).
+  it("continues turns when optional timeout config writes hit runtime failures", async () => {
     const runtimeState = createRuntime();
     runtimeState.setConfigOption.mockImplementation(async (input: { key: string }) => {
       if (input.key === "timeout") {
@@ -3463,27 +3465,23 @@ describe("AcpSessionManager", () => {
     });
 
     const manager = new AcpSessionManager();
-    await expectRejectedRecord(
-      manager.runTurn({
-        cfg: baseCfg,
-        sessionKey: "agent:opencode:acp:session-1",
-        text: "do work",
-        mode: "prompt",
-        requestId: "run-opencode",
-      }),
-      {
-        code: "ACP_BACKEND_UNAVAILABLE",
-      },
-    );
+    await manager.runTurn({
+      cfg: baseCfg,
+      sessionKey: "agent:opencode:acp:session-1",
+      text: "do work",
+      mode: "prompt",
+      requestId: "run-opencode",
+    });
 
     expectMockCallFields(runtimeState.setConfigOption, {
       key: "timeout",
       value: "120",
     });
-    expect(runtimeState.runTurn).not.toHaveBeenCalled();
+    expect(runtimeState.runTurn).toHaveBeenCalledTimes(1);
   });
 
-  it("fails turns when adapters reject required runtime config", async () => {
+  // frankclaw: applyRuntimeControls is non-fatal — config rejection does not abort the turn.
+  it("continues turns when adapters reject required runtime config", async () => {
     const runtimeState = createRuntime();
     runtimeState.setConfigOption.mockImplementation(async (input: { key: string }) => {
       if (input.key === "model") {
@@ -3509,20 +3507,15 @@ describe("AcpSessionManager", () => {
     });
 
     const manager = new AcpSessionManager();
-    await expectRejectedRecord(
-      manager.runTurn({
-        cfg: baseCfg,
-        sessionKey: "agent:opencode:acp:session-1",
-        text: "do work",
-        mode: "prompt",
-        requestId: "run-opencode",
-      }),
-      {
-        code: "ACP_TURN_FAILED",
-      },
-    );
+    await manager.runTurn({
+      cfg: baseCfg,
+      sessionKey: "agent:opencode:acp:session-1",
+      text: "do work",
+      mode: "prompt",
+      requestId: "run-opencode",
+    });
 
-    expect(runtimeState.runTurn).not.toHaveBeenCalled();
+    expect(runtimeState.runTurn).toHaveBeenCalledTimes(1);
   });
 
   it("maps persisted thinking runtime options to advertised effort config keys before running turns", async () => {
