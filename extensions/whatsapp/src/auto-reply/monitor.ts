@@ -42,11 +42,11 @@ import { whatsappHeartbeatLog, whatsappLog } from "./loggers.js";
 import { buildMentionConfig } from "./mentions.js";
 import { createWebChannelStatusController } from "./monitor-state.js";
 import { createEchoTracker } from "./monitor/echo.js";
-// frankclaw: per-message inbound timeout (mirrors Discord's 3-min durable worker timeout)
+// frankclaw: durable inbound worker (SQS-style queue, retry, dead-letter)
 import {
-  runWhatsAppInboundWithTimeout,
-  WHATSAPP_INBOUND_WORKER_TIMEOUT_MS,
-} from "./monitor/on-message-timeout.frankclaw.js";
+  createDurableWhatsAppInboundWorker,
+  WHATSAPP_DURABLE_INBOUND_TIMEOUT_MS,
+} from "./monitor/inbound-worker.durable.frankclaw.js";
 import { createWebOnMessageHandler } from "./monitor/on-message.js";
 import type { WebInboundMsg, WebMonitorTuning } from "./types.js";
 import { isLikelyWhatsAppCryptoError } from "./util.js";
@@ -276,6 +276,23 @@ export async function monitorWebChannel(
     isNonRetryableStatus: isNonRetryableWebCloseStatus,
   });
 
+  // frankclaw: durable inbound worker. The mutable currentOnMessage ref is
+  // updated each time the listener is rebuilt (reconnect) so the worker always
+  // calls the freshest handler bound to the current socket.
+  let currentOnMessage: ((msg: WebInboundMsg) => Promise<void>) | null = null;
+  const durableInboundWorker = createDurableWhatsAppInboundWorker({
+    accountId: account.accountId,
+    log: whatsappLog,
+    processOne: async (msg) => {
+      if (!currentOnMessage) {
+        throw new Error("whatsapp durable worker: no active onMessage handler (socket not bound)");
+      }
+      await currentOnMessage(msg);
+    },
+    timeoutMs: WHATSAPP_DURABLE_INBOUND_TIMEOUT_MS,
+  });
+  await durableInboundWorker.start();
+
   try {
     while (true) {
       if (stopRequested()) {
@@ -326,6 +343,9 @@ export async function monitorWebChannel(
               baseMentionConfig,
               account,
             });
+            // frankclaw: durable worker calls this via the mutable ref, so each
+            // reconnect installs a fresh handler bound to the current socket.
+            currentOnMessage = onMessage;
 
             return (await (listenerFactory ?? attachWebInboxToSocket)({
               cfg,
@@ -347,14 +367,12 @@ export async function monitorWebChannel(
                 const inboundAt = Date.now();
                 controller.noteInbound(inboundAt);
                 statusController.noteInbound(inboundAt);
-                // frankclaw: bounded per-message timeout prevents a single stuck WhatsApp turn
-                // from blocking the entire chat session for hours (same pattern as Discord 3-min).
-                await runWhatsAppInboundWithTimeout({
-                  msg,
-                  run: () => onMessage(msg),
-                  timeoutMs: WHATSAPP_INBOUND_WORKER_TIMEOUT_MS,
-                  log: whatsappLog,
-                });
+                // frankclaw: hand off to the durable inbound queue. The worker
+                // persists the message to disk, claims a lease, processes with
+                // a 5-min timeout, retries on failure, and dead-letters with a
+                // diagnostic after maxAttempts. Replaces the old fire-and-forget
+                // runWhatsAppInboundWithTimeout which silently dropped messages.
+                await durableInboundWorker.enqueue(msg);
               },
               sock,
             })) as ManagedWhatsAppListener;
@@ -692,5 +710,12 @@ export async function monitorWebChannel(
     statusController.markStopped();
     process.removeListener("SIGINT", handleSigint);
     await controller.shutdown();
+    // frankclaw: stop the durable inbound worker so the periodic recovery
+    // timer is cleared and any in-flight jobs settle cleanly.
+    try {
+      await durableInboundWorker.stop();
+    } catch (err) {
+      whatsappLog.warn(`whatsapp durable worker stop failed: ${String(err)}`);
+    }
   }
 }

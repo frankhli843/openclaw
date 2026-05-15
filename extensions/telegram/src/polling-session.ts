@@ -11,6 +11,11 @@ import { normalizeLowercaseStringOrEmpty } from "openclaw/plugin-sdk/string-coer
 import { withTelegramApiErrorLogging } from "./api-logging.js";
 import { createTelegramBot } from "./bot.js";
 import { type TelegramTransport } from "./fetch.js";
+// frankclaw: durable inbound worker (wraps bot.handleUpdate with disk-backed retry).
+import {
+  createDurableTelegramInboundWorker,
+  type DurableTelegramInboundWorker,
+} from "./inbound-worker.durable.frankclaw.js";
 import { isRecoverableTelegramNetworkError } from "./network-errors.js";
 import { TelegramPollingLivenessTracker } from "./polling-liveness.js";
 import { createTelegramPollingStatusPublisher } from "./polling-status.js";
@@ -114,6 +119,9 @@ export class TelegramPollingSession {
   #transportState: TelegramPollingTransportState;
   #status: ReturnType<typeof createTelegramPollingStatusPublisher>;
   #stallThresholdMs: number;
+  // frankclaw: durable inbound worker. Created lazily on first bot creation so
+  // tests that never enter the polling loop don't spin up disk-backed timers.
+  #durableWorker: DurableTelegramInboundWorker | null = null;
 
   constructor(private readonly opts: TelegramPollingSessionOpts) {
     this.#transportState = new TelegramPollingTransportState({
@@ -123,6 +131,26 @@ export class TelegramPollingSession {
     });
     this.#status = createTelegramPollingStatusPublisher(opts.setStatus);
     this.#stallThresholdMs = resolvePollingStallThresholdMs(opts.stallThresholdMs);
+  }
+
+  // frankclaw: lazily build the durable inbound worker. Per-account, with
+  // disk-backed retry + dead-letter. Wraps each newly created grammy bot.
+  async #ensureDurableWorker(): Promise<DurableTelegramInboundWorker> {
+    if (this.#durableWorker) {
+      return this.#durableWorker;
+    }
+    const worker = createDurableTelegramInboundWorker({
+      accountId: this.opts.accountId,
+      log: {
+        warn: (line: string) => this.opts.log(line),
+        info: (line: string) => this.opts.log(line),
+        error: (line: string) => this.opts.log(line),
+      },
+      ...(this.opts.botInfo ? { botInfo: this.opts.botInfo } : {}),
+    });
+    await worker.start();
+    this.#durableWorker = worker;
+    return worker;
   }
 
   get activeRunner() {
@@ -171,6 +199,18 @@ export class TelegramPollingSession {
       // leak to api.telegram.org; see openclaw#68128.
       await this.#transportState.dispose();
       this.#status.notePollingStop();
+      // frankclaw: stop the durable inbound worker so the periodic recovery
+      // timer is cleared and any in-flight jobs settle cleanly.
+      if (this.#durableWorker) {
+        try {
+          await this.#durableWorker.stop();
+        } catch (err) {
+          this.opts.log(
+            `[telegram] durable inbound worker stop failed: ${formatErrorMessage(err)}`,
+          );
+        }
+        this.#durableWorker = null;
+      }
     }
   }
 
@@ -213,7 +253,7 @@ export class TelegramPollingSession {
           onUpdateId: this.opts.persistUpdateId,
         };
     try {
-      return createTelegramBot({
+      const rawBot = createTelegramBot({
         token: this.opts.token,
         runtime: this.opts.runtime,
         proxyFetch: this.opts.proxyFetch,
@@ -225,6 +265,12 @@ export class TelegramPollingSession {
         ...(updateOffset ? { updateOffset } : {}),
         telegramTransport,
       });
+      // frankclaw: hand the new bot to the durable inbound worker so each
+      // bot.handleUpdate(update) enqueues to the on-disk SQS-style queue
+      // (5-min timeout, 3 attempts with backoff, then dead-letter). The
+      // worker itself calls the bot's ORIGINAL handleUpdate during drain.
+      const durableWorker = await this.#ensureDurableWorker();
+      return durableWorker.wrapBot(rawBot);
     } catch (err) {
       await this.#waitBeforeRetryOnRecoverableSetupError(err, "Telegram setup network error");
       if (this.#activeFetchAbort === fetchAbortController) {

@@ -174,6 +174,92 @@
       "e2eTests": ["test/frankclaw-features-e2e.test.ts"]
     },
     {
+      "name": "Durable inbound queue (WhatsApp)",
+      "description": "Frankclaw durable worker for WhatsApp inbound messages. Replaces the fire-and-forget runWhatsAppInboundWithTimeout with a disk-backed SQS-style queue: each inbound message is persisted before processing with a 5-min per-message timeout, retried on failure or timeout with exponential backoff up to maxAttempts, then dead-lettered with a clear diagnostic. Non-serializable closures (reply/sendMedia/sendComposing) live in an in-memory map keyed by jobId; on restart they are gone and the job dead-letters loudly (no worse than the prior silent drop).",
+      "static": [
+        {
+          "file": "extensions/whatsapp/src/auto-reply/monitor.ts",
+          "pattern": "createDurableWhatsAppInboundWorker",
+          "minCount": 1,
+          "note": "Monitor must instantiate the durable worker on connection start."
+        },
+        {
+          "file": "extensions/whatsapp/src/auto-reply/monitor.ts",
+          "pattern": "durableInboundWorker.enqueue",
+          "minCount": 1,
+          "note": "On-message handler must hand each inbound message to the durable queue instead of the legacy fire-and-forget timeout."
+        },
+        {
+          "file": "extensions/whatsapp/src/auto-reply/monitor/inbound-worker.durable.frankclaw.ts",
+          "pattern": "WHATSAPP_DURABLE_INBOUND_TIMEOUT_MS",
+          "minCount": 1,
+          "note": "Per-message timeout constant. 5 min matches Telegram and stops Codex overruns from getting silently dropped."
+        },
+        {
+          "file": "extensions/whatsapp/src/auto-reply/monitor/inbound-worker.durable.frankclaw.ts",
+          "pattern": "closureCache",
+          "minCount": 1,
+          "note": "In-memory closure cache binds non-serializable reply/sendMedia/sendComposing to the live socket."
+        }
+      ],
+      "tests": [
+        "extensions/whatsapp/src/auto-reply/monitor/inbound-worker.durable.frankclaw.test.ts",
+        "src/inbound/inbound-durable-queue.frankclaw.test.ts"
+      ],
+      "runtime": [
+        {
+          "logPattern": "whatsapp durable worker started",
+          "withinSeconds": 120,
+          "onEvent": true,
+          "note": "Startup-only probe. Fires on gateway start when WhatsApp monitor binds. Skip rather than fail when no fresh restart occurred."
+        }
+      ],
+      "e2eTests": ["test/frankclaw-features-e2e.test.ts"]
+    },
+    {
+      "name": "Durable inbound queue (Telegram)",
+      "description": "Frankclaw durable worker for Telegram inbound updates. Wraps grammy bot.handleUpdate via a Proxy so each update is enqueued to a disk-backed SQS-style queue with a 5-min per-update timeout, exponential backoff retry up to maxAttempts, and a dead-letter diagnostic. Because Telegram updates are pure JSON the entire payload survives gateway restarts, giving real durable delivery instead of retry-within-lifetime. The worker rebinds on polling-cycle reconnect so the same on-disk queue continues across bot recreations.",
+      "static": [
+        {
+          "file": "extensions/telegram/src/polling-session.ts",
+          "pattern": "createDurableTelegramInboundWorker",
+          "minCount": 1,
+          "note": "Polling session must instantiate the durable worker lazily before binding the bot."
+        },
+        {
+          "file": "extensions/telegram/src/polling-session.ts",
+          "pattern": "durableWorker.wrapBot",
+          "minCount": 1,
+          "note": "Each freshly created grammy bot must be wrapped so handleUpdate enqueues to the durable queue."
+        },
+        {
+          "file": "extensions/telegram/src/inbound-worker.durable.frankclaw.ts",
+          "pattern": "TELEGRAM_DURABLE_INBOUND_TIMEOUT_MS",
+          "minCount": 1,
+          "note": "Per-update timeout constant. 5 min matches WhatsApp."
+        },
+        {
+          "file": "extensions/telegram/src/inbound-worker.durable.frankclaw.ts",
+          "pattern": "getTelegramSequentialKey",
+          "minCount": 1,
+          "note": "Ordering key must use the shared sequential-key helper so updates from the same chat retain ordering."
+        }
+      ],
+      "tests": [
+        "extensions/telegram/src/inbound-worker.durable.frankclaw.test.ts",
+        "src/inbound/inbound-durable-queue.frankclaw.test.ts"
+      ],
+      "runtime": [
+        {
+          "logPattern": "telegram durable worker started",
+          "withinSeconds": 120,
+          "onEvent": true,
+          "note": "Startup-only probe. Fires on gateway start when Telegram polling session attaches. Skip rather than fail when no fresh restart occurred."
+        }
+      ],
+      "e2eTests": ["test/frankclaw-features-e2e.test.ts"]
+    },
+    {
       "name": "Responsive durable channel delivery",
       "description": "Keeps durable channel queues responsive: WhatsApp auto-replies use automatic source delivery, background note-to-self failures are status-only, and Discord durable queue leases recover quickly instead of hiding messages behind long stale runs.",
       "static": [
