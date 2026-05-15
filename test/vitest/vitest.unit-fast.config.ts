@@ -22,6 +22,10 @@ export function createUnitFastVitestConfig(
       setupFiles: [],
       include: includeFromEnv ?? cliInclude ?? unitFastTestFiles,
       exclude: sharedTest.exclude ?? [],
+      sequence: {
+        ...sharedTest.sequence,
+        groupOrder: 4,
+      },
       passWithNoTests: true,
     },
   });

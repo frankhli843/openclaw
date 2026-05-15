@@ -56,6 +56,7 @@ describe("unit-fast vitest lane", () => {
     expect(testConfig.isolate).toBe(false);
     expect(testConfig.runner).toBeUndefined();
     expect(testConfig.setupFiles).toStrictEqual([]);
+    expect(testConfig.sequence?.groupOrder).toBe(4);
     expect(testConfig.include).toContain("src/agents/pi-tools.deferred-followup-guidance.test.ts");
     expect(testConfig.include).toContain("src/acp/control-plane/runtime-cache.test.ts");
     expect(testConfig.include).toContain("src/acp/runtime/registry.test.ts");
