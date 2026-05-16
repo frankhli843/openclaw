@@ -512,7 +512,7 @@ export async function processDiscordMessage(
           (!draftPreview.isProgressMode || draftPreview.hasProgressDraftStarted) &&
           isDnrActive()
         ) {
-          draftPreview.markFinalDeliveryHandled();
+          draftPreview.markFinalReplyDelivered();
           await draftStream.stop();
           if (!draftPreview.finalizedViaPreviewMessage) {
             await draftStream.clear();

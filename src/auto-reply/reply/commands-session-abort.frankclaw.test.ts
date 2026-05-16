@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => ({
   resolveSessionEntryForKey: vi.fn(() => ({ entry: undefined, key: undefined })),
   setAbortMemory: vi.fn(),
   stopSubagentsForRequester: vi.fn(() => ({ stopped: [] })),
+  abortSessionRunTarget: vi.fn(() => false),
   rejectUnauthorizedCommand: vi.fn(() => null),
   persistAbortTargetEntry: vi.fn(async () => false),
   clearSessionQueues: vi.fn(() => ({ followupCleared: 0, laneCleared: 0, keys: [] })),
@@ -53,6 +54,7 @@ vi.mock("./abort.js", () => ({
   resolveSessionEntryForKey: mocks.resolveSessionEntryForKey,
   setAbortMemory: mocks.setAbortMemory,
   stopSubagentsForRequester: mocks.stopSubagentsForRequester,
+  abortSessionRunTarget: mocks.abortSessionRunTarget,
 }));
 
 vi.mock("./command-gates.js", () => ({
