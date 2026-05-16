@@ -28,6 +28,34 @@ describe("getReplyFromConfig media note plumbing", () => {
     expect(prompt).toContain("hello");
   });
 
+  it("warns agents not to infer visual attachments from thread context", () => {
+    const sessionCtx = finalizeInboundContext({
+      Body: "what does this show?",
+      BodyForAgent: "what does this show?",
+      From: "+1001",
+      To: "+2000",
+      MediaPaths: ["/tmp/latest-screenshot.png"],
+      MediaUrls: ["/tmp/latest-screenshot.png"],
+      MediaTypes: ["image/png"],
+    });
+    const bodies = buildReplyPromptBodies({
+      ctx: sessionCtx,
+      sessionCtx,
+      effectiveBaseBody: sessionCtx.BodyForAgent,
+      prefixedBody: sessionCtx.BodyForAgent,
+    });
+
+    expect(bodies.prefixedCommandBody).toContain(
+      "If the user asks what an attachment shows, inspect the latest attached file",
+    );
+    expect(bodies.prefixedCommandBody).toContain(
+      "Do not infer attachment contents from surrounding conversation or older attachments.",
+    );
+    expect(bodies.transcriptCommandBody).not.toContain(
+      "Do not infer attachment contents from surrounding conversation",
+    );
+  });
+
   it("keeps the real image attachment note after image understanding rewrites the body", () => {
     const describedBody = [
       "[Image]",
