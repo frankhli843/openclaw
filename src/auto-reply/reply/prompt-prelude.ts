@@ -9,8 +9,31 @@ import { appendUntrustedContext } from "./untrusted-context.js";
 
 const REPLY_MEDIA_HINT =
   "To send an image back, prefer the message tool (media/path/filePath). If you must inline, use MEDIA:https://example.com/image.jpg (spaces ok, quote if needed) or a safe relative path like MEDIA:./image.jpg. Absolute and ~ paths only work when they stay inside your allowed file-read boundary; host file:// URLs are blocked. Keep caption in the text body.";
+const INBOUND_VISUAL_MEDIA_INSPECTION_HINT =
+  "Inbound image/video attachments are file references, not visual evidence by themselves. If the user asks what an attachment shows, inspect the latest attached file with a vision-capable path/tool before answering. Do not infer attachment contents from surrounding conversation or older attachments.";
 const ROOM_EVENT_PROMPT = "[OpenClaw room event]";
 const ROOM_EVENT_VISIBLE_REPLY_CONTRACT = "message_tool_only";
+
+const VISUAL_MEDIA_EXTENSION_RE =
+  /\.(?:png|jpe?g|gif|webp|bmp|tiff?|heic|heif|mp4|mov|webm|mkv|avi|m4v)$/i;
+
+function hasInboundVisualMedia(ctx: MsgContext): boolean {
+  const values = [
+    ctx.MediaType,
+    ...(Array.isArray(ctx.MediaTypes) ? ctx.MediaTypes : []),
+    ctx.MediaPath,
+    ctx.MediaUrl,
+    ...(Array.isArray(ctx.MediaPaths) ? ctx.MediaPaths : []),
+    ...(Array.isArray(ctx.MediaUrls) ? ctx.MediaUrls : []),
+  ];
+  return values.some((value) => {
+    if (typeof value !== "string") {
+      return false;
+    }
+    const trimmed = value.trim();
+    return /^(?:image|video)\//i.test(trimmed) || VISUAL_MEDIA_EXTENSION_RE.test(trimmed);
+  });
+}
 
 export function buildReplyPromptBodies(params: {
   ctx: MsgContext;
@@ -43,11 +66,21 @@ export function buildReplyPromptBodies(params: {
   const queueBodyBase = [params.threadContextNote, bodyWithEvents].filter(Boolean).join("\n\n");
   const mediaNote = buildInboundMediaNote(params.ctx);
   const mediaReplyHint = mediaNote ? REPLY_MEDIA_HINT : undefined;
+  const mediaInspectionHint =
+    mediaNote && hasInboundVisualMedia(params.ctx)
+      ? INBOUND_VISUAL_MEDIA_INSPECTION_HINT
+      : undefined;
   const queuedBodyRaw = mediaNote
-    ? [mediaNote, mediaReplyHint, queueBodyBase].filter(Boolean).join("\n").trim()
+    ? [mediaNote, mediaInspectionHint, mediaReplyHint, queueBodyBase]
+        .filter(Boolean)
+        .join("\n")
+        .trim()
     : queueBodyBase;
   const prefixedCommandBodyRaw = mediaNote
-    ? [mediaNote, mediaReplyHint, prefixedBody].filter(Boolean).join("\n").trim()
+    ? [mediaNote, mediaInspectionHint, mediaReplyHint, prefixedBody]
+        .filter(Boolean)
+        .join("\n")
+        .trim()
     : prefixedBody;
   const transcriptBody = params.transcriptBody ?? params.effectiveBaseBody;
   const includeMediaOnlyTranscript = mediaNote && params.turnKind !== "room_event";
