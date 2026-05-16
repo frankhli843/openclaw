@@ -620,6 +620,11 @@ export type SessionSystemPromptReport = {
     projectContextChars: number;
     nonProjectContextChars: number;
   };
+  currentTurn?: {
+    kind?: "user_request" | "room_event";
+    promptChars: number;
+    runtimeContextChars: number;
+  };
   injectedWorkspaceFiles: Array<{
     name: string;
     path: string;

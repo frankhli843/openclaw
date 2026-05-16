@@ -445,7 +445,12 @@ describe("whatsapp inbound dispatch", () => {
       combinedBody: "/status",
       commandBody: "/status",
       commandAuthorized: true,
-      commandSource: "text",
+      commandTurn: {
+        kind: "text-slash",
+        source: "text",
+        authorized: true,
+        body: "/status",
+      },
       conversationId: "+1000",
       msg: makeMsg({
         body: "/status",
@@ -465,6 +470,12 @@ describe("whatsapp inbound dispatch", () => {
       RawBody: "/status",
       CommandAuthorized: true,
       CommandSource: "text",
+      CommandTurn: {
+        kind: "text-slash",
+        source: "text",
+        authorized: true,
+        body: "/status",
+      },
       Provider: "whatsapp",
       Surface: "whatsapp",
       OriginatingChannel: "whatsapp",

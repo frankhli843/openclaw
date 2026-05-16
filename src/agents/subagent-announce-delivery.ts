@@ -19,10 +19,12 @@ import {
   isInternalMessageChannel,
   normalizeMessageChannel,
 } from "../utils/message-channel.js";
+import { mediaUrlsFromGeneratedAttachments } from "./generated-attachments.js";
 import type { AgentInternalEvent } from "./internal-events.js";
 import {
   getAgentCommandDeliveryFailure,
   getGatewayAgentResult,
+  hasDeliveredExpectedMedia,
   hasMessagingToolDeliveryEvidence,
   hasVisibleAgentPayload,
 } from "./pi-embedded-runner/delivery-evidence.js";
@@ -634,6 +636,39 @@ function hasGatewayAgentMessagingToolDelivery(response: unknown): boolean {
   return Boolean(result && hasMessagingToolDeliveryEvidence(result));
 }
 
+function collectExpectedMediaFromInternalEvents(
+  events: AgentInternalEvent[] | undefined,
+): string[] {
+  if (!events?.length) {
+    return [];
+  }
+  const mediaUrls: string[] = [];
+  const seen = new Set<string>();
+  for (const event of events) {
+    const values = [
+      ...(Array.isArray(event.mediaUrls) ? event.mediaUrls : []),
+      ...mediaUrlsFromGeneratedAttachments(event.attachments),
+    ];
+    for (const value of values) {
+      const normalized = typeof value === "string" ? value.trim() : "";
+      if (!normalized || seen.has(normalized)) {
+        continue;
+      }
+      seen.add(normalized);
+      mediaUrls.push(normalized);
+    }
+  }
+  return mediaUrls;
+}
+
+function hasGatewayAgentDeliveredExpectedMedia(
+  response: unknown,
+  expectedMediaUrls: readonly string[],
+): boolean {
+  const result = getGatewayAgentResult(response);
+  return Boolean(result && hasDeliveredExpectedMedia(result, expectedMediaUrls));
+}
+
 function getGatewayAgentCommandDeliveryFailure(response: unknown): string | undefined {
   const result = getGatewayAgentResult(response);
   return result ? getAgentCommandDeliveryFailure(result) : undefined;
@@ -786,6 +821,9 @@ async function sendSubagentAnnounceDirectly(params: {
         directOrigin: effectiveDirectOrigin,
         requesterSessionOrigin,
       });
+    const completionSourceReplyDeliveryMode = requiresMessageToolDelivery
+      ? "message_tool_only"
+      : undefined;
     const shouldDeliverAgentFinal = deliveryTarget.deliver && !requiresMessageToolDelivery;
     const completionFallbackText =
       params.expectsCompletionMessage &&
@@ -810,6 +848,9 @@ async function sendSubagentAnnounceDirectly(params: {
         params.triggerMessage,
         {
           steeringMode: "all",
+          ...(completionSourceReplyDeliveryMode
+            ? { sourceReplyDeliveryMode: completionSourceReplyDeliveryMode }
+            : {}),
           ...(requesterQueueSettings.debounceMs !== undefined
             ? { debounceMs: requesterQueueSettings.debounceMs }
             : {}),
@@ -821,40 +862,12 @@ async function sendSubagentAnnounceDirectly(params: {
           path: "steered",
         };
       }
-      if (requesterActivity.isActive) {
-        if (agentMediatedCompletion) {
-          return {
-            delivered: false,
-            path: "direct",
-            error: "active requester session could not be woken",
-          };
-        }
-        try {
-          const didFallback = await sendCompletionFallback({
-            cfg,
-            channel: deliveryTarget.channel,
-            to: deliveryTarget.to,
-            accountId: deliveryTarget.accountId,
-            threadId: deliveryTarget.threadId,
-            content: completionFallbackText,
-            requesterSessionKey: canonicalRequesterSessionKey,
-            bestEffortDeliver: params.bestEffortDeliver,
-            idempotencyKey: params.directIdempotencyKey,
-            signal: params.signal,
-          });
-          if (didFallback) {
-            return {
-              delivered: true,
-              path: resolveCompletionFallbackPath(deliveryTarget.threadId),
-            };
-          }
-        } catch (err) {
-          return {
-            delivered: false,
-            path: "direct",
-            error: `active requester session could not be woken; fallback send failed: ${summarizeDeliveryError(err)}`,
-          };
-        }
+      const shouldFallbackToForcedAgentHandoff =
+        requiresMessageToolDelivery && wakeOutcome.reason === "source_reply_delivery_mode_mismatch";
+      if (requesterActivity.isActive && !shouldFallbackToForcedAgentHandoff) {
+        // Active requester sessions should receive completion data through their
+        // running agent turn. If wake fails, let the dispatch layer steer/retry;
+        // do not bypass the requester agent with raw child output.
         return {
           delivered: false,
           path: "direct",
@@ -899,6 +912,9 @@ async function sendSubagentAnnounceDirectly(params: {
         sourceChannel: params.sourceChannel ?? INTERNAL_MESSAGE_CHANNEL,
         sourceTool: params.sourceTool ?? "subagent_announce",
       },
+      ...(completionSourceReplyDeliveryMode
+        ? { sourceReplyDeliveryMode: completionSourceReplyDeliveryMode }
+        : {}),
       idempotencyKey: params.directIdempotencyKey,
     };
     let directAnnounceResponse: unknown;
@@ -1009,6 +1025,18 @@ async function sendSubagentAnnounceDirectly(params: {
         delivered: false,
         path: "direct",
         error: "completion agent did not deliver through the message tool",
+      };
+    }
+    const expectedMediaUrls = collectExpectedMediaFromInternalEvents(params.internalEvents);
+    if (
+      agentMediatedCompletion &&
+      expectedMediaUrls.length > 0 &&
+      !hasGatewayAgentDeliveredExpectedMedia(directAnnounceResponse, expectedMediaUrls)
+    ) {
+      return {
+        delivered: false,
+        path: "direct",
+        error: "completion agent did not deliver generated media",
       };
     }
     const directDeliveryFailure = shouldDeliverAgentFinal

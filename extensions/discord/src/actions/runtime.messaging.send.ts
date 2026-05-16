@@ -144,6 +144,8 @@ export async function handleDiscordMessageSendAction(ctx: DiscordMessagingAction
       }
       const asVoice = ctx.params.asVoice === true;
       const silent = ctx.params.silent === true;
+      const suppressEmbeds =
+        ctx.params.suppressEmbeds === undefined ? undefined : ctx.params.suppressEmbeds === true;
       const rawComponents = ctx.params.components;
       const componentSpec = hasDiscordComponentObjectKeys(rawComponents)
         ? discordMessagingActionRuntime.readDiscordComponentSpec(rawComponents)
@@ -195,6 +197,7 @@ export async function handleDiscordMessageSendAction(ctx: DiscordMessagingAction
             mediaAccess: ctx.options?.mediaAccess,
             mediaLocalRoots: ctx.options?.mediaLocalRoots,
             mediaReadFile: ctx.options?.mediaReadFile,
+            ...(suppressEmbeds === undefined ? {} : { suppressEmbeds }),
           },
         );
         return jsonResult(
@@ -243,6 +246,7 @@ export async function handleDiscordMessageSendAction(ctx: DiscordMessagingAction
         components,
         embeds,
         silent,
+        ...(suppressEmbeds === undefined ? {} : { suppressEmbeds }),
       });
       return jsonResult(
         await appendDiscordThreadRenameResult(ctx, {
