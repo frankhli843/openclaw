@@ -463,6 +463,7 @@ type PreparedCronRunContext = {
   agentDir: string;
   agentSessionKey: string;
   runSessionId: string;
+  currentRunSessionId: () => string;
   runSessionKey: string;
   workspaceDir: string;
   commandBody: string;
@@ -569,6 +570,7 @@ async function prepareCronRunContext(params: {
     forceNew: input.job.sessionTarget === "isolated",
   });
   const runSessionId = cronSession.sessionEntry.sessionId;
+  const currentRunSessionId = () => cronSession.sessionEntry.sessionId ?? runSessionId;
   if (!cronSession.sessionEntry.sessionFile?.trim()) {
     cronSession.sessionEntry.sessionFile = resolveSessionTranscriptPath(runSessionId, agentId);
   }
@@ -586,7 +588,7 @@ async function prepareCronRunContext(params: {
   });
   const withRunSession: WithRunSession = (result) => ({
     ...result,
-    sessionId: cronSession.sessionEntry.sessionId ?? runSessionId,
+    sessionId: currentRunSessionId(),
     sessionKey: runSessionKey,
   });
   if (!cronSession.sessionEntry.label?.trim() && baseSessionKey.startsWith("cron:")) {
@@ -812,6 +814,7 @@ async function prepareCronRunContext(params: {
               agentId,
               sessionKey: agentSessionKey,
             }).runtime,
+            config: cfgWithAgentDefaults,
           }),
           agentDir,
           sessionEntry: cronSession.sessionEntry,
@@ -839,6 +842,7 @@ async function prepareCronRunContext(params: {
       agentDir,
       agentSessionKey,
       runSessionId,
+      currentRunSessionId,
       runSessionKey,
       workspaceDir,
       commandBody,
@@ -1060,7 +1064,7 @@ async function finalizeCronRun(params: {
     agentId: prepared.agentId,
     agentSessionKey: prepared.agentSessionKey,
     runSessionKey: prepared.runSessionKey,
-    sessionId: prepared.runSessionId,
+    sessionId: prepared.currentRunSessionId(),
     runStartedAt: execution.runStartedAt,
     runEndedAt: execution.runEndedAt,
     timeoutMs: prepared.timeoutMs,
@@ -1156,7 +1160,7 @@ export async function runCronIsolatedAgentTurn(params: {
     params.onExecutionStarted?.({
       jobId: params.job.id,
       agentId: prepared.context.agentId,
-      sessionId: prepared.context.runSessionId,
+      sessionId: prepared.context.currentRunSessionId(),
       sessionKey: prepared.context.runSessionKey,
       phase: "runner_entered",
       provider: prepared.context.liveSelection.provider,
@@ -1169,7 +1173,7 @@ export async function runCronIsolatedAgentTurn(params: {
     params.onExecutionPhase?.({
       jobId: params.job.id,
       agentId: prepared.context.agentId,
-      sessionId: prepared.context.runSessionId,
+      sessionId: prepared.context.currentRunSessionId(),
       sessionKey: prepared.context.runSessionKey,
       provider: prepared.context.liveSelection.provider,
       model: prepared.context.liveSelection.model,

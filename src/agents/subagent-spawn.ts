@@ -773,6 +773,7 @@ async function spawnSubagentDirectCore(
     };
   }
   const targetAgentId = requestedAgentId ? normalizeAgentId(requestedAgentId) : requesterAgentId;
+  const explicitWorkspaceDir = normalizeOptionalString(params.cwd);
   const requesterOrigin = normalizeDeliveryContext({
     channel: ctx.agentChannel,
     accountId: ctx.agentAccountId,
@@ -999,9 +1000,24 @@ async function spawnSubagentDirectCore(
     | undefined;
   let attachmentAbsDir: string | undefined;
   let attachmentRootDir: string | undefined;
+  const toolSpawnMetadata = mapToolContextToSpawnedRunMetadata({
+    agentGroupId: ctx.agentGroupId,
+    agentGroupChannel: ctx.agentGroupChannel,
+    agentGroupSpace: ctx.agentGroupSpace,
+    workspaceDir: ctx.workspaceDir,
+  });
+  const inheritedWorkspaceDir =
+    targetAgentId !== requesterAgentId ? undefined : toolSpawnMetadata.workspaceDir;
+  const spawnedWorkspaceDir = resolveSpawnedWorkspaceInheritance({
+    config: cfg,
+    targetAgentId,
+    explicitWorkspaceDir: explicitWorkspaceDir ?? inheritedWorkspaceDir,
+  });
+
   const materializedAttachments = await materializeSubagentAttachments({
     config: cfg,
     targetAgentId,
+    workspaceDir: spawnedWorkspaceDir,
     attachments: params.attachments,
     mountPathHint,
   });
@@ -1044,23 +1060,10 @@ async function spawnSubagentDirectCore(
     subagentGlobalInstructions,
   );
 
-  const toolSpawnMetadata = mapToolContextToSpawnedRunMetadata({
-    agentGroupId: ctx.agentGroupId,
-    agentGroupChannel: ctx.agentGroupChannel,
-    agentGroupSpace: ctx.agentGroupSpace,
-    workspaceDir: ctx.workspaceDir,
-  });
   const spawnedMetadata = normalizeSpawnedRunMetadata({
     spawnedBy: spawnedByKey,
     ...toolSpawnMetadata,
-    workspaceDir: resolveSpawnedWorkspaceInheritance({
-      config: cfg,
-      targetAgentId,
-      // For cross-agent spawns, ignore the caller's inherited workspace;
-      // let targetAgentId resolve the correct workspace instead.
-      explicitWorkspaceDir:
-        targetAgentId !== requesterAgentId ? undefined : toolSpawnMetadata.workspaceDir,
-    }),
+    workspaceDir: spawnedWorkspaceDir,
   });
   const spawnLineagePatchError = await patchChildSession({
     spawnedBy: spawnedByKey,

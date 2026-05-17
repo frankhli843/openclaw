@@ -2,11 +2,14 @@ import { formatAllowlistMatchMeta } from "openclaw/plugin-sdk/allow-from";
 import { recordChannelActivity } from "openclaw/plugin-sdk/channel-activity-runtime";
 import {
   buildMentionRegexes,
+  classifyChannelInboundEvent,
   logInboundDrop,
   resolveInboundMentionDecision,
+  resolveUnmentionedGroupInboundPolicy,
   toInboundMediaFacts,
 } from "openclaw/plugin-sdk/channel-inbound";
 import { hasControlCommand } from "openclaw/plugin-sdk/command-detection";
+import { isAbortRequestText } from "openclaw/plugin-sdk/command-primitives-runtime";
 import { shouldHandleTextCommands } from "openclaw/plugin-sdk/command-surface";
 import { isDangerousNameMatchingEnabled } from "openclaw/plugin-sdk/dangerous-name-runtime";
 import { recordDroppedChannelTurnHistory } from "openclaw/plugin-sdk/inbound-reply-dispatch";
@@ -673,6 +676,7 @@ export async function preflightDiscordMessage(
     surface: "discord",
   });
   const hasControlCommandInMessage = hasControlCommand(baseText, params.cfg);
+  const hasAbortRequest = isAbortRequestText(baseText);
 
   if (!isDirectMessage) {
     const commandAccess = await resolveDiscordTextCommandAccess({
@@ -757,6 +761,16 @@ export async function preflightDiscordMessage(
         },
       });
   const effectiveWasMentioned = mentionDecision.effectiveWasMentioned;
+  const inboundEventKind = classifyChannelInboundEvent({
+    conversation: { kind: isDirectMessage ? "direct" : isGroupDm ? "group" : "channel" },
+    unmentionedGroupPolicy: resolveUnmentionedGroupInboundPolicy({
+      cfg: params.cfg,
+      agentId: effectiveRoute.agentId,
+    }),
+    wasMentioned: effectiveWasMentioned,
+    hasControlCommand: hasControlCommandInMessage,
+    hasAbortRequest,
+  });
   logDebug(
     `[discord-preflight] shouldRequireMention=${shouldRequireMention} baseRequireMention=${shouldRequireMentionByConfig} boundThreadSession=${isBoundThreadSession} mentionDecision.shouldSkip=${mentionDecision.shouldSkip} wasMentioned=${wasMentioned} gateModeApproved=${gateModeApproved}`,
   );
@@ -911,9 +925,11 @@ export async function preflightDiscordMessage(
     channelAllowed,
     shouldRequireMention,
     hasAnyMention,
+    hasControlCommand: hasControlCommandInMessage,
     allowTextCommands,
     shouldBypassMention: mentionDecision.shouldBypassMention,
     effectiveWasMentioned,
+    inboundEventKind,
     canDetectMention,
     historyEntry,
     // frankclaw: webhook relay mention (rewrites bot author to owner for relay senders)

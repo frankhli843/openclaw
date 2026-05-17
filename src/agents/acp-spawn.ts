@@ -1530,6 +1530,7 @@ export async function spawnAcpDirect(
       sessionKey,
       shouldDeleteSession: true,
       deleteTranscript: true,
+      runtimeCloseHandle: initializedRuntime,
     });
     // frankclaw: safety net in case cleanup's sessions.delete also timed out.
     await forceDeleteOrphanAcpSession({

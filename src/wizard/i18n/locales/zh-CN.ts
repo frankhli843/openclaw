@@ -300,6 +300,10 @@ export const zh_CN = {
     },
     skills: {
       configure: "现在配置技能？（推荐）",
+      containerBrewHidden:
+        "在 Linux 容器中会隐藏仅支持 brew 的技能安装项，因为官方镜像不包含 Homebrew。",
+      containerBrewManual: "请使用预装 Homebrew 的自定义镜像，或手动安装这些依赖。",
+      containerInstallsTitle: "容器技能安装",
       docsLine: "文档：https://docs.openclaw.ai/skills",
       enterEnv: "输入 {env}",
       homebrewCommand: "显示 Homebrew 安装命令？",

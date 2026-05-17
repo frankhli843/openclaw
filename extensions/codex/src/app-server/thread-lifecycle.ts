@@ -15,6 +15,7 @@ import {
   resolveCodexContextEngineProjectionMaxChars,
   resolveCodexContextEngineProjectionReserveTokens,
 } from "./context-engine-projection.js";
+import { invalidInlineImageText, sanitizeInlineImageDataUrl } from "./image-payload-sanitizer.js";
 import {
   isCodexPluginThreadBindingStale,
   mergeCodexThreadConfigs,
@@ -85,6 +86,7 @@ export async function startOrResumeThread(params: {
   appServer: CodexAppServerRuntimeOptions;
   developerInstructions?: string;
   config?: JsonObject;
+  finalConfigPatch?: JsonObject;
   mcpServersFingerprint?: string;
   mcpServersFingerprintEvaluated?: boolean;
   pluginThreadConfig?: CodexPluginThreadConfigProvider;
@@ -230,7 +232,11 @@ export async function startOrResumeThread(params: {
     } else {
       try {
         const authProfileId = params.params.authProfileId ?? binding.authProfileId;
-        const resumeConfig = mergeCodexThreadConfigs(params.config, userMcpServersConfigPatch);
+        const resumeConfig = mergeCodexThreadConfigs(
+          params.config,
+          userMcpServersConfigPatch,
+          params.finalConfigPatch,
+        );
         const response = assertCodexThreadResumeResponse(
           await params.client.request(
             "thread/resume",
@@ -324,6 +330,7 @@ export async function startOrResumeThread(params: {
     params.config,
     userMcpServersConfigPatch,
     pluginThreadConfig?.configPatch,
+    params.finalConfigPatch,
   );
   const response = assertCodexThreadStartResponse(
     await params.client.request(
@@ -797,15 +804,17 @@ function buildUserInput(
   params: EmbeddedRunAttemptParams,
   promptText: string = params.prompt,
 ): CodexUserInput[] {
-  return [
-    { type: "text", text: promptText, text_elements: [] },
-    ...(params.images ?? []).map(
-      (image): CodexUserInput => ({
-        type: "image",
-        url: `data:${image.mimeType};base64,${image.data}`,
-      }),
-    ),
-  ];
+  const imageInputs = (params.images ?? []).map((image): CodexUserInput => {
+    const imageUrl = sanitizeInlineImageDataUrl(`data:${image.mimeType};base64,${image.data}`);
+    return imageUrl
+      ? { type: "image", url: imageUrl }
+      : {
+          type: "text",
+          text: invalidInlineImageText("codex user input"),
+          text_elements: [],
+        };
+  });
+  return [{ type: "text", text: promptText, text_elements: [] }, ...imageInputs];
 }
 
 export function resolveCodexAppServerModelProvider(params: {

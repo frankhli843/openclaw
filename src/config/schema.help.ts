@@ -28,6 +28,8 @@ export const FIELD_HELP: Record<string, string> = {
     'Wizard execution mode recorded as "local" or "remote" for the most recent setup flow. Use this to understand whether setup targeted direct local runtime or remote gateway topology.',
   diagnostics:
     "Diagnostics controls for targeted tracing, telemetry export, and cache inspection during debugging. Keep baseline diagnostics minimal in production and enable deeper signals only when investigating issues.",
+  "diagnostics.memoryPressureSnapshot":
+    "Whether critical memory pressure automatically captures a redacted stability snapshot. Default: false. Enable only when this host can tolerate the extra file-system scan and snapshot write during critical memory pressure.",
   "diagnostics.otel":
     "OpenTelemetry export settings for traces, metrics, and logs emitted by gateway components. Use this when integrating with centralized observability backends and distributed tracing pipelines.",
   "diagnostics.cacheTrace":
@@ -1008,6 +1010,18 @@ export const FIELD_HELP: Record<string, string> = {
     "Optional SNI/server-name override used when establishing TLS to the proxy.",
   "models.providers.*.request.proxy.tls.insecureSkipVerify":
     "Skips proxy TLS certificate verification. Use only for controlled development environments.",
+  proxy:
+    "Operator-managed forward proxy routing for OpenClaw runtime HTTP, HTTPS, WebSocket, and supported raw-egress paths. Use this when central egress control is part of the deployment boundary.",
+  "proxy.enabled":
+    "Enables operator-managed proxy routing. When enabled, OpenClaw fails startup if no managed proxy URL is configured.",
+  "proxy.proxyUrl":
+    "Managed forward proxy URL. Use http:// for a plain CONNECT proxy or https:// when the connection to the proxy endpoint itself must use TLS.",
+  "proxy.tls":
+    "TLS settings used when connecting to the managed proxy endpoint. These settings apply to proxy TLS, not destination TLS after CONNECT.",
+  "proxy.tls.caFile":
+    "Filesystem path to a custom CA bundle used to verify an HTTPS managed proxy endpoint certificate.",
+  "proxy.loopbackMode":
+    'Controls Gateway loopback control-plane routing while managed proxy mode is active: "gateway-only", "proxy", or "block".',
   "models.providers.*.request.tls":
     "Optional TLS settings used when connecting directly to the upstream model endpoint.",
   "models.providers.*.request.tls.ca":
@@ -1077,7 +1091,7 @@ export const FIELD_HELP: Record<string, string> = {
   "agents.defaults.experimental.localModelLean":
     "Experimental local-model prompt trim. When enabled, OpenClaw drops heavyweight default tools like browser, cron, and message for weaker or smaller local-model backends.",
   "agents.defaults.bootstrapPromptTruncationWarning":
-    'Inject agent-visible warning text when bootstrap files are truncated: "off", "once" (default), or "always".',
+    'Inject agent-visible warning text when bootstrap files are truncated: "off", "once", or "always" (default).',
   "agents.defaults.startupContext":
     'Runtime-owned first-turn prelude for bare "/new" and "/reset". Use this to control whether recent daily memory files are preloaded into the first prompt instead of asking the model to decide what to read.',
   "agents.defaults.startupContext.enabled":
@@ -1785,7 +1799,7 @@ export const FIELD_HELP: Record<string, string> = {
   "messages.messagePrefix":
     "Prefix text prepended to inbound user messages before they are handed to the agent runtime. Use this sparingly for channel context markers and keep it stable across sessions.",
   "messages.visibleReplies":
-    'Controls visible source replies across direct, group, and channel conversations. "message_tool" keeps normal final replies private and requires message(action=send) for visible output; "automatic" posts normal replies as before.',
+    'Controls visible source replies across direct, group, and channel conversations. "message_tool" requires message(action=send) for visible output and keeps normal final text private. "automatic" posts normal replies as before.',
   "messages.responsePrefix":
     "Prefix text prepended to outbound assistant replies before sending to channels. Use for lightweight branding/context tags and avoid long prefixes that reduce content density.",
   "messages.groupChat":
@@ -1794,10 +1808,10 @@ export const FIELD_HELP: Record<string, string> = {
     "Safe case-insensitive regex patterns used to detect explicit mentions/trigger phrases in group chats. Use precise patterns to reduce false positives in high-volume channels; invalid or unsafe nested-repetition patterns are ignored.",
   "messages.groupChat.historyLimit":
     "Maximum number of prior group messages loaded as context per turn for group sessions. Use higher values for richer continuity, or lower values for faster and cheaper responses.",
-  "messages.groupChat.ambientTurns":
-    'Controls how unmentioned always-on group chatter is submitted. "user_request" keeps legacy request semantics; "room_event" submits it as quiet context where visible output requires the message tool.',
+  "messages.groupChat.unmentionedInbound":
+    'Controls how unmentioned always-on group chatter is submitted. "user_request" treats it as a user request; "room_event" submits it as quiet context where visible output requires the message tool.',
   "messages.groupChat.visibleReplies":
-    'Overrides visible source replies for group/channel conversations. Defaults to "message_tool" when no global visible reply policy is set. "message_tool" keeps normal final replies private and requires message(action=send) for room output; "automatic" posts normal replies as before.',
+    'Overrides visible source replies for group/channel conversations. Defaults to "message_tool" when no global visible reply policy is set. "message_tool" requires message(action=send) for room output and keeps normal final text private. "automatic" posts normal replies as before.',
   "messages.queue":
     "Queue strategy for inbound messages that arrive while a session run is active. Use this to tune steering, deferred followups, batching, or interruption.",
   "messages.queue.mode":

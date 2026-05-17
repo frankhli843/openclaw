@@ -11,6 +11,7 @@ export type SpawnSubagentParams = {
   model?: string;
   taskName?: string;
   thinking?: string;
+  cwd?: string;
   runTimeoutSeconds?: number;
   thread?: boolean;
   mode?: SpawnSubagentMode;

@@ -1,5 +1,6 @@
 import { registerSubagentRun } from "../../agents/subagent-registry.js";
 import { resolveAgentTimeoutMs } from "../../agents/timeout.js";
+import { resolveRuntimeConfigCacheKey } from "../../config/runtime-snapshot.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { logVerbose } from "../../globals.js";
 import { formatErrorMessage } from "../../infra/errors.js";
@@ -485,6 +486,7 @@ export class AcpSessionManager {
         agent,
         mode: input.mode,
         cwd: effectiveCwd,
+        configSignature: resolveRuntimeConfigCacheKey(input.cfg),
       });
       return {
         runtime,
@@ -1559,12 +1561,14 @@ export class AcpSessionManager {
     const thinking = normalizeText(runtimeOptions.thinking);
     const env = runtimeOptions.env;
     const configuredBackend = (params.meta.backend || params.cfg.acp?.backend || "").trim();
+    const configSignature = resolveRuntimeConfigCacheKey(params.cfg);
     const cached = this.getCachedRuntimeState(params.sessionKey);
     if (cached) {
       const backendMatches = !configuredBackend || cached.backend === configuredBackend;
       const agentMatches = cached.agent === agent;
       const modeMatches = cached.mode === mode;
       const cwdMatches = (cached.cwd ?? "") === (cwd ?? "");
+      const configMatches = cached.configSignature === configSignature;
       const handleMatchesMeta = this.runtimeHandleMatchesMeta({
         handle: cached.handle,
         meta: params.meta,
@@ -1574,6 +1578,7 @@ export class AcpSessionManager {
         agentMatches &&
         modeMatches &&
         cwdMatches &&
+        configMatches &&
         handleMatchesMeta &&
         (await this.isCachedRuntimeHandleReusable({
           sessionKey: params.sessionKey,
@@ -1749,6 +1754,7 @@ export class AcpSessionManager {
       agent,
       mode,
       cwd: effectiveCwd,
+      configSignature,
       appliedControlSignature: undefined,
     });
     return {
