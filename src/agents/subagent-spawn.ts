@@ -50,11 +50,8 @@ import {
   resolveSubagentModelAndThinkingPlan,
   splitModelRef,
 } from "./subagent-spawn-plan.js";
-import type {
-  SpawnSubagentContext,
-  SpawnSubagentParams,
-  SpawnSubagentResult,
-} from "./subagent-spawn.contract.js";
+// frankclaw: SpawnSubagentContext/Params/Result are defined inline below;
+// subagent-spawn.contract.ts re-exports them for frankclaw module isolation.
 import {
   ADMIN_SCOPE,
   AGENT_LANE_SUBAGENT,
