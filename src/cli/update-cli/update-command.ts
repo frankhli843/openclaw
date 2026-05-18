@@ -9,7 +9,10 @@ import {
   ensureCompletionCacheExists,
 } from "../../commands/doctor-completion.js";
 import { doctorCommand } from "../../commands/doctor.js";
-import { UPDATE_DEFER_CONFIGURED_PLUGIN_INSTALL_REPAIR_ENV } from "../../commands/doctor/shared/update-phase.js";
+import {
+  UPDATE_DEFER_CONFIGURED_PLUGIN_INSTALL_REPAIR_ENV,
+  UPDATE_PARENT_SUPPORTS_DOCTOR_CONFIG_WRITE_ENV,
+} from "../../commands/doctor/shared/update-phase.js";
 import { createPreUpdateConfigSnapshot } from "../../config/backup-rotation.js";
 import {
   assertConfigWriteAllowedInCurrentMode,
@@ -144,8 +147,6 @@ const POST_CORE_UPDATE_SOURCE_CONFIG_PATH_ENV = "OPENCLAW_UPDATE_POST_CORE_SOURC
 const POST_CORE_UPDATE_STARTED_AT_ENV = "OPENCLAW_UPDATE_POST_CORE_STARTED_AT_MS";
 const POST_CORE_UPDATE_RESULT_POLL_MS = 100;
 const PRE_UPDATE_CONFIG_SNAPSHOT_MAX_AGE_MS = 6 * 60 * 60 * 1000;
-const UPDATE_PARENT_SUPPORTS_DOCTOR_CONFIG_WRITE_ENV =
-  "OPENCLAW_UPDATE_PARENT_SUPPORTS_DOCTOR_CONFIG_WRITE";
 const SERVICE_REFRESH_PATH_ENV_KEYS = [
   "OPENCLAW_HOME",
   "OPENCLAW_STATE_DIR",
@@ -702,10 +703,33 @@ export async function recoverLaunchAgentAndRecheckGatewayHealth(params: {
   return { health, launchAgentRecovery };
 }
 
-function formatPostUpdateGatewayRecoveryInstructions(result: UpdateRunResult): string[] {
-  const lines = [
-    `Recovery: run \`${replaceCliName(formatCliCommand("openclaw gateway restart"), CLI_NAME)}\`; if macOS reports the LaunchAgent is installed but not loaded, run \`${replaceCliName(formatCliCommand("openclaw gateway install --force"), CLI_NAME)}\` from the logged-in user session, then rerun \`${replaceCliName(formatCliCommand("openclaw gateway status --deep"), CLI_NAME)}\`.`,
-  ];
+function formatPostUpdateGatewayRecoveryLine(platform: NodeJS.Platform): string {
+  const restartCommand = replaceCliName(formatCliCommand("openclaw gateway restart"), CLI_NAME);
+  const installCommand = replaceCliName(
+    formatCliCommand("openclaw gateway install --force"),
+    CLI_NAME,
+  );
+  const statusCommand = replaceCliName(
+    formatCliCommand("openclaw gateway status --deep"),
+    CLI_NAME,
+  );
+  if (platform === "darwin") {
+    return `Recovery: run \`${restartCommand}\`; if the LaunchAgent is installed but not loaded, run \`${installCommand}\` from the logged-in macOS user session, then rerun \`${statusCommand}\`.`;
+  }
+  if (platform === "linux") {
+    return `Recovery: run \`${restartCommand}\`; if the systemd user service is missing, stale, or not active, run \`${installCommand}\` from the same user account, then rerun \`${statusCommand}\`.`;
+  }
+  if (platform === "win32") {
+    return `Recovery: run \`${restartCommand}\`; if the gateway Scheduled Task or Windows login item is missing, stale, or not running, run \`${installCommand}\` from the same user account, then rerun \`${statusCommand}\`.`;
+  }
+  return `Recovery: run \`${restartCommand}\`; if the local service manager reports the gateway service is missing, stale, or not running, run \`${installCommand}\` from the same user account, then rerun \`${statusCommand}\`.`;
+}
+
+export function formatPostUpdateGatewayRecoveryInstructions(
+  result: UpdateRunResult,
+  platform: NodeJS.Platform = process.platform,
+): string[] {
+  const lines = [formatPostUpdateGatewayRecoveryLine(platform)];
   const beforeVersion = normalizeOptionalString(result.before?.version);
   if (isPackageManagerUpdateMode(result.mode) && beforeVersion) {
     lines.push(
@@ -927,7 +951,7 @@ async function resolvePackageRuntimePreflightError(params: {
   return [
     `Node ${process.versions.node ?? "unknown"} is too old for openclaw@${targetLabel}.`,
     `The requested package requires ${status.nodeEngine}.`,
-    "Upgrade Node to 22.16+ or Node 24, then rerun `openclaw update`.",
+    "Upgrade Node to 22.19+ or Node 24, then rerun `openclaw update`.",
     "Bare `npm i -g openclaw` can silently install an older compatible release.",
     "After upgrading Node, use `npm i -g openclaw@latest`.",
   ].join("\n");
@@ -2733,6 +2757,15 @@ export async function updateCommand(opts: UpdateCommandOptions): Promise<void> {
       postCoreConfigSnapshot,
       preUpdateSourceConfig,
     );
+    const parentPluginInstallRecords = await readPostCorePluginInstallRecordsFile(
+      postCoreInstallRecordsPath,
+    );
+    // The updated doctor may have repaired plugin installs before this fresh process resumed.
+    const currentPluginInstallRecords = await loadInstalledPluginIndexInstallRecords();
+    const pluginInstallRecords =
+      Object.keys(currentPluginInstallRecords).length > 0
+        ? currentPluginInstallRecords
+        : parentPluginInstallRecords;
 
     const pluginUpdate = await runPostCorePluginUpdate({
       root,
@@ -2742,7 +2775,7 @@ export async function updateCommand(opts: UpdateCommandOptions): Promise<void> {
       restoredAuthoredChannels: restoredPostCoreConfig.authoredChannels,
       opts,
       timeoutMs: updateStepTimeoutMs,
-      pluginInstallRecords: await readPostCorePluginInstallRecordsFile(postCoreInstallRecordsPath),
+      pluginInstallRecords,
     });
     if (process.env[POST_CORE_UPDATE_RESULT_PATH_ENV]) {
       await writePostCorePluginUpdateResultFile(

@@ -16,6 +16,7 @@ import { resolveOutboundAttachmentFromUrl } from "../../media/outbound-attachmen
 import { resolveAgentScopedOutboundMediaAccess } from "../../media/read-capability.js";
 import { MEDIA_MAX_BYTES } from "../../media/store.js";
 import { resolveConfigDir } from "../../utils.js";
+import { appendReplyMediaFailureWarning } from "../reply-payload.js";
 import type { ReplyPayload } from "../types.js";
 
 const FILE_URL_RE = /^file:\/\//i;
@@ -62,10 +63,6 @@ function resolveReplyMediaMaxBytes(params: {
   return typeof limitMb === "number" && Number.isFinite(limitMb) && limitMb > 0
     ? Math.floor(limitMb * 1024 * 1024)
     : MEDIA_MAX_BYTES;
-}
-
-function formatBlockedReplyMediaWarning(): string {
-  return "⚠️ Media failed.";
 }
 
 export function createReplyMediaPathNormalizer(params: {
@@ -235,11 +232,15 @@ export function createReplyMediaPathNormalizer(params: {
       normalizedMedia.push(normalized);
     }
 
+    const text =
+      firstMediaDropError === undefined
+        ? payload.text
+        : appendReplyMediaFailureWarning(payload.text);
+
     if (normalizedMedia.length === 0) {
-      const warning = firstMediaDropError ? formatBlockedReplyMediaWarning() : undefined;
       return {
         ...payload,
-        text: warning ? (payload.text ? `${payload.text}\n${warning}` : warning) : payload.text,
+        text,
         mediaUrl: undefined,
         mediaUrls: undefined,
       };
@@ -247,6 +248,7 @@ export function createReplyMediaPathNormalizer(params: {
 
     return {
       ...payload,
+      text,
       mediaUrl: normalizedMedia[0],
       mediaUrls: normalizedMedia,
     };

@@ -698,6 +698,7 @@ export async function processDiscordMessage(
                   sessionKey: ctxPayload.SessionKey,
                   threadBindings,
                   mediaLocalRoots,
+                  kind: info.kind,
                 });
                 return true;
               },
@@ -737,6 +738,7 @@ export async function processDiscordMessage(
                 sessionKey: ctxPayload.SessionKey,
                 threadBindings,
                 mediaLocalRoots,
+                kind: info.kind,
               });
               if (deliverResult?.dnrSuppressed) {
                 dnrSuppressedDuringDelivery = true;
@@ -779,6 +781,7 @@ export async function processDiscordMessage(
           sessionKey: ctxPayload.SessionKey,
           threadBindings,
           mediaLocalRoots,
+          kind: info.kind,
         });
         if (standardDeliverResult?.dnrSuppressed) {
           dnrSuppressedDuringDelivery = true;

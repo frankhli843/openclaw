@@ -6,11 +6,15 @@ type SubagentDeliveryPath =
   | "direct-thread-fallback"
   | "none";
 
-type SubagentAnnounceSteerOutcome = "steered" | "none" | "dropped";
+type SubagentAnnounceSteerOutcome =
+  | { status: "steered"; deliveredAt?: number; enqueuedAt?: number }
+  | { status: "none" | "dropped" };
 
 export type SubagentAnnounceDeliveryResult = {
   delivered: boolean;
   path: SubagentDeliveryPath;
+  deliveredAt?: number;
+  enqueuedAt?: number;
   error?: string;
   phases?: SubagentAnnounceDispatchPhaseResult[];
 };
@@ -21,16 +25,20 @@ type SubagentAnnounceDispatchPhaseResult = {
   phase: SubagentAnnounceDispatchPhase;
   delivered: boolean;
   path: SubagentDeliveryPath;
+  deliveredAt?: number;
+  enqueuedAt?: number;
   error?: string;
 };
 
 export function mapSteerOutcomeToDeliveryResult(
   outcome: SubagentAnnounceSteerOutcome,
 ): SubagentAnnounceDeliveryResult {
-  if (outcome === "steered") {
+  if (outcome.status === "steered") {
     return {
       delivered: true,
       path: "steered",
+      deliveredAt: outcome.deliveredAt,
+      enqueuedAt: outcome.enqueuedAt,
     };
   }
   return {
@@ -54,6 +62,8 @@ export async function runSubagentAnnounceDispatch(params: {
       phase,
       delivered: result.delivered,
       path: result.path,
+      deliveredAt: result.deliveredAt,
+      enqueuedAt: result.enqueuedAt,
       error: result.error,
     });
   };
@@ -76,7 +86,7 @@ export async function runSubagentAnnounceDispatch(params: {
     if (primarySteer.delivered) {
       return withPhases(primarySteer);
     }
-    if (primarySteerOutcome === "dropped") {
+    if (primarySteerOutcome.status === "dropped") {
       return withPhases(primarySteer);
     }
 

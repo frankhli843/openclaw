@@ -12,6 +12,7 @@ import type {
   ChannelMessageSendLifecycleAdapter,
   ChannelMessageSendResult,
 } from "../../channels/message/types.js";
+import { adaptMessagePresentationForChannel } from "../../channels/plugins/outbound/interactive.js";
 import { loadChannelOutboundAdapter } from "../../channels/plugins/outbound/load.js";
 import type {
   ChannelDeliveryCapabilities,
@@ -150,6 +151,7 @@ type ChannelHandler = {
   normalizePayload?: (payload: ReplyPayload) => ReplyPayload | null;
   sendTextOnlyErrorPayloads?: boolean;
   renderPresentation?: (payload: ReplyPayload) => Promise<ReplyPayload | null>;
+  presentationCapabilities?: ChannelOutboundAdapter["presentationCapabilities"];
   pinDeliveredMessage?: (params: {
     target: ChannelOutboundTargetRef;
     messageId: string;
@@ -394,6 +396,7 @@ function createPluginHandler(
           })
       : undefined,
     sendTextOnlyErrorPayloads: outbound?.sendTextOnlyErrorPayloads === true,
+    presentationCapabilities: outbound?.presentationCapabilities,
     renderPresentation: outbound?.renderPresentation
       ? async (payload) => {
           const presentation = normalizeMessagePresentation(payload.presentation);
@@ -975,7 +978,14 @@ async function renderPresentationForDelivery(
   if (!presentation) {
     return payload;
   }
-  const rendered = handler.renderPresentation ? await handler.renderPresentation(payload) : null;
+  const adaptedPresentation = adaptMessagePresentationForChannel({
+    presentation,
+    capabilities: handler.presentationCapabilities,
+  });
+  const adaptedPayload = { ...payload, presentation: adaptedPresentation };
+  const rendered = handler.renderPresentation
+    ? await handler.renderPresentation(adaptedPayload)
+    : null;
   if (rendered) {
     const { presentation: _presentation, ...withoutPresentation } = rendered;
     return withoutPresentation;
@@ -985,7 +995,7 @@ async function renderPresentationForDelivery(
     ...withoutPresentation,
     text: renderMessagePresentationFallbackText({
       text: payload.text,
-      presentation,
+      presentation: adaptedPresentation,
     }),
   };
 }

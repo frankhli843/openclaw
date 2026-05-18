@@ -2,6 +2,7 @@ import type { BootstrapContextMode } from "../../agents/bootstrap-files.js";
 import { resolveCliRuntimeExecutionProvider } from "../../agents/model-runtime-aliases.js";
 import type { SkillSnapshot } from "../../agents/skills.js";
 import { normalizeToolList } from "../../agents/tool-policy.js";
+import type { SourceReplyDeliveryMode } from "../../auto-reply/get-reply-options.types.js";
 import type { ThinkLevel, VerboseLevel } from "../../auto-reply/thinking.js";
 import type { AgentDefaultsConfig } from "../../config/types.agent-defaults.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
@@ -14,6 +15,7 @@ import {
 import { resolveCronPayloadOutcome } from "./helpers.js";
 import {
   getCliSessionId,
+  ensureSelectedAgentHarnessPlugin,
   isCliProvider,
   LiveSessionModelSwitchError,
   logWarn,
@@ -119,6 +121,7 @@ export function createCronPromptExecutor(params: {
     to?: string;
     threadId?: string | number;
   };
+  sourceReplyDeliveryMode?: SourceReplyDeliveryMode;
   toolPolicy: {
     requireExplicitMessageTarget: boolean;
     disableMessageTool: boolean;
@@ -168,6 +171,19 @@ export function createCronPromptExecutor(params: {
       sessionId: params.cronSession.sessionEntry.sessionId,
       lane: resolveCronAgentLane(params.lane),
       agentDir: params.agentDir,
+      agentId: params.agentId,
+      sessionKey: params.runSessionKey,
+      prepareAgentHarnessRuntime: async ({ provider, model, agentHarnessRuntimeOverride }) => {
+        await ensureSelectedAgentHarnessPlugin({
+          config: params.cfgWithAgentDefaults,
+          provider,
+          modelId: model,
+          agentId: params.agentId,
+          sessionKey: params.runSessionKey,
+          agentHarnessRuntimeOverride,
+          workspaceDir: params.workspaceDir,
+        });
+      },
       fallbacksOverride: cronFallbacksOverride,
       run: async (providerOverride, modelOverride, runOptions) => {
         if (params.abortSignal?.aborted) {
@@ -205,6 +221,7 @@ export function createCronPromptExecutor(params: {
             cliSessionId,
             skillsSnapshot: params.skillsSnapshot,
             messageChannel: params.messageChannel,
+            sourceReplyDeliveryMode: params.sourceReplyDeliveryMode,
             abortSignal: params.abortSignal,
             onExecutionStarted: params.onExecutionStarted,
             onExecutionPhase: params.onExecutionPhase,
@@ -276,6 +293,7 @@ export function createCronPromptExecutor(params: {
                 notifyOnExitEmptySuccess: false,
               }
             : undefined,
+          sourceReplyDeliveryMode: params.sourceReplyDeliveryMode,
           runId: params.cronSession.sessionEntry.sessionId,
           requireExplicitMessageTarget: params.toolPolicy.requireExplicitMessageTarget,
           disableMessageTool: params.toolPolicy.disableMessageTool,
@@ -329,6 +347,7 @@ export async function executeCronRun(params: {
     to?: string;
     threadId?: string | number;
   };
+  sourceReplyDeliveryMode?: SourceReplyDeliveryMode;
   toolPolicy: {
     requireExplicitMessageTarget: boolean;
     disableMessageTool: boolean;
@@ -383,6 +402,7 @@ export async function executeCronRun(params: {
     messageChannel: params.resolvedDelivery.channel,
     suppressExecNotifyOnExit: params.suppressExecNotifyOnExit,
     resolvedDelivery: params.resolvedDelivery,
+    sourceReplyDeliveryMode: params.sourceReplyDeliveryMode,
     toolPolicy: params.toolPolicy,
     skillsSnapshot: params.skillsSnapshot,
     agentPayload: params.agentPayload,

@@ -36,7 +36,8 @@ import { buildSubagentInitialUserMessage } from "./subagent-initial-user-message
 import { loadSubagentInstructions, prependSubagentInstructions } from "./subagent-instructions.js";
 import { countActiveRunsForSession, registerSubagentRun } from "./subagent-registry.js";
 import { resolveSubagentSpawnAcceptedNote } from "./subagent-spawn-accepted-note.js";
-import { runSpawnSubagentWithDurableQueue } from "./subagent-spawn.frankclaw.js";
+import { resolveSubagentSpawnOwnership } from "./subagent-spawn-ownership.js";
+import { runSpawnSubagentWithDurableQueue } from "./subagent-spawn.frankclaw.js"; // frankclaw: durable queue wrapper
 import { resolveSubagentTargetPolicy } from "./subagent-target-policy.js";
 import { normalizeSubagentTaskName } from "./subagent-task-name.js";
 export {
@@ -73,7 +74,6 @@ import {
   resolveParentForkDecision,
   resolveAgentConfig,
   resolveContextEngine,
-  resolveDisplaySessionKey,
   resolveGatewaySessionStoreTarget,
   resolveInternalSessionKey,
   resolveMainSessionAlias,
@@ -127,8 +127,68 @@ const SUBAGENT_CONTROL_GATEWAY_TIMEOUT_MS = 60_000;
 const DEFAULT_SUBAGENT_AGENT_GATEWAY_TIMEOUT_MS = 60_000;
 const MAX_SUBAGENT_AGENT_GATEWAY_TIMEOUT_MS = 300_000;
 
-// frankclaw: types extracted to subagent-spawn.contract.ts for frankclaw module isolation
-export type { SpawnSubagentContext, SpawnSubagentParams, SpawnSubagentResult };
+// frankclaw: SpawnSubagent* types are defined here (upstream) and re-exported from
+// subagent-spawn.contract.ts for frankclaw module isolation (subagent-spawn.frankclaw.ts)
+export type SpawnSubagentParams = {
+  task: string;
+  label?: string;
+  agentId?: string;
+  model?: string;
+  taskName?: string;
+  thinking?: string;
+  cwd?: string;
+  runTimeoutSeconds?: number;
+  thread?: boolean;
+  mode?: SpawnSubagentMode;
+  cleanup?: "delete" | "keep";
+  sandbox?: SpawnSubagentSandboxMode;
+  context?: SpawnSubagentContextMode;
+  lightContext?: boolean;
+  expectsCompletionMessage?: boolean;
+  attachments?: Array<{
+    name: string;
+    content: string;
+    encoding?: "utf8" | "base64";
+    mimeType?: string;
+  }>;
+  attachMountPath?: string;
+};
+
+export type SpawnSubagentContext = {
+  agentSessionKey?: string;
+  /** Separate key used only for completion routing, not sandbox policy. */
+  completionOwnerKey?: string;
+  agentChannel?: string;
+  agentAccountId?: string;
+  agentTo?: string;
+  agentThreadId?: string | number;
+  agentGroupId?: string | null;
+  agentGroupChannel?: string | null;
+  agentGroupSpace?: string | null;
+  agentMemberRoleIds?: string[];
+  requesterAgentIdOverride?: string;
+  /** Explicit workspace directory for subagent to inherit (optional). */
+  workspaceDir?: string;
+  inheritedToolAllowlist?: string[];
+  inheritedToolDenylist?: string[];
+};
+
+export type SpawnSubagentResult = {
+  status: "accepted" | "forbidden" | "error";
+  childSessionKey?: string;
+  runId?: string;
+  mode?: SpawnSubagentMode;
+  taskName?: string;
+  note?: string;
+  modelApplied?: boolean;
+  error?: string;
+  attachments?: {
+    count: number;
+    totalBytes: number;
+    files: Array<{ name: string; bytes: number; sha256: string }>;
+    relDir: string;
+  };
+};
 
 export { splitModelRef } from "./subagent-spawn-plan.js";
 
@@ -732,10 +792,10 @@ async function spawnSubagentDirectCore(
         mainKey,
       })
     : alias;
-  const requesterDisplayKey = resolveDisplaySessionKey({
-    key: requesterInternalKey,
-    alias,
-    mainKey,
+  const ownership = resolveSubagentSpawnOwnership({
+    cfg,
+    agentSessionKey: ctx.agentSessionKey,
+    completionOwnerKey: ctx.completionOwnerKey,
   });
 
   const callerDepth = getSubagentDepthFromSessionStore(requesterInternalKey, { cfg });
@@ -943,7 +1003,7 @@ async function spawnSubagentDirectCore(
       agentId: targetAgentId,
       label: label || undefined,
       mode: spawnMode,
-      requesterSessionKey: requesterInternalKey,
+      requesterSessionKey: ownership.threadBindingRequesterSessionKey,
       requester: {
         channel: childSessionOrigin?.channel,
         accountId: childSessionOrigin?.accountId,
@@ -1218,10 +1278,10 @@ async function spawnSubagentDirectCore(
     registerSubagentRun({
       runId: childRunId,
       childSessionKey,
-      controllerSessionKey: requesterInternalKey,
-      requesterSessionKey: requesterInternalKey,
+      controllerSessionKey: ownership.controllerSessionKey,
+      requesterSessionKey: ownership.completionRequesterSessionKey,
       requesterOrigin,
-      requesterDisplayKey,
+      requesterDisplayKey: ownership.completionRequesterDisplayKey,
       task,
       taskName,
       cleanup,

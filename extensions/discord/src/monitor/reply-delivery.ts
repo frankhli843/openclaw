@@ -182,7 +182,9 @@ export async function deliverDiscordReply(params: {
   sessionKey?: string;
   threadBindings?: DiscordThreadBindingLookup;
   mediaLocalRoots?: readonly string[];
+  kind: "tool" | "block" | "final";
 }): Promise<DeliverDiscordReplyResult> {
+  // frankclaw: enforce Discord DNR window before delivery
   const dnrCtx = { channel: "discord" as const, to: params.target };
   try {
     enforceDiscordDnrWindow(dnrCtx);
@@ -205,7 +207,7 @@ export async function deliverDiscordReply(params: {
   void params.runtime;
 
   const delivery = resolveDiscordDeliveryOptions(params);
-  const payloads = sanitizeDiscordFrontChannelReplyPayloads(params.replies);
+  const payloads = sanitizeDiscordFrontChannelReplyPayloads(params.replies, { kind: params.kind });
   if (payloads.length === 0) {
     return;
   }
@@ -241,4 +243,5 @@ export async function deliverDiscordReply(params: {
   if (results.length === 0) {
     throw new Error(`discord final reply produced no delivered message for ${delivery.to}`);
   }
+  return {};
 }

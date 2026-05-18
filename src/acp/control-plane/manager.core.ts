@@ -975,6 +975,10 @@ export class AcpSessionManager {
                   ? AbortSignal.any([input.signal, internalAbortController.signal])
                   : internalAbortController.signal;
               const eventGate = { open: true };
+              await input.onLifecycle?.({
+                type: "prompt_submitted",
+                at: Date.now(),
+              });
               const turnPromise = consumeAcpTurnStream({
                 runtime,
                 turn: {

@@ -2932,6 +2932,53 @@ describe("openai transport stream", () => {
     expect(params.tool_choice).toBe("required");
   });
 
+  it("sorts Responses tools by name for stable prompt-cache payloads", () => {
+    const model = {
+      id: "gpt-5.4",
+      name: "GPT-5.4",
+      api: "openai-responses",
+      provider: "openai",
+      baseUrl: "https://api.openai.com/v1",
+      reasoning: true,
+      input: ["text"],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 200000,
+      maxTokens: 8192,
+    } satisfies Model<"openai-responses">;
+    const zetaTool = {
+      name: "zeta",
+      description: "Z",
+      parameters: { type: "object", properties: {}, additionalProperties: false },
+    };
+    const alphaTool = {
+      name: "alpha",
+      description: "A",
+      parameters: { type: "object", properties: {}, additionalProperties: false },
+    };
+
+    const first = buildOpenAIResponsesParams(
+      model,
+      {
+        systemPrompt: "system",
+        messages: [],
+        tools: [zetaTool, alphaTool],
+      } as never,
+      { sessionId: "session-123" } as never,
+    ) as { tools?: Array<{ name?: string }> };
+    const second = buildOpenAIResponsesParams(
+      model,
+      {
+        systemPrompt: "system",
+        messages: [],
+        tools: [alphaTool, zetaTool],
+      } as never,
+      { sessionId: "session-123" } as never,
+    ) as { tools?: Array<{ name?: string }> };
+
+    expect(first.tools?.map((tool) => tool.name)).toEqual(["alpha", "zeta"]);
+    expect(first.tools).toEqual(second.tools);
+  });
+
   it("falls back to strict:false when a native OpenAI tool schema is not strict-compatible", () => {
     const params = buildOpenAIResponsesParams(
       {
@@ -3809,6 +3856,54 @@ describe("openai transport stream", () => {
     expect(notOptedIn.prompt_cache_key).toBeUndefined();
   });
 
+  it("sorts Chat Completions tools by function name for stable prompt-cache payloads", () => {
+    const model = {
+      id: "custom-model",
+      name: "Custom Model",
+      api: "openai-completions",
+      provider: "custom-cpa",
+      baseUrl: "https://proxy.example.com/v1",
+      compat: { supportsPromptCacheKey: true },
+      reasoning: false,
+      input: ["text"],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 32768,
+      maxTokens: 8192,
+    } as unknown as Model<"openai-completions">;
+    const zetaTool = {
+      name: "zeta",
+      description: "Z",
+      parameters: { type: "object", properties: {} },
+    };
+    const alphaTool = {
+      name: "alpha",
+      description: "A",
+      parameters: { type: "object", properties: {} },
+    };
+
+    const first = buildOpenAICompletionsParams(
+      model,
+      {
+        systemPrompt: "system",
+        messages: [],
+        tools: [zetaTool, alphaTool],
+      } as never,
+      { sessionId: "session-123" },
+    ) as { tools?: Array<{ function?: { name?: string } }> };
+    const second = buildOpenAICompletionsParams(
+      model,
+      {
+        systemPrompt: "system",
+        messages: [],
+        tools: [alphaTool, zetaTool],
+      } as never,
+      { sessionId: "session-123" },
+    ) as { tools?: Array<{ function?: { name?: string } }> };
+
+    expect(first.tools?.map((tool) => tool.function?.name)).toEqual(["alpha", "zeta"]);
+    expect(first.tools).toEqual(second.tools);
+  });
+
   it("disables developer-role-only compat defaults for configured custom proxy completions providers", () => {
     const params = buildOpenAICompletionsParams(
       {
@@ -4513,6 +4608,105 @@ describe("openai transport stream", () => {
       expect(assistant?.tool_calls?.[0]?.extra_content?.google?.thought_signature).toBe(
         "skip_thought_signature_validator",
       );
+    });
+
+    it("falls back to skip_thought_signature_validator when a captured same-route Gemini 3 signature is truncated", () => {
+      // Compaction-truncated sig: 109 chars, length mod 4 == 1.
+      // Same-route assistant tool-call whose captured thoughtSignature is truncated.
+      // The guard should fall back to the sentinel instead of dropping the field.
+      const params = buildOpenAICompletionsParams(
+        geminiModel,
+        {
+          messages: [
+            {
+              role: "assistant",
+              api: geminiModel.api,
+              provider: geminiModel.provider,
+              model: geminiModel.id,
+              usage: {
+                input: 0,
+                output: 0,
+                cacheRead: 0,
+                cacheWrite: 0,
+                totalTokens: 0,
+                cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+              },
+              stopReason: "toolUse",
+              timestamp: 1,
+              content: [
+                {
+                  type: "toolCall",
+                  id: "call_abc",
+                  name: "echo_value",
+                  arguments: { value: "repro" },
+                  thoughtSignature:
+                    "CmcBjz1rX55U6JcpC2oZVTk40Kx6nVK8LKzbl61rOFztcvSdL7pdIvBEDyJLRqWrPVpdD+rj3GsJ3f9PG6b2Ry2UnK38+dInfGIlJbXHt++EC",
+                },
+              ],
+            },
+          ],
+          tools: [],
+        } as never,
+        undefined,
+      ) as { messages: Array<Record<string, unknown>> };
+
+      const assistant = params.messages.find((message) => message.role === "assistant") as
+        | { tool_calls?: Array<{ extra_content?: { google?: { thought_signature?: string } } }> }
+        | undefined;
+      expect(assistant?.tool_calls?.[0]?.extra_content?.google?.thought_signature).toBe(
+        "skip_thought_signature_validator",
+      );
+    });
+
+    it("drops the field when the model is not Gemini 3 and the captured same-route signature is truncated", () => {
+      // gemini-2.5-pro: requiresGoogleCompatToolCallThoughtSignature returns false,
+      // so fallbackSig is undefined and there is no sentinel to fall back to.
+      // A truncated same-route sig should cause the field to be dropped entirely.
+      const nonGemini3Model = {
+        ...geminiModel,
+        id: "gemini-2.5-pro",
+        name: "Gemini 2.5 Pro",
+      };
+      const params = buildOpenAICompletionsParams(
+        nonGemini3Model,
+        {
+          messages: [
+            {
+              role: "assistant",
+              api: nonGemini3Model.api,
+              provider: nonGemini3Model.provider,
+              model: nonGemini3Model.id,
+              usage: {
+                input: 0,
+                output: 0,
+                cacheRead: 0,
+                cacheWrite: 0,
+                totalTokens: 0,
+                cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+              },
+              stopReason: "toolUse",
+              timestamp: 1,
+              content: [
+                {
+                  type: "toolCall",
+                  id: "call_abc",
+                  name: "echo_value",
+                  arguments: { value: "repro" },
+                  thoughtSignature:
+                    "CmcBjz1rX55U6JcpC2oZVTk40Kx6nVK8LKzbl61rOFztcvSdL7pdIvBEDyJLRqWrPVpdD+rj3GsJ3f9PG6b2Ry2UnK38+dInfGIlJbXHt++EC",
+                },
+              ],
+            },
+          ],
+          tools: [],
+        } as never,
+        undefined,
+      ) as { messages: Array<Record<string, unknown>> };
+
+      const assistant = params.messages.find((message) => message.role === "assistant") as
+        | { tool_calls?: Array<{ extra_content?: { google?: { thought_signature?: string } } }> }
+        | undefined;
+      expect(assistant?.tool_calls?.[0]?.extra_content?.google?.thought_signature).toBeUndefined();
     });
 
     it("does not trust cross-route thought_signature for non-Gemini-3 Google compat models", () => {

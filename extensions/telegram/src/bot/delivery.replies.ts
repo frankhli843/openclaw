@@ -10,10 +10,7 @@ import {
   toPluginMessageSentEvent,
 } from "openclaw/plugin-sdk/hook-runtime";
 import type { ReplyPayloadDelivery } from "openclaw/plugin-sdk/interactive-runtime";
-import {
-  normalizeMessagePresentation,
-  presentationToInteractiveReply,
-} from "openclaw/plugin-sdk/interactive-runtime";
+import { normalizeMessagePresentation } from "openclaw/plugin-sdk/interactive-runtime";
 import {
   buildOutboundMediaLoadOptions,
   isGifMedia,
@@ -792,9 +789,7 @@ export async function deliverReplies(params: {
         : [];
     const hasMedia = mediaList.length > 0;
     const presentation = normalizeMessagePresentation(reply?.presentation);
-    const interactive =
-      reply?.interactive ??
-      (presentation ? presentationToInteractiveReply(presentation) : undefined);
+    const interactive = reply?.interactive;
     const resolvedReplyText =
       resolveTelegramInteractiveTextFallback({
         text: reply?.text,
@@ -869,6 +864,7 @@ export async function deliverReplies(params: {
       const replyMarkup = buildInlineKeyboard(
         resolveTelegramInlineButtons({
           buttons: telegramData?.buttons,
+          presentation,
           interactive,
         }),
       );

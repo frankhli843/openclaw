@@ -126,7 +126,7 @@ function createModelStreamCooperativeScheduler(
       eventsSinceYield = 0;
       lastYieldedAt = now;
       await new Promise<void>((resolve) => {
-        setImmediate(resolve);
+        setTimeout(resolve, 0);
       });
       throwIfModelStreamAborted(signal);
     },
@@ -950,8 +950,8 @@ function convertResponsesTools(
     transport: "responses",
     model,
   });
-  return tools.map((tool): FunctionTool => {
-    const base = {
+  return sortTransportToolsByName(tools).map((tool): FunctionTool => {
+    const result = {
       type: "function" as const,
       name: tool.name,
       description: tool.description,
@@ -960,8 +960,11 @@ function convertResponsesTools(
         strict === true,
         model.compat,
       ) as Record<string, unknown>,
-    };
-    return strict === undefined ? (base as FunctionTool) : { ...base, strict };
+    } as FunctionTool;
+    if (strict !== undefined) {
+      result.strict = strict;
+    }
+    return result;
   });
 }
 
@@ -2686,9 +2689,13 @@ function convertTools(
       model,
     },
   );
-  return tools.map((tool) => ({
-    type: "function",
-    function: {
+  return sortTransportToolsByName(tools).map((tool) => {
+    const functionTool: {
+      name: string;
+      description: string | undefined;
+      parameters: ReturnType<typeof normalizeOpenAIStrictToolParameters>;
+      strict?: boolean;
+    } = {
       name: tool.name,
       description: tool.description,
       parameters: normalizeOpenAIStrictToolParameters(
@@ -2696,9 +2703,37 @@ function convertTools(
         strict === true,
         model.compat,
       ),
-      ...(strict === undefined ? {} : { strict }),
-    },
-  }));
+    };
+    if (strict !== undefined) {
+      functionTool.strict = strict;
+    }
+    return {
+      type: "function",
+      function: functionTool,
+    };
+  });
+}
+
+function compareTransportToolText(left: string | undefined, right: string | undefined): number {
+  const leftText = left ?? "";
+  const rightText = right ?? "";
+  if (leftText < rightText) {
+    return -1;
+  }
+  if (leftText > rightText) {
+    return 1;
+  }
+  return 0;
+}
+
+function sortTransportToolsByName<T extends { name?: string; description?: string }>(
+  tools: readonly T[],
+): T[] {
+  return tools.toSorted(
+    (left, right) =>
+      compareTransportToolText(left.name, right.name) ||
+      compareTransportToolText(left.description, right.description),
+  );
 }
 
 function extractGoogleThoughtSignature(toolCall: unknown): string | undefined {
@@ -2730,6 +2765,16 @@ function isGoogleOpenAICompatModel(model: OpenAIModeModel): boolean {
 
 function requiresGoogleCompatToolCallThoughtSignature(model: OpenAIModeModel): boolean {
   return model.id.toLowerCase().includes("gemini-3");
+}
+
+const GOOGLE_COMPAT_THOUGHT_SIGNATURE_ELLIPSIS_RE = /[\u2026]|\.\.\./;
+const GOOGLE_COMPAT_THOUGHT_SIGNATURE_BASE64_RE = /^[A-Za-z0-9+/=]+$/;
+
+function hasGoogleCompatThoughtSignatureTruncationFootprint(value: string): boolean {
+  return (
+    GOOGLE_COMPAT_THOUGHT_SIGNATURE_ELLIPSIS_RE.test(value) ||
+    (GOOGLE_COMPAT_THOUGHT_SIGNATURE_BASE64_RE.test(value) && value.length % 4 !== 0)
+  );
 }
 
 function injectToolCallThoughtSignatures(
@@ -2783,8 +2828,14 @@ function injectToolCallThoughtSignatures(
       if (typeof id !== "string") {
         continue;
       }
-      const sig = sigById.get(id) ?? fallbackSig;
-      if (!sig) {
+      let sig: string | undefined = sigById.get(id) ?? fallbackSig;
+      if (typeof sig === "string" && sig.length > 0) {
+        const trimmed = sig.trim();
+        if (hasGoogleCompatThoughtSignatureTruncationFootprint(trimmed)) {
+          sig = fallbackSig;
+        }
+      }
+      if (typeof sig !== "string" || sig.length === 0) {
         continue;
       }
       const extra =
