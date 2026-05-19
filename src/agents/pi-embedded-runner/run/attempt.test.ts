@@ -1269,7 +1269,8 @@ describe("wrapStreamFnTrimToolCallNames", () => {
 
     const stream = await invokeWrappedStream(baseFn, new Set(["read", "write", "exec"]));
 
-    for await (const _item of stream) {
+    for await (const item of stream) {
+      void item;
       // drain
     }
     await stream.result();
@@ -1298,7 +1299,8 @@ describe("wrapStreamFnTrimToolCallNames", () => {
 
     const stream = await invokeWrappedStream(baseFn, new Set(["read", "write", "exec"]));
 
-    for await (const _item of stream) {
+    for await (const item of stream) {
+      void item;
       // drain
     }
     const result = await stream.result();
@@ -1394,7 +1396,8 @@ describe("wrapStreamFnTrimToolCallNames", () => {
       unknownToolThreshold: 1,
     });
 
-    for await (const _item of stream) {
+    for await (const item of stream) {
+      void item;
       // drain
     }
     const result = (await stream.result()) as {
@@ -1429,7 +1432,7 @@ describe("wrapStreamFnTrimToolCallNames", () => {
     await firstStream.result();
 
     const secondStream = await Promise.resolve(wrappedFn({} as never, {} as never, {} as never));
-    for await (const _item of secondStream) {
+    for await (const item of secondStream) {
       // drain
     }
     const secondResult = (await secondStream.result()) as {
@@ -1464,7 +1467,7 @@ describe("wrapStreamFnTrimToolCallNames", () => {
     await firstStream.result();
 
     const secondStream = await Promise.resolve(wrappedFn({} as never, {} as never, {} as never));
-    for await (const _item of secondStream) {
+    for await (const item of secondStream) {
       // drain
     }
     const secondResult = (await secondStream.result()) as {
@@ -1511,7 +1514,7 @@ describe("wrapStreamFnTrimToolCallNames", () => {
     });
 
     const firstStream = await Promise.resolve(wrappedFn({} as never, {} as never, {} as never));
-    for await (const _item of firstStream) {
+    for await (const item of firstStream) {
       // drain
     }
     await firstStream.result();
@@ -1561,7 +1564,7 @@ describe("wrapStreamFnTrimToolCallNames", () => {
     });
 
     const firstStream = await Promise.resolve(wrappedFn({} as never, {} as never, {} as never));
-    for await (const _item of firstStream) {
+    for await (const item of firstStream) {
       // drain
     }
     await firstStream.result();
@@ -1625,7 +1628,7 @@ describe("wrapStreamFnTrimToolCallNames", () => {
     await firstStream.result();
 
     const secondStream = await Promise.resolve(wrappedFn({} as never, {} as never, {} as never));
-    for await (const _item of secondStream) {
+    for await (const item of secondStream) {
       // drain
     }
     await secondStream.result();
@@ -1664,7 +1667,8 @@ describe("wrapStreamFnTrimToolCallNames", () => {
     );
 
     const stream = await invokeWrappedStream(baseFn, new Set(["read", "write", "exec"]));
-    for await (const _item of stream) {
+    for await (const item of stream) {
+      void item;
       // drain
     }
     const result = await stream.result();
@@ -1711,7 +1715,8 @@ describe("wrapStreamFnTrimToolCallNames", () => {
     );
 
     const stream = await invokeWrappedStream(baseFn, new Set(["read", "write"]));
-    for await (const _item of stream) {
+    for await (const item of stream) {
+      void item;
       // drain
     }
     await stream.result();
@@ -1930,7 +1935,8 @@ describe("wrapStreamFnTrimToolCallNames", () => {
 
     const stream = await invokeWrappedStream(baseFn);
 
-    for await (const _item of stream) {
+    for await (const item of stream) {
+      void item;
       // drain
     }
     const result = (await stream.result()) as {
@@ -1982,7 +1988,8 @@ describe("wrapStreamFnTrimToolCallNames", () => {
     );
 
     const stream = await invokeWrappedStream(baseFn);
-    for await (const _item of stream) {
+    for await (const item of stream) {
+      void item;
       // drain
     }
     const result = await stream.result();
@@ -3208,7 +3215,8 @@ describe("wrapStreamFnRepairMalformedToolCallArguments", () => {
     );
 
     const stream = await invokeWrappedStream(baseFn);
-    for await (const _item of stream) {
+    for await (const item of stream) {
+      void item;
       // drain
     }
     const result = await stream.result();
@@ -3250,7 +3258,8 @@ describe("wrapStreamFnRepairMalformedToolCallArguments", () => {
     );
 
     const stream = await invokeWrappedStream(baseFn);
-    for await (const _item of stream) {
+    for await (const item of stream) {
+      void item;
       // drain
     }
     const result = await stream.result();
@@ -3297,7 +3306,8 @@ describe("wrapStreamFnRepairMalformedToolCallArguments", () => {
     );
 
     const stream = await invokeWrappedStream(baseFn);
-    for await (const _item of stream) {
+    for await (const item of stream) {
+      void item;
       // drain
     }
     const result = await stream.result();
@@ -3334,7 +3344,8 @@ describe("wrapStreamFnRepairMalformedToolCallArguments", () => {
     );
 
     const stream = await invokeWrappedStream(baseFn);
-    for await (const _item of stream) {
+    for await (const item of stream) {
+      void item;
       // drain
     }
 
@@ -3360,7 +3371,8 @@ describe("wrapStreamFnRepairMalformedToolCallArguments", () => {
     );
 
     const stream = await invokeWrappedStream(baseFn);
-    for await (const _item of stream) {
+    for await (const item of stream) {
+      void item;
       // drain
     }
 
@@ -3392,7 +3404,8 @@ describe("wrapStreamFnRepairMalformedToolCallArguments", () => {
     );
 
     const stream = await invokeWrappedStream(baseFn);
-    for await (const _item of stream) {
+    for await (const item of stream) {
+      void item;
       // drain
     }
 
@@ -3437,7 +3450,8 @@ describe("wrapStreamFnRepairMalformedToolCallArguments", () => {
     );
 
     const stream = await invokeWrappedStream(baseFn);
-    for await (const _item of stream) {
+    for await (const item of stream) {
+      void item;
       // drain
     }
 
@@ -3476,7 +3490,8 @@ describe("wrapStreamFnRepairMalformedToolCallArguments", () => {
     );
 
     const stream = await invokeWrappedStream(baseFn);
-    for await (const _item of stream) {
+    for await (const item of stream) {
+      void item;
       // drain
     }
 
@@ -3513,7 +3528,8 @@ describe("wrapStreamFnRepairMalformedToolCallArguments", () => {
     );
 
     const stream = await invokeWrappedStream(baseFn);
-    for await (const _item of stream) {
+    for await (const item of stream) {
+      void item;
       // drain
     }
 

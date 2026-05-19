@@ -876,14 +876,15 @@ export async function processDiscordMessage(
                   : undefined)),
             // frankclaw: drop preview partial-stream updates during DNR
             // quiet hours so we don't leak preview message edits.
-            onPartialReply: draftPreview.draftStream
-              ? (payload) => {
-                  if (isDnrActive()) {
-                    return;
+            onPartialReply:
+              draftPreview.draftStream && !draftPreview.isProgressMode
+                ? (payload) => {
+                    if (isDnrActive()) {
+                      return;
+                    }
+                    draftPreview.updateFromPartial(payload.text);
                   }
-                  draftPreview.updateFromPartial(payload.text);
-                }
-              : undefined,
+                : undefined,
             onAssistantMessageStart: draftPreview.draftStream
               ? () => draftPreview.handleAssistantMessageBoundary()
               : undefined,

@@ -2,7 +2,6 @@ import { hasAnyAuthProfileStoreSource } from "../../agents/auth-profiles/source-
 import { resolveAgentHarnessPolicy } from "../../agents/harness/selection.js";
 import { listOpenAIAuthProfileProvidersForAgentRuntime } from "../../agents/openai-codex-routing.js";
 import { retireSessionMcpRuntime } from "../../agents/pi-bundle-mcp-tools.js";
-import type { MessagingToolSend } from "../../agents/pi-embedded-messaging.types.js";
 import type { SkillSnapshot } from "../../agents/skills.js";
 import {
   loadSubagentInstructions,
@@ -13,7 +12,13 @@ import type { ThinkLevel } from "../../auto-reply/thinking.js";
 import type { CliDeps } from "../../cli/outbound-send-deps.js";
 import type { AgentDefaultsConfig } from "../../config/types.agent-defaults.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
-import { stringifyRouteThreadId } from "../../plugin-sdk/channel-route.js";
+import {
+  createSourceDeliveryPlan,
+  resolveSourceDeliveryOutcome,
+  type SourceDeliveryOutcome,
+  type SourceDeliveryPlan,
+  type SourceDeliveryVisibleDelivery,
+} from "../../infra/outbound/source-delivery-plan.js";
 import { isCommandLaneTaskTimeoutError } from "../../process/command-queue.js";
 import { CommandLane } from "../../process/lanes.js";
 import { createLazyImportLoader } from "../../shared/lazy-promise.js";
@@ -198,28 +203,17 @@ function normalizeCronTraceTarget(
   };
 }
 
-type MessagingToolTargetMatcher = (
-  target: { provider?: string; to?: string; accountId?: string },
-  delivery: { channel?: string; to?: string; accountId?: string },
-) => boolean;
-
 function normalizeMessagingToolTarget(
-  target: MessagingToolSend,
+  delivery: SourceDeliveryVisibleDelivery,
   resolvedDelivery: ResolvedCronDeliveryTarget,
-  matchesMessagingToolDeliveryTarget: MessagingToolTargetMatcher,
 ): CronDeliveryTraceMessageTarget | undefined {
+  const { target } = delivery;
   const channel = target.provider?.trim();
   if (!channel) {
     return undefined;
   }
   const traceChannel =
-    channel === "message" &&
-    resolvedDelivery.ok &&
-    matchesMessagingToolDeliveryTarget(target, {
-      channel: resolvedDelivery.channel,
-      to: resolvedDelivery.to,
-      accountId: resolvedDelivery.accountId,
-    })
+    channel === "message" && resolvedDelivery.ok && delivery.verifiedTarget
       ? resolvedDelivery.channel
       : channel;
   return {
@@ -261,8 +255,7 @@ function buildResolvedCronTraceTarget(
 function buildCronDeliveryTrace(params: {
   deliveryPlan: CronDeliveryPlan;
   resolvedDelivery: ResolvedCronDeliveryTarget;
-  messagingToolSentTargets: MessagingToolSend[];
-  matchesMessagingToolDeliveryTarget: MessagingToolTargetMatcher;
+  sourceDeliveryOutcome: SourceDeliveryOutcome;
   fallbackUsed: boolean;
   delivered: boolean;
 }): CronDeliveryTrace {
@@ -279,14 +272,8 @@ function buildCronDeliveryTrace(params: {
   const resolved = includeResolved
     ? buildResolvedCronTraceTarget(params.resolvedDelivery)
     : undefined;
-  const messageToolSentTo = params.messagingToolSentTargets
-    .map((target) =>
-      normalizeMessagingToolTarget(
-        target,
-        params.resolvedDelivery,
-        params.matchesMessagingToolDeliveryTarget,
-      ),
-    )
+  const messageToolSentTo = params.sourceDeliveryOutcome.visibleDeliveries
+    .map((delivery) => normalizeMessagingToolTarget(delivery, params.resolvedDelivery))
     .filter((target): target is CronDeliveryTraceMessageTarget => Boolean(target));
   return {
     ...(intended ? { intended } : {}),
@@ -297,60 +284,50 @@ function buildCronDeliveryTrace(params: {
   };
 }
 
-function resolveMessagingToolSentTargets(params: {
-  resolvedDelivery: ResolvedCronDeliveryTarget;
-  runResult: CronExecutionResult["runResult"];
-}): MessagingToolSend[] {
-  const explicitTargets = params.runResult.messagingToolSentTargets ?? [];
-  if (explicitTargets.length > 0 || params.runResult.didSendViaMessagingTool !== true) {
-    return explicitTargets;
-  }
-  if (!params.resolvedDelivery.ok) {
-    return [];
-  }
-  const threadId = stringifyRouteThreadId(params.resolvedDelivery.threadId);
-  return [
-    {
-      tool: "message",
-      provider: params.resolvedDelivery.channel,
-      ...(params.resolvedDelivery.accountId
-        ? { accountId: params.resolvedDelivery.accountId }
-        : {}),
-      ...(params.resolvedDelivery.to ? { to: params.resolvedDelivery.to } : {}),
-      ...(threadId ? { threadId } : {}),
-    },
-  ];
-}
-
-function resolveCronToolPolicy(params: { deliveryMode: "announce" | "webhook" | "none" }) {
-  const enableMessageTool = params.deliveryMode !== "webhook";
-  return {
-    requireExplicitMessageTarget: false,
-    disableMessageTool: !enableMessageTool,
-    forceMessageTool: enableMessageTool,
-  };
-}
-
-function resolveCronSourceReplyDeliveryMode(params: {
+function resolveCronSourceDeliveryPlan(params: {
   deliveryPlan: CronDeliveryPlan;
   resolvedDelivery: ResolvedCronDeliveryTarget;
-  toolPolicy: ReturnType<typeof resolveCronToolPolicy>;
-}): SourceReplyDeliveryMode | undefined {
-  if (
-    params.deliveryPlan.mode !== "announce" ||
-    params.toolPolicy.disableMessageTool ||
-    !params.resolvedDelivery.ok
-  ) {
-    return undefined;
+}): SourceDeliveryPlan {
+  const target = {
+    channel: params.resolvedDelivery.channel,
+    to: params.resolvedDelivery.to,
+    accountId: params.resolvedDelivery.accountId,
+    threadId: params.resolvedDelivery.threadId,
+  };
+  if (params.deliveryPlan.mode === "webhook") {
+    return createSourceDeliveryPlan({
+      owner: "none",
+      reason: "cron_webhook",
+      messageToolEnabled: false,
+      directFallback: false,
+    });
   }
-  return "message_tool_only";
+  if (params.deliveryPlan.mode === "none") {
+    return createSourceDeliveryPlan({
+      owner: "none",
+      reason: "cron_none",
+      target,
+      messageToolEnabled: true,
+      messageToolForced: true,
+      directFallback: false,
+    });
+  }
+  return createSourceDeliveryPlan({
+    owner: params.resolvedDelivery.ok ? "message_tool_then_direct_fallback" : "direct_fallback",
+    reason: "cron_announce",
+    target,
+    messageToolEnabled: true,
+    messageToolForced: true,
+    directFallback: true,
+    skipFallbackWhenMessageToolSentToTarget: params.resolvedDelivery.ok,
+  });
 }
 
 function canPromptForMessageTool(params: {
-  disableMessageTool: boolean;
+  sourceDelivery: SourceDeliveryPlan;
   toolsAllow?: string[];
 }): boolean {
-  if (params.disableMessageTool) {
+  if (!params.sourceDelivery.messageTool.enabled) {
     return false;
   }
   return !params.toolsAllow?.length || params.toolsAllow.includes("message");
@@ -382,27 +359,24 @@ async function resolveCronDeliveryContext(params: {
       deliveryPlan,
       deliveryRequested: deliveryPlan.requested,
       resolvedDelivery,
-      toolPolicy: resolveCronToolPolicy({
-        deliveryMode: deliveryPlan.mode,
-      }),
+      sourceDelivery: resolveCronSourceDeliveryPlan({ deliveryPlan, resolvedDelivery }),
     };
   }
   if (deliveryPlan.mode === "none" && !hasExplicitCronDeliveryTarget(deliveryPlan)) {
+    const resolvedDelivery = {
+      ok: false as const,
+      channel: undefined,
+      to: undefined,
+      accountId: undefined,
+      threadId: undefined,
+      mode: "implicit" as const,
+      error: new Error("delivery is disabled"),
+    };
     return {
       deliveryPlan,
       deliveryRequested: false,
-      resolvedDelivery: {
-        ok: false as const,
-        channel: undefined,
-        to: undefined,
-        accountId: undefined,
-        threadId: undefined,
-        mode: "implicit" as const,
-        error: new Error("delivery is disabled"),
-      },
-      toolPolicy: resolveCronToolPolicy({
-        deliveryMode: deliveryPlan.mode,
-      }),
+      resolvedDelivery,
+      sourceDelivery: resolveCronSourceDeliveryPlan({ deliveryPlan, resolvedDelivery }),
     };
   }
   const { resolveDeliveryTarget } = await loadCronDeliveryRuntime();
@@ -417,9 +391,7 @@ async function resolveCronDeliveryContext(params: {
     deliveryPlan,
     deliveryRequested: deliveryPlan.requested,
     resolvedDelivery,
-    toolPolicy: resolveCronToolPolicy({
-      deliveryMode: deliveryPlan.mode,
-    }),
+    sourceDelivery: resolveCronSourceDeliveryPlan({ deliveryPlan, resolvedDelivery }),
   };
 }
 
@@ -490,10 +462,9 @@ type PreparedCronRunContext = {
   deliveryPlan: CronDeliveryPlan;
   resolvedDelivery: ResolvedCronDeliveryTarget;
   deliveryRequested: boolean;
-  sourceReplyDeliveryMode?: SourceReplyDeliveryMode;
+  sourceDelivery: SourceDeliveryPlan;
   suppressExecNotifyOnExit: boolean;
   senderIsOwner: boolean;
-  toolPolicy: ReturnType<typeof resolveCronToolPolicy>;
   skillsSnapshot: SkillSnapshot;
   liveSelection: CronLiveSelection;
   useSubagentFallbacks: boolean;
@@ -716,17 +687,12 @@ async function prepareCronRunContext(params: {
       ? explicitTimeoutSeconds * 1000
       : undefined;
   const agentPayload = input.job.payload.kind === "agentTurn" ? input.job.payload : null;
-  const { deliveryPlan, deliveryRequested, resolvedDelivery, toolPolicy } =
+  const { deliveryPlan, deliveryRequested, resolvedDelivery, sourceDelivery } =
     await resolveCronDeliveryContext({
       cfg: cfgWithAgentDefaults,
       job: input.job,
       agentId,
     });
-  const sourceReplyDeliveryMode = resolveCronSourceReplyDeliveryMode({
-    deliveryPlan,
-    resolvedDelivery,
-    toolPolicy,
-  });
 
   const { formattedTime, timeLine } = resolveCronStyleNow(input.cfg, now);
   const base = `[cron:${input.job.id} ${input.job.name}] ${input.message}`.trim();
@@ -767,7 +733,7 @@ async function prepareCronRunContext(params: {
     commandBody,
     deliveryRequested,
     messageToolEnabled: canPromptForMessageTool({
-      disableMessageTool: toolPolicy.disableMessageTool,
+      sourceDelivery,
       toolsAllow: agentPayload?.toolsAllow,
     }),
     resolvedDeliveryOk: resolvedDelivery.ok,
@@ -875,10 +841,9 @@ async function prepareCronRunContext(params: {
       deliveryPlan,
       resolvedDelivery,
       deliveryRequested,
-      sourceReplyDeliveryMode,
+      sourceDelivery,
       suppressExecNotifyOnExit: deliveryPlan.mode === "none",
       senderIsOwner: !isExternalHook,
-      toolPolicy,
       skillsSnapshot,
       liveSelection,
       useSubagentFallbacks,
@@ -1058,27 +1023,11 @@ async function finalizeCronRun(params: {
     prepared.deliveryRequested &&
     !hasFatalErrorPayload &&
     isHeartbeatOnlyResponse(deliveryPayloads, resolveHeartbeatAckMaxChars(prepared.agentCfg));
-  const {
-    dispatchCronDelivery,
-    matchesMessagingToolDeliveryTarget,
-    resolveCronDeliveryBestEffort,
-  } = await loadCronDeliveryRuntime();
-  const messagingToolSentTargets = resolveMessagingToolSentTargets({
-    resolvedDelivery: prepared.resolvedDelivery,
-    runResult: finalRunResult,
+  const { dispatchCronDelivery, resolveCronDeliveryBestEffort } = await loadCronDeliveryRuntime();
+  const sourceDeliveryOutcome = resolveSourceDeliveryOutcome(prepared.sourceDelivery, {
+    didSendViaMessageTool: finalRunResult.didSendViaMessagingTool,
+    messageToolSentTargets: finalRunResult.messagingToolSentTargets,
   });
-  const didSendViaMessagingTool =
-    finalRunResult.didSendViaMessagingTool === true && messagingToolSentTargets.length > 0;
-  const skipMessagingToolDelivery =
-    didSendViaMessagingTool &&
-    prepared.resolvedDelivery.ok &&
-    messagingToolSentTargets.some((target) =>
-      matchesMessagingToolDeliveryTarget(target, {
-        channel: prepared.resolvedDelivery.channel,
-        to: prepared.resolvedDelivery.to,
-        accountId: prepared.resolvedDelivery.accountId,
-      }),
-    );
   const deliveryResult = await dispatchCronDelivery({
     cfg: prepared.input.cfg,
     cfgWithAgentDefaults: prepared.cfgWithAgentDefaults,
@@ -1094,8 +1043,7 @@ async function finalizeCronRun(params: {
     resolvedDelivery: prepared.resolvedDelivery,
     deliveryRequested: prepared.deliveryRequested,
     skipHeartbeatDelivery,
-    skipMessagingToolDelivery,
-    unverifiedMessagingToolDelivery: didSendViaMessagingTool && !prepared.resolvedDelivery.ok,
+    sourceDeliveryOutcome,
     deliveryBestEffort: resolveCronDeliveryBestEffort(prepared.input.job),
     deliveryPayloadHasStructuredContent,
     deliveryPayloads,
@@ -1112,9 +1060,11 @@ async function finalizeCronRun(params: {
   const deliveryTrace = buildCronDeliveryTrace({
     deliveryPlan: prepared.deliveryPlan,
     resolvedDelivery: prepared.resolvedDelivery,
-    messagingToolSentTargets,
-    matchesMessagingToolDeliveryTarget,
-    fallbackUsed: deliveryResult.deliveryAttempted && !skipMessagingToolDelivery,
+    sourceDeliveryOutcome,
+    fallbackUsed:
+      prepared.deliveryRequested &&
+      deliveryResult.deliveryAttempted &&
+      !sourceDeliveryOutcome.satisfiesSourceDelivery,
     delivered: deliveryResult.delivered,
   });
   if (deliveryResult.result) {
@@ -1232,8 +1182,7 @@ export async function runCronIsolatedAgentTurn(params: {
         accountId: prepared.context.resolvedDelivery.accountId,
         threadId: prepared.context.resolvedDelivery.threadId,
       },
-      sourceReplyDeliveryMode: prepared.context.sourceReplyDeliveryMode,
-      toolPolicy: prepared.context.toolPolicy,
+      sourceDelivery: prepared.context.sourceDelivery,
       skillsSnapshot: prepared.context.skillsSnapshot,
       agentPayload: prepared.context.agentPayload,
       useSubagentFallbacks: prepared.context.useSubagentFallbacks,

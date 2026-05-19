@@ -55,7 +55,10 @@ import {
   normalizeOptionalLowercaseString,
   normalizeOptionalString,
 } from "../../shared/string-coerce.js";
-import { normalizeSessionDeliveryFields } from "../../utils/delivery-context.shared.js";
+import {
+  normalizeDeliveryChannelRoute,
+  normalizeSessionDeliveryFields,
+} from "../../utils/delivery-context.shared.js";
 import { resolveCommandTurnTargetSessionKey } from "../command-turn-context.js";
 import { normalizeCommandBody } from "../commands-registry.js";
 import type { MsgContext, TemplateContext } from "../templating.js";
@@ -81,6 +84,15 @@ const sessionArchiveRuntimeLoader = createLazyImportLoader(
 
 function loadSessionArchiveRuntime() {
   return sessionArchiveRuntimeLoader.load();
+}
+
+function stripThreadFromSessionRoute(route: SessionEntry["route"]): SessionEntry["route"] {
+  const normalized = normalizeDeliveryChannelRoute(route);
+  if (!normalized?.thread) {
+    return normalized;
+  }
+  const { thread: _drop, ...withoutThread } = normalized;
+  return Object.keys(withoutThread).length > 0 ? withoutThread : undefined;
 }
 
 type ReplySessionEndReason = Extract<
@@ -640,6 +652,7 @@ export async function initSessionState(params: {
       (isThread ? baseEntry?.lastThreadId : undefined));
   const deliveryFields = isSystemEvent
     ? normalizeSessionDeliveryFields({
+        route: isThread ? baseEntry?.route : stripThreadFromSessionRoute(baseEntry?.route),
         channel: baseEntry?.channel,
         lastChannel: baseEntry?.lastChannel,
         lastTo: baseEntry?.lastTo,
@@ -714,6 +727,7 @@ export async function initSessionState(params: {
     space: baseEntry?.space,
     groupActivation: entry?.groupActivation,
     groupActivationNeedsSystemIntro: entry?.groupActivationNeedsSystemIntro,
+    route: deliveryFields.route,
     deliveryContext: deliveryFields.deliveryContext,
     // Track originating channel for subagent announce routing.
     lastChannel,
@@ -741,6 +755,7 @@ export async function initSessionState(params: {
   if (isSystemEvent && !isThread) {
     sessionEntry = {
       ...sessionEntry,
+      route: stripThreadFromSessionRoute(sessionEntry.route),
       lastThreadId: undefined,
       deliveryContext: stripThreadIdFromDeliveryContext(sessionEntry.deliveryContext),
       origin: stripThreadIdFromOrigin(sessionEntry.origin),

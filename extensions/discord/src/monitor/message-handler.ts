@@ -54,7 +54,7 @@ type DiscordMessageHandlerParams = Omit<
   workerRunTimeoutMs?: number;
   // [frankclaw] Client reference for durable worker runtime resolution.
   client?: Client;
-  __testing?: DiscordMessageHandlerTestingHooks;
+  testing?: DiscordMessageHandlerTestingHooks;
 };
 
 type DiscordMessageHandlerTestingHooks = DiscordMessageRunQueueTestingHooks & {
@@ -127,7 +127,7 @@ export function createDiscordMessageHandler(
     channel: "discord",
     accountId: params.accountId,
   });
-  const preflightDiscordMessageImpl = params.__testing?.preflightDiscordMessage;
+  const preflightDiscordMessageImpl = params.testing?.preflightDiscordMessage;
   const replayGuard = createDiscordInboundReplayGuard();
 
   // [frankclaw] Use durable worker when client is available (crash-resistant).
@@ -153,7 +153,7 @@ export function createDiscordMessageHandler(
         setStatus: params.setStatus,
         abortSignal: params.abortSignal,
         replayGuard,
-        __testing: params.__testing,
+        testing: params.testing,
       });
 
   const { debouncer } = createChannelInboundDebouncer<{

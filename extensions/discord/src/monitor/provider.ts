@@ -650,7 +650,7 @@ export async function monitorDiscordProvider(opts: MonitorDiscordOpts = {}) {
   }
 }
 
-export const __testing = {
+export const testing = {
   createDiscordGatewayPlugin,
   resolveDiscordRuntimeGroupPolicy: resolveOpenProviderRuntimeGroupPolicy,
   resolveDefaultGroupPolicy,
@@ -715,3 +715,4 @@ export const __testing = {
 };
 
 export const resolveDiscordRuntimeGroupPolicy = resolveOpenProviderRuntimeGroupPolicy;
+export { testing as __testing };

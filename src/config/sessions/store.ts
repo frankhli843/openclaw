@@ -4,6 +4,7 @@ import type { MsgContext } from "../../auto-reply/templating.js";
 import { writeTextAtomic } from "../../infra/json-files.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
 import {
+  deliveryContextFromChannelRoute,
   deliveryContextFromSession,
   mergeDeliveryContext,
   normalizeDeliveryContext,
@@ -637,6 +638,7 @@ export async function updateLastRoute(params: {
   to?: string;
   accountId?: string;
   threadId?: string | number;
+  route?: SessionEntry["route"];
   deliveryContext?: DeliveryContext;
   ctx?: MsgContext;
   groupResolution?: import("./types.js").GroupKeyResolution | null;
@@ -658,7 +660,11 @@ export async function updateLastRoute(params: {
       accountId,
       threadId,
     });
-    const mergedInput = mergeDeliveryContext(explicitContext, inlineContext);
+    const routeContext = deliveryContextFromChannelRoute(params.route);
+    const mergedInput = mergeDeliveryContext(
+      routeContext,
+      mergeDeliveryContext(explicitContext, inlineContext),
+    );
     const explicitDeliveryContext = params.deliveryContext;
     const explicitThreadFromDeliveryContext =
       explicitDeliveryContext != null &&
@@ -669,6 +675,8 @@ export async function updateLastRoute(params: {
       explicitThreadFromDeliveryContext ??
       (threadId != null && threadId !== "" ? threadId : undefined);
     const explicitRouteProvided = Boolean(
+      routeContext?.channel ||
+      routeContext?.to ||
       explicitContext?.channel ||
       explicitContext?.to ||
       inlineContext?.channel ||
@@ -680,6 +688,7 @@ export async function updateLastRoute(params: {
       : deliveryContextFromSession(existing);
     const merged = mergeDeliveryContext(mergedInput, fallbackContext);
     const normalized = normalizeSessionDeliveryFields({
+      route: params.route,
       deliveryContext: {
         channel: merged?.channel,
         to: merged?.to,
@@ -696,6 +705,7 @@ export async function updateLastRoute(params: {
         })
       : null;
     const basePatch: Partial<SessionEntry> = {
+      route: normalized.route,
       deliveryContext: normalized.deliveryContext,
       lastChannel: normalized.lastChannel,
       lastTo: normalized.lastTo,

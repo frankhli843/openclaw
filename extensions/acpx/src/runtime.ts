@@ -1276,7 +1276,7 @@ export {
   encodeAcpxRuntimeHandleState,
 };
 
-export const __testing = {
+export const testing = {
   appendCodexAcpConfigOverrides,
   appendRuntimeEnvOverrides,
   assertSupportedRuntimeSessionMode,
@@ -1287,3 +1287,4 @@ export const __testing = {
 };
 
 export type { AcpAgentRegistry, AcpRuntimeOptions, AcpSessionRecord, AcpSessionStore };
+export { testing as __testing };

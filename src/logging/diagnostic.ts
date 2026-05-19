@@ -28,6 +28,7 @@ import {
 } from "./diagnostic-runtime.js";
 import {
   classifySessionAttention,
+  isTerminalDiagnosticProgressReason,
   type SessionAttentionClassification,
 } from "./diagnostic-session-attention.js";
 import {
@@ -516,13 +517,52 @@ function isBlockedToolCallRecoveryEligible(params: {
   );
 }
 
+function isStalledModelCallRecoveryEligible(params: {
+  classification: SessionAttentionClassification | undefined;
+  activity?: DiagnosticSessionActivitySnapshot;
+  stuckSessionAbortMs: number;
+}): boolean {
+  const lastProgressAgeMs = params.activity?.lastProgressAgeMs;
+  return (
+    params.classification?.eventType === "session.stalled" &&
+    params.classification.classification === "stalled_agent_run" &&
+    params.classification.activeWorkKind === "model_call" &&
+    params.activity?.hasActiveEmbeddedRun === true &&
+    typeof lastProgressAgeMs === "number" &&
+    lastProgressAgeMs >= params.stuckSessionAbortMs
+  );
+}
+
 function isActiveAbortRecoveryEligible(params: {
   classification: SessionAttentionClassification | undefined;
   activity?: DiagnosticSessionActivitySnapshot;
   ageMs: number;
   stuckSessionAbortMs: number;
 }): boolean {
-  return isStalledEmbeddedRunRecoveryEligible(params) || isBlockedToolCallRecoveryEligible(params);
+  return (
+    isStalledEmbeddedRunRecoveryEligible(params) ||
+    isBlockedToolCallRecoveryEligible(params) ||
+    isStalledModelCallRecoveryEligible(params)
+  );
+}
+
+function isIdleQueuedEmbeddedRunStall(params: {
+  state: {
+    state: SessionStateValue;
+    queueDepth: number;
+  };
+  activity: DiagnosticSessionActivitySnapshot;
+  staleMs: number;
+}): boolean {
+  const hasEmbeddedOwner =
+    params.activity.activeWorkKind === "embedded_run" ||
+    params.activity.hasActiveEmbeddedRun === true;
+  return (
+    params.state.state === "idle" &&
+    params.state.queueDepth > 0 &&
+    hasEmbeddedOwner &&
+    (params.activity.lastProgressAgeMs ?? 0) > params.staleMs
+  );
 }
 
 export function logWebhookReceived(params: {
@@ -767,20 +807,6 @@ function sessionAttentionFields(params: {
       : {}),
     ...(terminalProgressStale ? { terminalProgressStale: true } : {}),
   };
-}
-
-function isTerminalDiagnosticProgressReason(reason: string | undefined): boolean {
-  if (!reason) {
-    return false;
-  }
-  return (
-    reason === "run:completed" ||
-    reason === "embedded_run:ended" ||
-    reason.includes("response.completed") ||
-    reason.includes("rawResponseItem/completed") ||
-    reason.includes("raw_response_item.completed") ||
-    reason.includes("output_item.done")
-  );
 }
 
 function formatSessionActivityLogFields(activity: DiagnosticSessionActivitySnapshot): string {
@@ -1078,16 +1104,27 @@ export function startDiagnosticHeartbeat(
 
     for (const [, state] of diagnosticSessionStates) {
       const ageMs = now - state.lastActivity;
-      if (state.state === "processing" && ageMs > stuckSessionWarnMs) {
-        const activity = getDiagnosticSessionActivitySnapshot(
-          { sessionId: state.sessionId, sessionKey: state.sessionKey },
-          now,
-        );
+      const activity = getDiagnosticSessionActivitySnapshot(
+        { sessionId: state.sessionId, sessionKey: state.sessionKey },
+        now,
+      );
+      const idleQueuedEmbeddedRunStall = isIdleQueuedEmbeddedRunStall({
+        state,
+        activity,
+        staleMs: stuckSessionWarnMs,
+      });
+      if (
+        (state.state === "processing" && ageMs > stuckSessionWarnMs) ||
+        idleQueuedEmbeddedRunStall
+      ) {
+        const attentionAgeMs = idleQueuedEmbeddedRunStall
+          ? (activity.lastProgressAgeMs ?? ageMs)
+          : ageMs;
         const classification = logSessionAttention({
           sessionId: state.sessionId,
           sessionKey: state.sessionKey,
           state: state.state,
-          ageMs,
+          ageMs: attentionAgeMs,
           thresholdMs: stuckSessionWarnMs,
           abortThresholdMs: stuckSessionAbortMs,
         });
@@ -1098,8 +1135,9 @@ export function startDiagnosticHeartbeat(
             request: {
               sessionId: state.sessionId,
               sessionKey: state.sessionKey,
-              ageMs,
+              ageMs: attentionAgeMs,
               queueDepth: state.queueDepth,
+              expectedState: state.state,
               stateGeneration: state.generation,
               // frankclaw: pass classification context so recovery can pick the right action
               classification: classification.classification,
@@ -1111,7 +1149,7 @@ export function startDiagnosticHeartbeat(
           isActiveAbortRecoveryEligible({
             classification,
             activity,
-            ageMs,
+            ageMs: attentionAgeMs,
             stuckSessionAbortMs,
           })
         ) {
@@ -1121,9 +1159,10 @@ export function startDiagnosticHeartbeat(
             request: {
               sessionId: state.sessionId,
               sessionKey: state.sessionKey,
-              ageMs,
+              ageMs: attentionAgeMs,
               queueDepth: state.queueDepth,
               allowActiveAbort: true,
+              expectedState: state.state,
               stateGeneration: state.generation,
               classification: classification.classification,
               activeWorkKind: classification.activeWorkKind,

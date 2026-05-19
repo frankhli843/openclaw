@@ -747,7 +747,7 @@ export function getThreadBindingManager(accountId?: string): ThreadBindingManage
   return MANAGERS_BY_ACCOUNT_ID.get(normalized) ?? null;
 }
 
-export const __testing = {
+export const testing = {
   resolveThreadBindingsPath,
   resolveThreadBindingThreadName,
   resetThreadBindingsForTests,
@@ -758,3 +758,4 @@ export const __testing = {
     }
   },
 };
+export { testing as __testing };
