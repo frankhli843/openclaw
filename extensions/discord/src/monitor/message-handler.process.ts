@@ -118,6 +118,7 @@ type DiscordMessageProcessObserver = {
   onNoop?: (reason: string) => void;
   onFinalReplyStart?: () => void;
   onFinalReplyDelivered?: () => void;
+  onVisibleReplyDelivered?: (params: { isFinal: boolean; isError: boolean }) => void;
   onReplyPlanResolved?: (params: { createdThreadId?: string; sessionKey?: string }) => void;
 };
 
@@ -743,6 +744,10 @@ export async function processDiscordMessage(
               if (deliverResult?.dnrSuppressed) {
                 dnrSuppressedDuringDelivery = true;
               }
+              observer?.onVisibleReplyDelivered?.({
+                isFinal: true,
+                isError: fallbackPayload.isError === true,
+              });
               return true;
             },
             onNormalDelivered: () => {
@@ -787,6 +792,10 @@ export async function processDiscordMessage(
           dnrSuppressedDuringDelivery = true;
         }
         replyReference.markSent();
+        observer?.onVisibleReplyDelivered?.({
+          isFinal,
+          isError: payload.isError === true,
+        });
         if (isFinal && payload.isError !== true) {
           draftPreview.markFinalReplyDelivered();
           observer?.onFinalReplyDelivered?.();

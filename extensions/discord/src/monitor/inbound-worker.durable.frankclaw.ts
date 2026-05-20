@@ -314,6 +314,8 @@ export function createDurableDiscordInboundWorker(
         params.__testing?.processDiscordMessage ?? processDiscordMessage;
       let noopReason: string | undefined;
       let finalReplyDelivered = false;
+      let visibleReplyDelivered: { isFinal: boolean; isError: boolean } | undefined;
+      let visibleReplyDeliveryLabel = "-";
       // When autoThread fires, the reply/session moves to a new channel key.
       // Capture it so we check progress against the actual session key, not
       // the original inbound orderingKey (fixes "missing terminal inbound
@@ -330,6 +332,12 @@ export function createDurableDiscordInboundWorker(
               },
               onFinalReplyDelivered: () => {
                 finalReplyDelivered = true;
+              },
+              onVisibleReplyDelivered: (delivery) => {
+                visibleReplyDelivered = delivery;
+                visibleReplyDeliveryLabel =
+                  `${delivery.isFinal ? "final" : "nonfinal"}:` +
+                  `${delivery.isError ? "error" : "ok"}`;
               },
               onReplyPlanResolved: ({ createdThreadId: tid, sessionKey }) => {
                 if (typeof sessionKey === "string" && sessionKey.trim()) {
@@ -397,6 +405,16 @@ export function createDurableDiscordInboundWorker(
           note: "final reply delivered to Discord",
           progress: afterProgress,
         });
+      } else if (visibleReplyDelivered) {
+        terminalStage = "reply_delivered";
+        await lifecycle.mark({
+          stage: terminalStage,
+          note:
+            visibleReplyDelivered.isError === true
+              ? "visible Discord error reply delivered"
+              : "visible Discord reply delivered",
+          progress: afterProgress,
+        });
       } else if (sessionProgressAdvanced && isDurableSessionActivelyRunning(afterProgress)) {
         terminalStage = "run_started";
         await lifecycle.mark({
@@ -416,6 +434,7 @@ export function createDurableDiscordInboundWorker(
               `before=[${formatDurableSessionProgressSnapshot(beforeProgress)}] ` +
               `after=[${formatDurableSessionProgressSnapshot(afterProgress)}] ` +
               `noopReason=${noopReason ?? "-"} finalReplyDelivered=${finalReplyDelivered ? "true" : "false"} ` +
+              `visibleReplyDelivered=${visibleReplyDeliveryLabel} ` +
               `resolvedSessionKey=${resolvedSessionKey ?? "-"} createdThreadId=${createdThreadId ?? "-"}`,
           ),
         );
@@ -463,6 +482,7 @@ export function createDurableDiscordInboundWorker(
                 `before=[${formatDurableSessionProgressSnapshot(beforeProgress)}] ` +
                 `after=[${formatDurableSessionProgressSnapshot(afterProgress)}] ` +
                 `noopReason=${noopReason ?? "-"} finalReplyDelivered=${finalReplyDelivered ? "true" : "false"} ` +
+                `visibleReplyDelivered=${visibleReplyDeliveryLabel} ` +
                 `resolvedSessionKey=${resolvedSessionKey ?? "-"} createdThreadId=${createdThreadId ?? "-"}`,
             ),
           );

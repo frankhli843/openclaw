@@ -172,6 +172,55 @@ describe("durable discord worker inbound lifecycle terminals", () => {
     await worker.stop();
   });
 
+  it("treats visible Discord error delivery as terminal to avoid dead-letter replay", async () => {
+    const runtime = makeRuntime();
+    const runtimeRef = makeRuntimeRef(runtime);
+    const onDeadLetter = vi.fn();
+    const worker = createDurableDiscordInboundWorker({
+      accountId: "default",
+      runtime: runtime as never,
+      stateDir: tmpDir,
+      maxAttempts: 1,
+      resolveRuntime: () => runtimeRef as never,
+      onDeadLetter,
+      __testing: {
+        captureSessionProgress: createProgressSequence(
+          {
+            sessionId: "session-123",
+            sessionFile: "/tmp/session-123.jsonl",
+            updatedAt: 123,
+            status: "running",
+            transcriptExists: true,
+            transcriptSize: 1024,
+            transcriptMtimeMs: 123,
+          },
+          {
+            sessionId: "session-123",
+            sessionFile: "/tmp/session-123.jsonl",
+            updatedAt: 456,
+            status: "done",
+            transcriptExists: true,
+            transcriptSize: 4096,
+            transcriptMtimeMs: 456,
+          },
+        ),
+        processDiscordMessage: vi.fn(async (_ctx, observer) => {
+          observer?.onVisibleReplyDelivered?.({ isFinal: true, isError: true });
+        }) as never,
+      },
+    });
+
+    await worker.start();
+    worker.enqueue(makeJob() as never);
+
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(onDeadLetter).not.toHaveBeenCalled();
+    expect(runtime.error).not.toHaveBeenCalledWith(
+      expect.stringContaining("completed without visible reply"),
+    );
+    await worker.stop();
+  });
+
   // Regression test for 2026-04-09 bug: Discord durable worker dead-lettered
   // messages when auto-thread creation moved the session to a new channel key.
   // The worker was checking progress against the original orderingKey (parent
