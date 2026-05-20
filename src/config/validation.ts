@@ -1613,6 +1613,7 @@ function validateConfigObjectWithPluginsBase(
       blockedDiagnosticSourceMatchesPluginId(diagnostic, pluginId),
     );
   };
+  const missingOfficialPluginWarningIds = new Set<string>();
   const pushMissingPluginIssue = (
     path: string,
     pluginId: string,
@@ -1640,6 +1641,13 @@ function validateConfigObjectWithPluginsBase(
       const externalInstallWarning =
         opts.missingMessage ?? formatMissingOfficialExternalPluginWarning(pluginId);
       if (externalInstallWarning) {
+        const normalizedPluginId = normalizePluginId(pluginId);
+        if (!opts.missingMessage && normalizedPluginId) {
+          if (missingOfficialPluginWarningIds.has(normalizedPluginId)) {
+            return;
+          }
+          missingOfficialPluginWarningIds.add(normalizedPluginId);
+        }
         warnings.push({
           path,
           message: externalInstallWarning,

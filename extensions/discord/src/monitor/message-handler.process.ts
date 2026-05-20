@@ -540,6 +540,7 @@ export async function processDiscordMessage(
       return;
     }
     finalReplyStartNotified = true;
+    draftPreview.markFinalReplyStarted();
     observer?.onFinalReplyStart?.();
   };
 
@@ -575,6 +576,9 @@ export async function processDiscordMessage(
           // Reasoning/thinking payloads should not be delivered to Discord.
           return;
         }
+        if (isFinal) {
+          draftPreview.markFinalReplyStarted();
+        }
         const finalText =
           isFinal && typeof payload.text === "string"
             ? await resolveTranscriptBackedChannelFinalText({
@@ -596,23 +600,19 @@ export async function processDiscordMessage(
         // inside deliverDiscordReply. Stop and clear any pending preview, then
         // fall through to standard delivery, which queues + returns
         // dnrSuppressed=true for the bed-emoji reaction below.
-        if (
+        const shouldFinalizeDraftPreview =
           draftStream &&
           isFinal &&
           (!draftPreview.isProgressMode || draftPreview.hasProgressDraftStarted) &&
-          isDnrActive()
-        ) {
+          !payload.isError;
+        if (shouldFinalizeDraftPreview && isDnrActive()) {
           draftPreview.markFinalReplyDelivered();
           await draftStream.stop();
           if (!draftPreview.finalizedViaPreviewMessage) {
             await draftStream.clear();
           }
           // fall through to the standard deliverDiscordReply path below
-        } else if (
-          draftStream &&
-          isFinal &&
-          (!draftPreview.isProgressMode || draftPreview.hasProgressDraftStarted)
-        ) {
+        } else if (shouldFinalizeDraftPreview) {
           const reply = resolveSendableOutboundReplyParts(effectivePayload);
           const hasMedia = reply.hasMedia;
           const ttsSupplement = getReplyPayloadTtsSupplement(effectivePayload);
@@ -787,7 +787,8 @@ export async function processDiscordMessage(
           dnrSuppressedDuringDelivery = true;
         }
         replyReference.markSent();
-        if (isFinal) {
+        if (isFinal && payload.isError !== true) {
+          draftPreview.markFinalReplyDelivered();
           observer?.onFinalReplyDelivered?.();
         }
       },

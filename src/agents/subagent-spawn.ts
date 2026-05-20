@@ -12,7 +12,7 @@ import type { SubagentLifecycleHookRunner } from "../plugins/hooks.js";
 import { isValidAgentId, normalizeAgentId, parseAgentSessionKey } from "../routing/session-key.js";
 import { normalizeOptionalString } from "../shared/string-coerce.js";
 import type { DeliveryContext } from "../utils/delivery-context.types.js";
-import { resolveAgentDir } from "./agent-scope-config.js";
+import { listAgentIds, resolveAgentDir } from "./agent-scope-config.js";
 import type { BootstrapContextMode } from "./bootstrap-files.js";
 import {
   inheritedToolAllowPatch,
@@ -96,6 +96,10 @@ export type {
 } from "./subagent-spawn.types.js";
 
 export { decodeStrictBase64 };
+
+function resolveConfiguredAgentIds(cfg: OpenClawConfig): string[] {
+  return listAgentIds(cfg);
+}
 
 type SubagentSpawnDeps = {
   callGateway: typeof callGateway;
@@ -857,6 +861,7 @@ async function spawnSubagentDirectCore(
     allowAgents:
       resolveAgentConfig(cfg, requesterAgentId)?.subagents?.allowAgents ??
       cfg?.agents?.defaults?.subagents?.allowAgents,
+    configuredAgentIds: resolveConfiguredAgentIds(cfg),
   });
   if (!targetPolicy.ok) {
     return {

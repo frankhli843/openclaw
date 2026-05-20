@@ -653,8 +653,8 @@ export async function runSubagentAnnounceFlow(params: {
     params.onDeliveryResult?.(delivery);
     didAnnounce = delivery.delivered;
     if (!delivery.delivered && delivery.path === "direct" && delivery.error) {
-      defaultRuntime.error?.(
-        `Subagent completion direct announce failed for run ${params.childRunId}: ${delivery.error}`,
+      defaultRuntime.log(
+        `[warn] Subagent completion direct announce failed for run ${params.childRunId}: ${delivery.error}`,
       );
     }
     // frankclaw addition: wake the parent session so it processes the
