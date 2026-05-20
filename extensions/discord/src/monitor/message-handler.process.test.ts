@@ -1727,6 +1727,35 @@ describe("processDiscordMessage draft streaming", () => {
     expectSinglePreviewEdit();
   });
 
+  it("honors explicit Discord preview streaming when global block streaming defaults on", async () => {
+    const draftStream = createMockDraftStreamForTest();
+
+    dispatchInboundMessage.mockImplementationOnce(async (params?: DispatchInboundParams) => {
+      await params?.replyOptions?.onPartialReply?.({ text: "Working draft" });
+      return createNoQueuedDispatchResult();
+    });
+
+    const ctx = await createAutomaticSourceDeliveryContext({
+      cfg: {
+        agents: {
+          defaults: {
+            blockStreamingDefault: "on",
+          },
+        },
+      },
+      discordConfig: {
+        streaming: {
+          mode: "partial",
+        },
+      },
+    });
+
+    await runProcessDiscordMessage(ctx);
+
+    expect(createDiscordDraftStream).toHaveBeenCalledTimes(1);
+    expect(draftStream.update).toHaveBeenCalledWith("Working draft");
+  });
+
   it("accepts streaming=true alias for partial preview mode", async () => {
     await runSingleChunkFinalScenario({ streaming: true, maxLinesPerMessage: 5 });
     expectSinglePreviewEdit();

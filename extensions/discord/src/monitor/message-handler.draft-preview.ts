@@ -45,9 +45,11 @@ export function createDiscordDraftPreviewController(params: {
 }) {
   const discordStreamMode = resolveDiscordPreviewStreamMode(params.discordConfig);
   const draftMaxChars = Math.min(params.textLimit, 2000);
+  // frankclaw: explicit Discord preview streaming must win over the global block default.
+  const explicitBlockStreamingEnabled = resolveChannelStreamingBlockEnabled(params.discordConfig);
   const accountBlockStreamingEnabled =
-    resolveChannelStreamingBlockEnabled(params.discordConfig) ??
-    params.cfg.agents?.defaults?.blockStreamingDefault === "on";
+    explicitBlockStreamingEnabled ??
+    (discordStreamMode === "off" && params.cfg.agents?.defaults?.blockStreamingDefault === "on");
   const canStreamProgressDraftForToolOnlySource =
     params.sourceRepliesAreToolOnly && discordStreamMode === "progress";
   const canStreamDraft =
