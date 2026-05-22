@@ -1,6 +1,7 @@
 import { resolveFailoverReasonFromError } from "../../agents/failover-error.js";
 import { formatEmbeddedAgentExecutionPhase } from "../../agents/pi-embedded-runner/execution-phase.js";
-import { loadSessionStore } from "../../config/sessions/store-load.js";
+import { readSessionEntry } from "../../config/sessions/store-load.js";
+import type { SessionEntry } from "../../config/sessions/types.js";
 import type { CronConfig, CronRetryOn } from "../../config/types.cron.js";
 import type { HeartbeatRunResult } from "../../infra/heartbeat-wake.js";
 import {
@@ -468,7 +469,8 @@ function resolveMainSessionCronDeliveryContext(
     return undefined;
   }
   try {
-    return deliveryContextFromSession(loadSessionStore(storePath)[targetSessionKey]);
+    const sessionEntry = readSessionEntry(storePath, targetSessionKey) as SessionEntry | undefined;
+    return deliveryContextFromSession(sessionEntry);
   } catch {
     return undefined;
   }

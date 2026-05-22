@@ -13,6 +13,7 @@ import {
   failTaskRunByRunId,
   startTaskRunByRunId,
 } from "../../tasks/detached-task-runtime.js";
+import { resolveRequiredCompletionTerminalResult } from "../../tasks/task-completion-contract.js";
 import type { DeliveryContext } from "../../utils/delivery-context.js";
 import {
   AcpRuntimeError,
@@ -130,16 +131,14 @@ function resolveBackgroundTaskFailureStatus(error: AcpRuntimeError): "failed" | 
   return /\btimed out\b/i.test(error.message) ? "timed_out" : "failed";
 }
 
-export function resolveBackgroundTaskTerminalResult(
-  progressSummary: string,
-  // frankclaw: optional tool call count for zero-tool-call detection.
-  // When an ACP worker completes with text output but zero tool calls,
-  // it almost certainly narrated what it "would do" without executing.
-  options?: { toolCallCount?: number },
-): {
+export function resolveBackgroundTaskTerminalResult(progressSummary: string): {
   terminalOutcome?: "blocked";
   terminalSummary?: string;
 } {
+  const requiredCompletionResult = resolveRequiredCompletionTerminalResult(progressSummary);
+  if (requiredCompletionResult.terminalOutcome) {
+    return requiredCompletionResult;
+  }
   const normalized = normalizeText(progressSummary)?.replace(/\s+/g, " ").trim();
   if (!normalized) {
     return {};
@@ -172,15 +171,6 @@ export function resolveBackgroundTaskTerminalResult(
     return {
       terminalOutcome: "blocked",
       terminalSummary: "ACP run stopped at a progress checkpoint instead of a terminal result.",
-    };
-  }
-  // frankclaw: zero-tool-call detection. Keep this as a LAST resort, so we
-  // preserve more specific terminal hints like permission denied.
-  if (typeof options?.toolCallCount === "number" && options.toolCallCount === 0) {
-    return {
-      terminalOutcome: "blocked",
-      terminalSummary:
-        "ACP run completed with zero tool calls (narrated output without executing).",
     };
   }
   return {};
@@ -968,8 +958,6 @@ export class AcpSessionManager {
               this.activeTurnBySession.set(actorKey, activeTurn);
               activeTurnStarted = true;
 
-              // frankclaw: track tool call count for zero-tool-call checkpoint detection
-              let taskToolCallCount = 0;
               const combinedSignal =
                 input.signal && typeof AbortSignal.any === "function"
                   ? AbortSignal.any([input.signal, internalAbortController.signal])
@@ -997,9 +985,6 @@ export class AcpSessionManager {
                       taskProgressSummary,
                       event.text,
                     );
-                  } else if (event.type === "tool_call") {
-                    // frankclaw: count tool calls for checkpoint detection
-                    taskToolCallCount++;
                   }
                   if (taskContext) {
                     this.markBackgroundTaskRunning(taskContext.runId, {
@@ -1044,10 +1029,7 @@ export class AcpSessionManager {
                 startedAt: turnStartedAt,
               });
               if (taskContext) {
-                // frankclaw: pass toolCallCount for zero-tool-call checkpoint detection
-                const terminalResult = resolveBackgroundTaskTerminalResult(taskProgressSummary, {
-                  toolCallCount: taskToolCallCount,
-                });
+                const terminalResult = resolveBackgroundTaskTerminalResult(taskProgressSummary);
                 this.markBackgroundTaskTerminal(taskContext.runId, {
                   sessionKey,
                   status: "succeeded",

@@ -85,43 +85,8 @@ describe("resolveBackgroundTaskTerminalResult", () => {
     expect(result.terminalSummary).toContain("Writable session");
   });
 
-  it("returns empty for empty input", () => {
-    expect(resolveBackgroundTaskTerminalResult("")).toEqual({});
-  });
-
-  // frankclaw: zero-tool-call detection tests
-  it("detects zero tool calls with text output as blocked", () => {
-    const result = resolveBackgroundTaskTerminalResult("HEARTBEAT_OK", {
-      toolCallCount: 0,
-    });
+  it("returns blocked for empty input (no deliverable produced)", () => {
+    const result = resolveBackgroundTaskTerminalResult("");
     expect(result.terminalOutcome).toBe("blocked");
-    expect(result.terminalSummary).toContain("zero tool calls");
-  });
-
-  it("does NOT flag zero tool calls when there is no text output", () => {
-    const result = resolveBackgroundTaskTerminalResult("", { toolCallCount: 0 });
-    expect(result.terminalOutcome).toBeUndefined();
-  });
-
-  it("does NOT flag when tool calls were made", () => {
-    const result = resolveBackgroundTaskTerminalResult("HEARTBEAT_OK", {
-      toolCallCount: 3,
-    });
-    expect(result.terminalOutcome).toBeUndefined();
-  });
-
-  it("detects zero tool calls with narrated output", () => {
-    const result = resolveBackgroundTaskTerminalResult(
-      "Running the heartbeat checks now. 19 passed, 2 failed. Committing. HEARTBEAT_OK",
-      { toolCallCount: 0 },
-    );
-    expect(result.terminalOutcome).toBe("blocked");
-    expect(result.terminalSummary).toContain("zero tool calls");
-  });
-
-  it("still works without toolCallCount option (backwards compatible)", () => {
-    // No options passed — should only use regex detection
-    const result = resolveBackgroundTaskTerminalResult("HEARTBEAT_OK");
-    expect(result.terminalOutcome).toBeUndefined();
   });
 });

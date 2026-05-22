@@ -464,7 +464,6 @@ type PreparedCronRunContext = {
   deliveryRequested: boolean;
   sourceDelivery: SourceDeliveryPlan;
   suppressExecNotifyOnExit: boolean;
-  senderIsOwner: boolean;
   skillsSnapshot: SkillSnapshot;
   liveSelection: CronLiveSelection;
   useSubagentFallbacks: boolean;
@@ -843,7 +842,6 @@ async function prepareCronRunContext(params: {
       deliveryRequested,
       sourceDelivery,
       suppressExecNotifyOnExit: deliveryPlan.mode === "none",
-      senderIsOwner: !isExternalHook,
       skillsSnapshot,
       liveSelection,
       useSubagentFallbacks,
@@ -1200,7 +1198,6 @@ export async function runCronIsolatedAgentTurn(params: {
       timeoutMs: prepared.context.timeoutMs,
       runTimeoutOverrideMs: prepared.context.runTimeoutOverrideMs,
       suppressExecNotifyOnExit: prepared.context.suppressExecNotifyOnExit,
-      senderIsOwner: prepared.context.senderIsOwner,
     });
     if (isAborted()) {
       return prepared.context.withRunSession({

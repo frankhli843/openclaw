@@ -1,7 +1,6 @@
 import type { BootstrapContextMode } from "../../agents/bootstrap-files.js";
 import { resolveCliRuntimeExecutionProvider } from "../../agents/model-runtime-aliases.js";
 import type { SkillSnapshot } from "../../agents/skills.js";
-import { normalizeToolList } from "../../agents/tool-policy.js";
 import type { ThinkLevel, VerboseLevel } from "../../auto-reply/thinking.js";
 import type { AgentDefaultsConfig } from "../../config/types.agent-defaults.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
@@ -59,11 +58,14 @@ async function loadCronEmbeddedRuntime() {
   return await cronEmbeddedRuntimeLoader.load();
 }
 
-function resolveCronOwnerOnlyToolAllowlist(toolsAllow: string[] | undefined): string[] | undefined {
-  if (!normalizeToolList(toolsAllow).includes("cron")) {
-    return undefined;
-  }
-  return ["cron"];
+type CronSubagentRegistryRuntime = typeof import("./run-subagent-registry.runtime.js");
+
+const cronSubagentRegistryRuntimeLoader = createLazyImportLoader<CronSubagentRegistryRuntime>(
+  () => import("./run-subagent-registry.runtime.js"),
+);
+
+async function loadCronSubagentRegistryRuntime() {
+  return await cronSubagentRegistryRuntimeLoader.load();
 }
 
 const COMMAND_STYLE_CRON_PREFIX =
@@ -113,7 +115,6 @@ export function createCronPromptExecutor(params: {
   timeoutMs: number;
   /** Set when the cron payload's `timeoutSeconds` was explicitly configured. */
   runTimeoutOverrideMs?: number;
-  senderIsOwner: boolean;
   suppressExecNotifyOnExit: boolean;
   resolvedDelivery: {
     channel?: string;
@@ -226,7 +227,6 @@ export function createCronPromptExecutor(params: {
             bootstrapContextRunKind: "cron",
             bootstrapPromptWarningSignaturesSeen,
             bootstrapPromptWarningSignature,
-            senderIsOwner: params.senderIsOwner,
           });
           bootstrapPromptWarningSignaturesSeen = resolveBootstrapWarningSignaturesSeen(
             result.meta?.systemPromptReport,
@@ -247,10 +247,6 @@ export function createCronPromptExecutor(params: {
           jobId: params.job.id,
           cleanupBundleMcpOnRunEnd: params.job.sessionTarget === "isolated",
           allowGatewaySubagentBinding: true,
-          senderIsOwner: false,
-          ownerOnlyToolAllowlist: resolveCronOwnerOnlyToolAllowlist(
-            params.agentPayload?.toolsAllow,
-          ),
           messageChannel,
           agentAccountId: params.resolvedDelivery.accountId,
           messageTo: params.resolvedDelivery.to,
@@ -365,7 +361,6 @@ export async function executeCronRun(params: {
   timeoutMs: number;
   /** Set when the cron payload's `timeoutSeconds` was explicitly configured. */
   runTimeoutOverrideMs?: number;
-  senderIsOwner: boolean;
   suppressExecNotifyOnExit: boolean;
   runStartedAt?: number;
 }): Promise<CronExecutionResult> {
@@ -403,7 +398,6 @@ export async function executeCronRun(params: {
     abortReason: params.abortReason,
     onExecutionStarted: params.onExecutionStarted,
     onExecutionPhase: params.onExecutionPhase,
-    senderIsOwner: params.senderIsOwner,
   });
 
   const runStartedAt = params.runStartedAt ?? Date.now();

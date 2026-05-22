@@ -11,6 +11,10 @@ import {
   failTaskRunByRunId,
   setDetachedTaskDeliveryStatusByRunId,
 } from "../tasks/detached-task-runtime.js";
+import {
+  resolveRequiredCompletionDeliveryFailureTerminalResult,
+  resolveRequiredCompletionTerminalResult,
+} from "../tasks/task-completion-contract.js";
 import { normalizeDeliveryContext } from "../utils/delivery-context.shared.js";
 import {
   buildAnnounceIdFromChildRun,
@@ -268,6 +272,10 @@ export function createSubagentRegistryLifecycleController(params: {
     const lastEventAt = endedAt;
     try {
       if (args.outcome.status === "ok") {
+        const terminalResult =
+          args.entry.expectsCompletionMessage === true
+            ? resolveRequiredCompletionTerminalResult(args.entry.frozenResultText)
+            : {};
         completeTaskRunByRunId({
           runId: args.entry.runId,
           runtime: "subagent",
@@ -275,7 +283,8 @@ export function createSubagentRegistryLifecycleController(params: {
           endedAt,
           lastEventAt,
           progressSummary: args.entry.frozenResultText ?? undefined,
-          terminalSummary: null,
+          terminalSummary: terminalResult.terminalSummary ?? null,
+          terminalOutcome: terminalResult.terminalOutcome,
         });
         return;
       }
@@ -296,6 +305,35 @@ export function createSubagentRegistryLifecycleController(params: {
         runId: maskRunId(args.entry.runId),
         childSessionKey: maskSessionKey(args.entry.childSessionKey),
         outcomeStatus: args.outcome.status,
+      });
+    }
+  };
+
+  const safeMarkRequiredCompletionDeliveryBlocked = (args: {
+    entry: SubagentRunRecord;
+    reason?: string;
+  }) => {
+    if (args.entry.expectsCompletionMessage !== true || args.entry.outcome?.status !== "ok") {
+      return;
+    }
+    const endedAt = args.entry.endedAt ?? Date.now();
+    const terminalResult = resolveRequiredCompletionDeliveryFailureTerminalResult(args.reason);
+    try {
+      completeTaskRunByRunId({
+        runId: args.entry.runId,
+        runtime: "subagent",
+        sessionKey: args.entry.childSessionKey,
+        endedAt,
+        lastEventAt: Date.now(),
+        progressSummary: args.entry.frozenResultText ?? undefined,
+        terminalSummary: terminalResult.terminalSummary,
+        terminalOutcome: terminalResult.terminalOutcome,
+      });
+    } catch (err) {
+      params.warn("failed to mark subagent completion delivery blocked", {
+        error: buildSafeLifecycleErrorMeta(err),
+        runId: maskRunId(args.entry.runId),
+        childSessionKey: maskSessionKey(args.entry.childSessionKey),
       });
     }
   };
@@ -486,6 +524,10 @@ export function createSubagentRegistryLifecycleController(params: {
       deliveryStatus: "failed",
       deliveryError: args.entry.lastAnnounceDeliveryError ?? args.reason,
     });
+    safeMarkRequiredCompletionDeliveryBlocked({
+      entry: args.entry,
+      reason: args.entry.lastAnnounceDeliveryError ?? args.reason,
+    });
     logAnnounceGiveUp(args.entry, args.reason);
     params.persist();
   };
@@ -516,6 +558,10 @@ export function createSubagentRegistryLifecycleController(params: {
       childSessionKey: giveUpParams.entry.childSessionKey,
       deliveryStatus: "failed",
       deliveryError: giveUpParams.entry.lastAnnounceDeliveryError,
+    });
+    safeMarkRequiredCompletionDeliveryBlocked({
+      entry: giveUpParams.entry,
+      reason: giveUpParams.entry.lastAnnounceDeliveryError ?? giveUpParams.reason,
     });
     giveUpParams.entry.wakeOnDescendantSettle = undefined;
     giveUpParams.entry.fallbackFrozenResultText = undefined;
@@ -763,6 +809,10 @@ export function createSubagentRegistryLifecycleController(params: {
         childSessionKey: entry.childSessionKey,
         deliveryStatus: "failed",
         deliveryError: entry.lastAnnounceDeliveryError,
+      });
+      safeMarkRequiredCompletionDeliveryBlocked({
+        entry,
+        reason: entry.lastAnnounceDeliveryError ?? deferredDecision.reason,
       });
       entry.wakeOnDescendantSettle = undefined;
       entry.fallbackFrozenResultText = undefined;
