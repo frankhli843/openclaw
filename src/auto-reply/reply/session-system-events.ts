@@ -29,6 +29,10 @@ function compactSystemEvent(line: string): string | null {
   if (!trimmed) {
     return null;
   }
+  // frankclaw: suppress heartbeat ACKs, exec completions, and other internal noise.
+  if (isSuppressedSystemEvent(trimmed)) {
+    return null;
+  }
   const lower = normalizeLowercaseStringOrEmpty(trimmed);
   if (lower.includes("reason periodic")) {
     return null;

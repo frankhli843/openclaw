@@ -1517,7 +1517,6 @@ export async function runReplyAgent(params: {
           shouldEmitToolResult,
           shouldEmitToolOutput,
           pendingToolTasks,
-          resetSessionAfterCompactionFailure,
           resetSessionAfterRoleOrderingConflict,
           isHeartbeat,
           sessionKey,

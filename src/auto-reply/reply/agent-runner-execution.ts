@@ -2240,23 +2240,10 @@ export async function runAgentTurnWithFallback(params: {
       // Preserve the active session mapping and surface explicit guidance instead
       // of silently rotating the session key to a new session id.
       const embeddedError = runResult.meta?.error;
-      if (
-        embeddedError &&
-        isContextOverflowError(embeddedError.message) &&
-        !didResetAfterCompactionFailure &&
-        (await params.resetSessionAfterCompactionFailure(embeddedError.message))
-      ) {
-        didResetAfterCompactionFailure = true;
-        const resetText =
-          "⚠️ Context limit exceeded. I've reset our conversation to start fresh - please try again.";
-        // [frankclaw] Redirect to logs group if configured
-        const compactionRedirect = maybeRedirectCompactionResetToLogsGroup({
-          resetText,
-          sessionKey: params.sessionKey,
-        });
-        if (compactionRedirect) {
-          return compactionRedirect;
-        }
+      if (embeddedError && isContextOverflowError(embeddedError.message)) {
+        defaultRuntime.error(
+          `Auto-compaction failed (${embeddedError.message}). Preserving existing session mapping for ${params.sessionKey ?? params.followupRun.run.sessionId}.`,
+        );
         params.replyOperation?.fail("run_failed", embeddedError);
         return {
           kind: "final",
@@ -2493,10 +2480,6 @@ export async function runAgentTurnWithFallback(params: {
         isContextOverflow,
         retryableFailure,
         failureMessage: trimmedMessage,
-        resetSession:
-          isContextOverflow && params.sessionKey
-            ? (msg) => params.resetSessionAfterCompactionFailure(msg)
-            : undefined,
       });
       if (errorRedirect) {
         return errorRedirect;
