@@ -171,6 +171,7 @@ export const discordOutbound: ChannelOutboundAdapter = {
     durableFinal: {
       text: true,
       media: true,
+      poll: true,
       payload: true,
       silent: true,
       replyTo: true,
