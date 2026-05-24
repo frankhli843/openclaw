@@ -465,7 +465,7 @@ function resolveTelegramDeliveryTarget(params: {
   };
 }
 
-function parseTelegramExplicitTarget(raw: string) {
+function resolveTelegramRouteTarget(raw: string) {
   const target = parseTelegramTarget(raw);
   return {
     to: target.chatId,
@@ -497,7 +497,7 @@ function shouldStripTelegramThreadFromAnnounceOrigin(params: {
   if (!requesterChannel && !requesterTo.startsWith("telegram:")) {
     return true;
   }
-  const requesterTarget = parseTelegramExplicitTarget(requesterTo);
+  const requesterTarget = resolveTelegramRouteTarget(requesterTo);
   if (requesterTarget.chatType !== "group") {
     return true;
   }
@@ -505,7 +505,7 @@ function shouldStripTelegramThreadFromAnnounceOrigin(params: {
   if (!entryTo) {
     return false;
   }
-  const entryTarget = parseTelegramExplicitTarget(entryTo);
+  const entryTarget = resolveTelegramRouteTarget(entryTo);
   return entryTarget.to !== requesterTarget.to;
 }
 
@@ -754,8 +754,7 @@ export const telegramPlugin = createChatChannelPlugin({
       resolveSessionConversation: ({ kind, rawId }) =>
         resolveTelegramSessionConversation({ kind, rawId }),
       resolveSessionTarget: ({ kind, id }) => resolveTelegramSessionTarget({ kind, id }),
-      parseExplicitTarget: ({ raw }) => parseTelegramExplicitTarget(raw),
-      inferTargetChatType: ({ to }) => parseTelegramExplicitTarget(to).chatType,
+      inferTargetChatType: ({ to }) => resolveTelegramRouteTarget(to).chatType,
       preserveHeartbeatThreadIdForGroupRoute: true,
       formatTargetDisplay: ({ target, display, kind }) => {
         const formatted = display?.trim();
@@ -786,8 +785,7 @@ export const telegramPlugin = createChatChannelPlugin({
         await resolveTelegramTargets({ cfg, accountId, inputs, kind }),
     },
     lifecycle: {
-      detectLegacyStateMigrations: ({ cfg, env }) =>
-        detectTelegramLegacyStateMigrations({ cfg, env }),
+      detectLegacyStateMigrations: (params) => detectTelegramLegacyStateMigrations(params),
       onAccountConfigChanged: async ({ prevCfg, nextCfg, accountId }) => {
         const previousToken = resolveTelegramAccount({ cfg: prevCfg, accountId }).token.trim();
         const nextToken = resolveTelegramAccount({ cfg: nextCfg, accountId }).token.trim();
