@@ -29,6 +29,7 @@ import {
   type DiscordMediaInfo,
 } from "./message-utils.js";
 import { buildDirectLabel, buildGuildLabel, resolveReplyContext } from "./reply-context.js";
+import { resolveDiscordThreadHistoryBody } from "./threading.history.frankclaw.js"; // frankclaw: thread history
 import { resolveDiscordAutoThreadReplyPlan, resolveDiscordThreadStarter } from "./threading.js";
 import {
   DISCORD_ATTACHMENT_IDLE_TIMEOUT_MS,
@@ -272,6 +273,27 @@ export async function buildDiscordMessageProcessContext(params: {
       parentSessionKey = undefined;
     }
   }
+
+  // frankclaw: fetch thread history for new thread sessions so the agent has context
+  let threadHistoryBody: string | undefined;
+  if (threadChannel && messageChannelId) {
+    const threadSessionKey = buildAgentSessionKey({
+      agentId: route.agentId,
+      channel: route.channel,
+      peer: { kind: "channel", id: messageChannelId },
+    });
+    const threadPreviousTs = readSessionUpdatedAt({ storePath, sessionKey: threadSessionKey });
+    if (!threadPreviousTs) {
+      threadHistoryBody = await resolveDiscordThreadHistoryBody({
+        client,
+        threadChannelId: messageChannelId,
+        currentMessageId: message.id,
+        botUserId: ctx.botUserId,
+        envelopeOptions,
+      });
+    }
+  }
+
   const preflightAudioIndex =
     preflightAudioTranscript === undefined
       ? -1
@@ -421,6 +443,7 @@ export async function buildDiscordMessageProcessContext(params: {
         : undefined,
       thread: {
         starterBody: !effectivePreviousTimestamp ? threadStarterBody : undefined,
+        historyBody: threadHistoryBody, // frankclaw: thread history
         label: threadLabel,
       },
       groupSystemPrompt: isGuildMessage ? groupSystemPrompt : undefined,

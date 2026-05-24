@@ -2056,6 +2056,31 @@
       "runtime": [],
       "e2eTests": [],
       "addedDate": "2026-04-26"
+    },
+    {
+      "name": "Discord thread history injection",
+      "description": "Fetches up to 20 prior messages from a Discord thread and injects them as ThreadHistoryBody when starting a new thread session. Mirrors the Slack plugin's thread history feature so agents have context about the conversation.",
+      "static": [
+        {
+          "file": "extensions/discord/src/monitor/threading.history.frankclaw.ts",
+          "pattern": "resolveDiscordThreadHistoryBody",
+          "minCount": 1
+        },
+        {
+          "file": "extensions/discord/src/monitor/message-handler.context.ts",
+          "pattern": "resolveDiscordThreadHistoryBody",
+          "minCount": 1
+        },
+        {
+          "file": "extensions/discord/src/monitor/message-handler.context.ts",
+          "pattern": "historyBody: threadHistoryBody",
+          "minCount": 1
+        }
+      ],
+      "tests": [],
+      "runtime": [],
+      "e2eTests": [],
+      "addedDate": "2026-05-23"
     }
   ]
 }
