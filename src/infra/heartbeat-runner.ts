@@ -1451,7 +1451,6 @@ export async function runHeartbeatOnce(opts: {
     turnSource: commitmentDeliveryContext
       ? commitmentDeliveryContext
       : preflight.turnSourceDeliveryContext,
-    isolatedSession: useIsolatedSession,
   });
   const heartbeatAccountId = heartbeat?.accountId?.trim();
   if (delivery.reason === "unknown-account") {

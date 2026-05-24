@@ -9,7 +9,7 @@
 // (session not found), and the child's result was silently lost. The only
 // trace was a dead-letter alert in Discord #logs.
 //
-// Extended (2026-04-25): when frozenResultText is empty (common for ACP
+// Extended (2026-04-25): when completion.resultText is empty (common for ACP
 // sessions whose chat.history is unavailable at freeze time), attempt a
 // last-resort capture from the child session before giving up. Also used by
 // the model-failure direct-delivery bypass when announce retries all fail
@@ -142,21 +142,23 @@ export async function attemptGiveUpFallbackDelivery(
     return { recovered: false };
   }
 
-  let resultText = entry.frozenResultText || entry.fallbackFrozenResultText;
+  let resultText = entry.completion?.resultText || entry.completion?.fallbackResultText;
 
-  // frankclaw: when frozenResultText is empty (common for ACP sessions),
+  // frankclaw: when resultText is empty (common for ACP sessions),
   // attempt one last capture before giving up. By this point several minutes
   // have passed since the child completed, making it more likely the session
   // data is available.
   if (!resultText?.trim()) {
     log.info?.(
-      `give-up fallback: frozenResultText empty, attempting last-resort capture: run=${entry.runId} child=${entry.childSessionKey}`,
+      `give-up fallback: resultText empty, attempting last-resort capture: run=${entry.runId} child=${entry.childSessionKey}`,
     );
     const captured = await attemptLastResortResultCapture(entry);
     if (captured) {
       resultText = captured;
       // Persist the captured text so it's available for future retries
-      entry.frozenResultText = captured;
+      if (entry.completion) {
+        entry.completion.resultText = captured;
+      }
     }
   }
 
@@ -235,12 +237,14 @@ export async function attemptModelFailureDirectDelivery(
     return { recovered: false };
   }
 
-  let resultText = entry.frozenResultText || entry.fallbackFrozenResultText;
+  let resultText = entry.completion?.resultText || entry.completion?.fallbackResultText;
   if (!resultText?.trim()) {
     const captured = await attemptLastResortResultCapture(entry);
     if (captured) {
       resultText = captured;
-      entry.frozenResultText = captured;
+      if (entry.completion) {
+        entry.completion.resultText = captured;
+      }
     }
   }
 
