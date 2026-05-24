@@ -755,6 +755,10 @@ export async function attachWebInboxToSocket(
     const deliveryReadReceipt = inbound.access.isSelfChat ? undefined : readReceipt;
 
     if (!stored && shouldSkipStaleAppend(msg, upsertType)) {
+      // frankclaw: observability — log offline catch-up skips so they are visible in journal.
+      inboundConsoleLog.info(
+        `Skipping offline catch-up message from ${inbound.from}${inbound.group ? ` (group ${inbound.remoteJid})` : ""}`,
+      );
       await maybeMarkReadReceiptForSkippedAppend(inbound, readReceipt);
       return;
     }
