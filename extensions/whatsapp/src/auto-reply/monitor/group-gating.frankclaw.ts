@@ -13,6 +13,7 @@ import type { OpenClawConfig } from "../../../../../src/config/config.js";
 import { loadConfig } from "../../../../../src/config/config.js";
 import { resolveChannelGroupGateMode } from "../../../../../src/config/group-policy.js";
 import { deliverOutboundPayloads } from "../../../../../src/infra/outbound/deliver.js";
+import { runWithDirectAction } from "../../../../../src/infra/outbound/direct-action-context.frankclaw.js"; // frankclaw: gate-notify bypasses DNR
 import { normalizeE164 } from "../../../../../src/utils.js";
 
 // [frankclaw] Register gate-notify → Discord delivery from the SAME module context
@@ -48,13 +49,16 @@ function ensureGateNotifyDiscord() {
     const message = formatBlockedNotification(event.info, { ownerMention });
     console.info(`[gate-notify-ext] Delivering to Discord channel ${gateChannel}...`);
     try {
-      await deliverOutboundPayloads({
-        cfg,
-        channel: "discord",
-        to: `channel:${gateChannel}`,
-        accountId: "default",
-        payloads: [{ text: message }],
-      });
+      // frankclaw: wrap in directAction context so gate-notify bypasses DNR quiet hours
+      await runWithDirectAction(() =>
+        deliverOutboundPayloads({
+          cfg,
+          channel: "discord",
+          to: `channel:${gateChannel}`,
+          accountId: "default",
+          payloads: [{ text: message }],
+        }),
+      );
       console.info(`[gate-notify-ext] Delivered successfully`);
     } catch (err) {
       console.error(`[gate-notify-ext] Delivery failed: ${String(err)}`);
