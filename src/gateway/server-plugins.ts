@@ -637,6 +637,7 @@ export function loadGatewayPlugins(params: {
           ...(params.pluginLookUpTable?.manifestRegistry
             ? { manifestRegistry: params.pluginLookUpTable.manifestRegistry }
             : {}),
+          discovery: params.pluginLookUpTable?.discovery,
         })
       : undefined;
   const autoEnableMs = performance.now() - started;
@@ -660,6 +661,7 @@ export function loadGatewayPlugins(params: {
             ...(params.pluginLookUpTable?.manifestRegistry
               ? { manifestRegistry: params.pluginLookUpTable.manifestRegistry }
               : {}),
+            discovery: params.pluginLookUpTable?.discovery,
           });
   const resolvedConfigMs = performance.now() - started;
   const resolvedConfig = autoEnabled.config;

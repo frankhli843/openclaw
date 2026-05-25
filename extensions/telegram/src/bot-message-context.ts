@@ -54,7 +54,7 @@ import {
   resolveTelegramReactionVariant,
   resolveTelegramStatusReactionEmojis,
 } from "./status-reaction-variants.js";
-import { getTopicName, resolveTopicNameCachePath, updateTopicName } from "./topic-name-cache.js";
+import { getTopicName, resolveTopicNameCacheScope, updateTopicName } from "./topic-name-cache.js";
 
 export type {
   BuildTelegramMessageContextParams,
@@ -111,6 +111,7 @@ export type TelegramMessageContext = {
   skillFilter: TelegramMessageContextPayload["skillFilter"];
   sendTyping: () => Promise<void>;
   sendRecordVoice: () => Promise<void>;
+  sendChatActionHandler: BuildTelegramMessageContextParams["sendChatActionHandler"];
   ackReactionPromise: Promise<boolean> | null;
   reactionApi: TelegramReactionApi | null;
   removeAckAfterReply: boolean;
@@ -176,7 +177,7 @@ export const buildTelegramMessageContext = async ({
   const dmThreadId = threadSpec.scope === "dm" ? threadSpec.id : undefined;
   let topicName: string | undefined;
   if (isForum && resolvedThreadId != null) {
-    const topicNameCachePath = resolveTopicNameCachePath(
+    const topicNameCacheScope = resolveTopicNameCacheScope(
       await resolveTelegramMessageContextStorePath({
         cfg,
         agentId: account.accountId,
@@ -206,14 +207,14 @@ export const buildTelegramMessageContext = async ({
             : undefined;
 
     if (topicPatch) {
-      updateTopicName(chatId, resolvedThreadId, topicPatch, topicNameCachePath);
+      await updateTopicName(chatId, resolvedThreadId, topicPatch, topicNameCacheScope);
     }
 
-    topicName = getTopicName(chatId, resolvedThreadId, topicNameCachePath);
+    topicName = await getTopicName(chatId, resolvedThreadId, topicNameCacheScope);
     if (!topicName) {
       const replyFtCreated = msg.reply_to_message?.forum_topic_created;
       if (replyFtCreated?.name) {
-        updateTopicName(
+        await updateTopicName(
           chatId,
           resolvedThreadId,
           {
@@ -221,7 +222,7 @@ export const buildTelegramMessageContext = async ({
             iconColor: replyFtCreated.icon_color,
             iconCustomEmojiId: replyFtCreated.icon_custom_emoji_id,
           },
-          topicNameCachePath,
+          topicNameCacheScope,
         );
         topicName = replyFtCreated.name;
       }
@@ -663,6 +664,7 @@ export const buildTelegramMessageContext = async ({
     skillFilter,
     sendTyping,
     sendRecordVoice,
+    sendChatActionHandler,
     ackReactionPromise,
     reactionApi,
     removeAckAfterReply,
