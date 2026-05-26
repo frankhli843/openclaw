@@ -1,5 +1,7 @@
 import type { ChannelId } from "../channels/plugins/types.public.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
+// frankclaw: skip health-monitor restarts for accounts in permanent conflict state
+import { shouldSkipHealthRestartForConflict } from "./channel-health-monitor.frankclaw.js";
 import {
   DEFAULT_CHANNEL_CONNECT_GRACE_MS,
   DEFAULT_CHANNEL_STALE_EVENT_THRESHOLD_MS,
@@ -122,6 +124,10 @@ export function startChannelHealthMonitor(deps: ChannelHealthMonitorDeps): Chann
             continue;
           }
           if (channelManager.isManuallyStopped(channelId as ChannelId, accountId)) {
+            continue;
+          }
+          // frankclaw: skip restart for accounts in permanent conflict (e.g. WhatsApp 440)
+          if (shouldSkipHealthRestartForConflict(channelId, accountId)) {
             continue;
           }
           const healthPolicy: ChannelHealthPolicy = {

@@ -36,6 +36,11 @@ import {
 } from "./normalize.js";
 import { getWhatsAppRuntime } from "./runtime.js";
 import { sendTypingWhatsApp } from "./send.js";
+// frankclaw: 440 session-conflict stop guard
+import {
+  clearWhatsAppSessionConflict440,
+  markWhatsAppSessionConflict440,
+} from "./session-conflict-guard.frankclaw.js";
 import { resolveWhatsAppOutboundSessionRoute } from "./session-route.js";
 import { whatsappSetupAdapter } from "./setup-core.js";
 import {
@@ -313,6 +318,15 @@ export const whatsappPlugin: ChannelPlugin<ResolvedWhatsAppAccount> =
           const { e164, jid } = (await loadWhatsAppChannelRuntime()).readWebSelfId(account.authDir);
           const identity = e164 ? e164 : jid ? `jid ${jid}` : "unknown";
           ctx.log?.info(`[${account.accountId}] starting provider (${identity})`);
+          // frankclaw: wrap statusSink to detect 440 session conflict and clear on reconnect
+          const statusSinkWithConflictGuard = (next: WebChannelStatus) => {
+            if (next.healthState === "conflict") {
+              markWhatsAppSessionConflict440(account.accountId, ctx.runtime);
+            } else if (next.connected) {
+              clearWhatsAppSessionConflict440(account.accountId);
+            }
+            ctx.setStatus({ accountId: ctx.accountId, ...next });
+          };
           return (await loadWhatsAppChannelRuntime()).monitorWebChannel(
             getWhatsAppRuntime().logging.shouldLogVerbose(),
             undefined,
@@ -321,8 +335,7 @@ export const whatsappPlugin: ChannelPlugin<ResolvedWhatsAppAccount> =
             ctx.runtime,
             ctx.abortSignal,
             {
-              statusSink: (next: WebChannelStatus) =>
-                ctx.setStatus({ accountId: ctx.accountId, ...next }),
+              statusSink: statusSinkWithConflictGuard,
               accountId: account.accountId,
               channelRuntime: ctx.channelRuntime,
             },

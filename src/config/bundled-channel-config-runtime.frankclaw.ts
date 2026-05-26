@@ -8,6 +8,23 @@
  */
 import type { ChannelConfigSchema } from "../channels/plugins/types.plugin.js";
 
+/**
+ * Deep-clone a schema node so mutations don't hit frozen upstream objects.
+ */
+function cloneSchemaNode(node: unknown): unknown {
+  if (!node || typeof node !== "object") {
+    return node;
+  }
+  if (Array.isArray(node)) {
+    return node.map(cloneSchemaNode);
+  }
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(node as Record<string, unknown>)) {
+    out[k] = cloneSchemaNode(v);
+  }
+  return out;
+}
+
 export function relaxAdditionalProperties(node: unknown): void {
   if (!node || typeof node !== "object") {
     return;
@@ -53,12 +70,16 @@ export function relaxAdditionalProperties(node: unknown): void {
 export function patchChannelConfigSchemasForFrankclaw(
   schemaMap: ReadonlyMap<string, ChannelConfigSchema>,
 ): void {
-  // Only patch channels we use custom properties on
+  // Only patch channels we use custom properties on.
+  // Clone before mutating because upstream now deep-freezes plugin metadata snapshots.
   const channelsToRelax = ["whatsapp", "discord", "telegram"];
+  const mutableMap = schemaMap as Map<string, ChannelConfigSchema>;
   for (const channelId of channelsToRelax) {
-    const schema = schemaMap.get(channelId);
-    if (schema?.schema) {
-      relaxAdditionalProperties(schema.schema);
+    const entry = schemaMap.get(channelId);
+    if (entry?.schema) {
+      const cloned = cloneSchemaNode(entry.schema) as Record<string, unknown>;
+      relaxAdditionalProperties(cloned);
+      mutableMap.set(channelId, { ...entry, schema: cloned });
     }
   }
 }
@@ -67,8 +88,17 @@ export function patchChannelConfigSchemasForFrankclaw(
  * Patch a raw schema record (from plugin registry channelConfigs) to allow additional properties.
  * Used by the validation flow which reads schemas from registry metadata, not from getBundledChannelConfigSchemaMap().
  */
-export function relaxChannelSchemaFromRegistry(schema: Record<string, unknown> | undefined): void {
-  if (schema) {
-    relaxAdditionalProperties(schema);
+/**
+ * Clone and relax a schema from the plugin registry.
+ * Returns the relaxed clone (caller must use the returned value).
+ */
+export function relaxChannelSchemaFromRegistry(
+  schema: Record<string, unknown> | undefined,
+): Record<string, unknown> | undefined {
+  if (!schema) {
+    return schema;
   }
+  const cloned = cloneSchemaNode(schema) as Record<string, unknown>;
+  relaxAdditionalProperties(cloned);
+  return cloned;
 }

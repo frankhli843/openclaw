@@ -1157,10 +1157,14 @@ function validateConfigObjectWithPluginsBase(
         }
       }
       // [frankclaw] Relax additionalProperties for channels with custom frankclaw properties
+      // Clone before relaxing because upstream deep-freezes plugin metadata snapshots.
       for (const channelId of ["whatsapp", "discord", "telegram"]) {
         const entry = info.channelSchemas.get(channelId);
         if (entry?.schema) {
-          relaxChannelSchemaFromRegistry(entry.schema);
+          const relaxed = relaxChannelSchemaFromRegistry(entry.schema);
+          if (relaxed) {
+            info.channelSchemas.set(channelId, { ...entry, schema: relaxed });
+          }
         }
       }
     }
