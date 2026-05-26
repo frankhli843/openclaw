@@ -1,7 +1,8 @@
 // frankclaw: tests for the incomplete-turn structured diagnostic logger
 import fs from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { logIncompleteTurnDiag } from "./incomplete-turn-diag.frankclaw.js";
+import { __testing, logIncompleteTurnDiag } from "./incomplete-turn-diag.frankclaw.js";
 
 describe("logIncompleteTurnDiag", () => {
   let appendFileSpy: ReturnType<typeof vi.spyOn>;
@@ -124,5 +125,74 @@ describe("logIncompleteTurnDiag", () => {
         setTimeout(resolve, 20);
       }),
     ).resolves.toBeUndefined();
+  });
+});
+
+describe("DIAG_LOG path resolution", () => {
+  it("uses OPENCLAW_FRANKCLAW_DIAG_LOG env var when set", async () => {
+    // Env var override must win over any computed path.
+    const override = "/tmp/custom-override-diag.log";
+    const orig = process.env.OPENCLAW_FRANKCLAW_DIAG_LOG;
+    try {
+      process.env.OPENCLAW_FRANKCLAW_DIAG_LOG = override;
+      vi.resetModules();
+      const mod = await import("./incomplete-turn-diag.frankclaw.js");
+      expect(mod.__testing?.DIAG_LOG).toBe(override);
+    } finally {
+      if (orig === undefined) {
+        delete process.env.OPENCLAW_FRANKCLAW_DIAG_LOG;
+      } else {
+        process.env.OPENCLAW_FRANKCLAW_DIAG_LOG = orig;
+      }
+      vi.resetModules();
+    }
+  });
+
+  it("resolves to tmpdir in VITEST mode (not filesystem root)", () => {
+    // When VITEST is set (always true here), DIAG_LOG must use tmpdir(),
+    // never a path starting with /state/ or / root from import.meta.url resolution.
+    const diagLog = __testing.DIAG_LOG;
+    expect(diagLog).toMatch(tmpdir());
+    expect(diagLog).not.toBe("/state/frankclaw-diag.log");
+    expect(diagLog).not.toMatch(/^\/state\//);
+  });
+
+  it("resolves to OPENCLAW_WORKSPACE/state/frankclaw-diag.log outside VITEST", async () => {
+    const fakeWorkspace = "/tmp/fake-workspace-test";
+    const origWorkspace = process.env.OPENCLAW_WORKSPACE;
+    const origVitest = process.env.VITEST;
+    const origVitestWorker = process.env.VITEST_WORKER_ID;
+    const origOverride = process.env.OPENCLAW_FRANKCLAW_DIAG_LOG;
+    try {
+      delete process.env.VITEST;
+      delete process.env.VITEST_WORKER_ID;
+      delete process.env.OPENCLAW_FRANKCLAW_DIAG_LOG;
+      process.env.OPENCLAW_WORKSPACE = fakeWorkspace;
+      vi.resetModules();
+      const mod = await import("./incomplete-turn-diag.frankclaw.js");
+      expect(mod.__testing?.DIAG_LOG).toBe(`${fakeWorkspace}/state/frankclaw-diag.log`);
+    } finally {
+      if (origWorkspace === undefined) {
+        delete process.env.OPENCLAW_WORKSPACE;
+      } else {
+        process.env.OPENCLAW_WORKSPACE = origWorkspace;
+      }
+      if (origVitest === undefined) {
+        delete process.env.VITEST;
+      } else {
+        process.env.VITEST = origVitest;
+      }
+      if (origVitestWorker === undefined) {
+        delete process.env.VITEST_WORKER_ID;
+      } else {
+        process.env.VITEST_WORKER_ID = origVitestWorker;
+      }
+      if (origOverride === undefined) {
+        delete process.env.OPENCLAW_FRANKCLAW_DIAG_LOG;
+      } else {
+        process.env.OPENCLAW_FRANKCLAW_DIAG_LOG = origOverride;
+      }
+      vi.resetModules();
+    }
   });
 });

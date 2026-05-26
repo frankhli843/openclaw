@@ -7,15 +7,24 @@
 // a gateway restart or inline log grep.
 //
 // Pattern: fire-and-forget, never throws, rotates at 2MB.
+// Path resolution: uses OPENCLAW_WORKSPACE env var (same as frankclaw-diag.frankclaw.ts)
+// so the log lands in workspace/state/frankclaw-diag.log regardless of bundle install path.
+// Test isolation: VITEST env redirects to a tmp file; OPENCLAW_FRANKCLAW_DIAG_LOG overrides.
 
 import fs from "node:fs/promises";
+import { homedir, tmpdir } from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 
-const DIAG_LOG = path.join(
-  fileURLToPath(new URL("../../../../../../..", import.meta.url)),
-  "state/frankclaw-diag.log",
-);
+const DIAG_LOG =
+  process.env.OPENCLAW_FRANKCLAW_DIAG_LOG ||
+  (process.env.VITEST || process.env.VITEST_WORKER_ID
+    ? path.join(tmpdir(), `incomplete-turn-diag-vitest-${process.pid}.log`)
+    : path.join(
+        process.env.OPENCLAW_WORKSPACE || path.join(homedir(), ".openclaw", "workspace"),
+        "state",
+        "frankclaw-diag.log",
+      ));
+
 const MAX_LOG_BYTES = 2 * 1024 * 1024; // 2 MB
 
 export interface IncompleteTurnDiagParams {
@@ -61,3 +70,5 @@ async function writeIncompleteTurnDiag(params: IncompleteTurnDiagParams): Promis
     // Never throw from a diagnostic path.
   }
 }
+
+export const __testing = { DIAG_LOG };
