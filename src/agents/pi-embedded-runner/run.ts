@@ -157,6 +157,7 @@ import {
   createIdleTimeoutBreakerState,
   stepIdleTimeoutBreaker,
 } from "./run/idle-timeout-breaker.js";
+import { logIncompleteTurnDiag } from "./run/incomplete-turn-diag.frankclaw.js"; // frankclaw
 import {
   DEFAULT_EMPTY_RESPONSE_RETRY_LIMIT,
   DEFAULT_REASONING_ONLY_RETRY_LIMIT,
@@ -3217,6 +3218,17 @@ export async function runEmbeddedPiAgent(
               `incomplete turn detected: runId=${params.runId} sessionId=${params.sessionId} ` +
                 `stopReason=${incompleteStopReason} payloads=${payloadCount} — surfacing error to user`,
             );
+            // frankclaw: structured diagnostic log for post-hoc analysis and heartbeat detection
+            logIncompleteTurnDiag({
+              sessionId: params.sessionId,
+              runId: params.runId,
+              stopReason: incompleteStopReason,
+              payloadCount,
+              hadPotentialSideEffects: attempt.replayMetadata?.hadPotentialSideEffects ?? false,
+              lastToolName: attempt.toolMetas?.at(-1)?.toolName,
+              lastToolError:
+                typeof attempt.lastToolError === "string" ? attempt.lastToolError : undefined,
+            });
 
             // Mark the failing profile for cooldown so multi-profile setups
             // rotate away from the exhausted credential on the next turn.
