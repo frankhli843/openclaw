@@ -6,6 +6,7 @@ import { callGateway } from "../gateway/call.js";
 import { isEmbeddedMode } from "../infra/embedded-mode.js";
 import { getActiveSecretsRuntimeSnapshot } from "../secrets/runtime-state.js";
 import { getActiveRuntimeWebToolsMetadata } from "../secrets/runtime-web-tools-state.js";
+import { isCronRunSessionKey } from "../sessions/session-key-utils.js";
 import { normalizeDeliveryContext } from "../utils/delivery-context.js";
 import type { GatewayMessageChannel } from "../utils/message-channel.js";
 import { resolveAgentWorkspaceDir, resolveSessionAgentIds } from "./agent-scope.js";
@@ -203,6 +204,11 @@ export function createOpenClawTools(
     toolAllowlist: options?.pluginToolAllowlist,
     toolDenylist: options?.pluginToolDenylist,
   });
+  const trimmedRunSessionKey = options?.runSessionKey?.trim();
+  const mediaGenerationAgentSessionKey =
+    trimmedRunSessionKey && isCronRunSessionKey(trimmedRunSessionKey)
+      ? trimmedRunSessionKey
+      : options?.agentSessionKey;
   const imageToolAgentDir = options?.agentDir;
   const imageTool = resolveImageToolFactoryAvailable({
     config: availabilityConfig ?? resolvedConfig,
@@ -228,7 +234,7 @@ export function createOpenClawTools(
         config: options?.config,
         agentDir: options?.agentDir,
         authProfileStore: options?.authProfileStore,
-        agentSessionKey: options?.agentSessionKey,
+        agentSessionKey: mediaGenerationAgentSessionKey,
         requesterOrigin: deliveryContext ?? undefined,
         workspaceDir,
         sandbox,
@@ -242,7 +248,7 @@ export function createOpenClawTools(
         config: options?.config,
         agentDir: options?.agentDir,
         authProfileStore: options?.authProfileStore,
-        agentSessionKey: options?.agentSessionKey,
+        agentSessionKey: mediaGenerationAgentSessionKey,
         requesterOrigin: deliveryContext ?? undefined,
         workspaceDir,
         sandbox,
@@ -256,7 +262,7 @@ export function createOpenClawTools(
         config: options?.config,
         agentDir: options?.agentDir,
         authProfileStore: options?.authProfileStore,
-        agentSessionKey: options?.agentSessionKey,
+        agentSessionKey: mediaGenerationAgentSessionKey,
         requesterOrigin: deliveryContext ?? undefined,
         workspaceDir,
         sandbox,

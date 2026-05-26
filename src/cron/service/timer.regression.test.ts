@@ -1029,6 +1029,7 @@ describe("cron service timer regressions", () => {
     const state = createCronServiceState({
       cronEnabled: true,
       storePath: store.storePath,
+      cronConfig: { maxConcurrentRuns: 1 },
       log: noopLogger,
       nowMs: () => now,
       enqueueSystemEvent: vi.fn(),

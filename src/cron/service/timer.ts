@@ -1,5 +1,6 @@
 import { resolveFailoverReasonFromError } from "../../agents/failover-error.js";
 import { formatEmbeddedAgentExecutionPhase } from "../../agents/pi-embedded-runner/execution-phase.js";
+import { resolveCronMaxConcurrentRuns } from "../../config/cron-limits.js";
 import { readSessionEntry } from "../../config/sessions/store-load.js";
 import type { SessionEntry } from "../../config/sessions/types.js";
 import type { CronConfig } from "../../config/types.cron.js";
@@ -66,6 +67,7 @@ import {
 } from "./self-heal.frankclaw.js";
 import type { CronEvent, CronServiceState } from "./state.js";
 import { ensureLoaded, persist } from "./store.js";
+import { CRON_TASK_RUNNING_PROGRESS_SUMMARY } from "./task-ledger.js";
 import { resolveCronJobTimeoutMs } from "./timeout-policy.js";
 
 export { DEFAULT_JOB_TIMEOUT_MS } from "./timeout-policy.js";
@@ -371,11 +373,7 @@ async function cleanupTimedOutCronAgentRun(
 }
 
 function resolveRunConcurrency(state: CronServiceState): number {
-  const raw = state.deps.cronConfig?.maxConcurrentRuns;
-  if (typeof raw !== "number" || !Number.isFinite(raw)) {
-    return 1;
-  }
-  return Math.max(1, Math.floor(raw));
+  return resolveCronMaxConcurrentRuns(state.deps.cronConfig);
 }
 function timeoutErrorMessage(execution?: CronAgentExecutionStarted): string {
   const phase = formatCronAgentExecutionPhase(execution);
@@ -519,6 +517,7 @@ function tryCreateCronTaskRun(params: {
       notifyPolicy: "silent",
       startedAt: params.startedAt,
       lastEventAt: params.startedAt,
+      progressSummary: CRON_TASK_RUNNING_PROGRESS_SUMMARY,
     });
     return runId;
   } catch (error) {

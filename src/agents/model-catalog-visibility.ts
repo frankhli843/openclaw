@@ -1,7 +1,8 @@
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import type { ModelCatalogEntry } from "./model-catalog.js";
 import { createProviderAuthChecker } from "./model-provider-auth.js";
-import { buildConfiguredModelCatalog, modelKey } from "./model-selection.js";
+import { modelKey } from "./model-selection-normalize.js";
+import { buildConfiguredModelCatalog } from "./model-selection-shared.js";
 import { createModelVisibilityPolicy } from "./model-visibility-policy.js";
 
 type ModelCatalogVisibilityView = "default" | "configured" | "all";
@@ -68,7 +69,7 @@ export async function resolveVisibleModelCatalog(params: {
         env: params.env,
         allowPluginSyntheticAuth: params.runtimeAuthDiscovery,
         discoverExternalCliAuth: params.runtimeAuthDiscovery,
-    });
+      });
     const authBackedCatalog: ModelCatalogEntry[] = [];
     for (const entry of params.catalog) {
       if (await providerHasAuth(hasAuth, entry.provider)) {

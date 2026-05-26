@@ -31,6 +31,12 @@ export type StuckSessionRecoveryRequest = {
   // frankclaw: classification context so recovery can pick the right action
   classification?: string;
   activeWorkKind?: DiagnosticSessionActiveWorkKind;
+  /**
+   * Resolved no-forward-progress age (from `diagnostics.stuckSessionAbortMs`) after
+   * which an "active" run with queued work is treated as a leaked/dead handle and
+   * reclaimed. Honors an operator-raised threshold; falls back to a safe floor.
+   */
+  staleActiveProgressAbortMs?: number;
 };
 
 type DiagnosticSessionRecoveryBaseOutcome = {

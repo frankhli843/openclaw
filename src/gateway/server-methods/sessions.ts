@@ -433,6 +433,33 @@ function cloneCheckpointSessionEntry(params: {
   };
 }
 
+function resolveCheckpointForkSource(
+  checkpoint: NonNullable<ReturnType<typeof getSessionCompactionCheckpoint>>,
+): { sourceFile: string; sourceLeafId?: string; totalTokens?: number } | null {
+  const preCompactionFile = checkpoint.preCompaction.sessionFile?.trim();
+  if (preCompactionFile) {
+    return {
+      sourceFile: preCompactionFile,
+      sourceLeafId: checkpoint.preCompaction.leafId,
+      totalTokens: checkpoint.tokensBefore,
+    };
+  }
+  const postCompactionFile = checkpoint.postCompaction.sessionFile?.trim();
+  if (!postCompactionFile) {
+    return null;
+  }
+  const postCompactionLeafId =
+    checkpoint.postCompaction.leafId ?? checkpoint.postCompaction.entryId;
+  if (!postCompactionLeafId) {
+    return null;
+  }
+  return {
+    sourceFile: postCompactionFile,
+    sourceLeafId: postCompactionLeafId,
+    totalTokens: checkpoint.tokensAfter,
+  };
+}
+
 function isAgentMainSessionKey(cfg: OpenClawConfig, sessionKey: string): boolean {
   const parsed = parseAgentSessionKey(sessionKey);
   if (!parsed) {
@@ -1580,7 +1607,8 @@ export const sessionsHandlers: GatewayRequestHandlers = {
       return;
     }
     const checkpoint = getSessionCompactionCheckpoint({ entry, checkpointId });
-    if (!checkpoint?.preCompaction.sessionFile) {
+    const forkSource = checkpoint ? resolveCheckpointForkSource(checkpoint) : null;
+    if (!checkpoint || !forkSource) {
       respond(
         false,
         undefined,
@@ -1589,8 +1617,9 @@ export const sessionsHandlers: GatewayRequestHandlers = {
       return;
     }
     const branchedSession = await forkCompactionCheckpointTranscriptAsync({
-      sourceFile: checkpoint.preCompaction.sessionFile,
-      sessionDir: path.dirname(checkpoint.preCompaction.sessionFile),
+      sourceFile: forkSource.sourceFile,
+      sourceLeafId: forkSource.sourceLeafId,
+      sessionDir: path.dirname(forkSource.sourceFile),
     });
     if (!branchedSession?.sessionFile) {
       respond(
@@ -1608,7 +1637,7 @@ export const sessionsHandlers: GatewayRequestHandlers = {
       nextSessionFile: branchedSession.sessionFile,
       label,
       parentSessionKey: canonicalKey,
-      totalTokens: checkpoint.tokensBefore,
+      totalTokens: forkSource.totalTokens,
     });
 
     await updateSessionStore(target.storePath, (store) => {
@@ -1679,7 +1708,8 @@ export const sessionsHandlers: GatewayRequestHandlers = {
       return;
     }
     const checkpoint = getSessionCompactionCheckpoint({ entry, checkpointId });
-    if (!checkpoint?.preCompaction.sessionFile) {
+    const forkSource = checkpoint ? resolveCheckpointForkSource(checkpoint) : null;
+    if (!checkpoint || !forkSource) {
       respond(
         false,
         undefined,
@@ -1702,8 +1732,9 @@ export const sessionsHandlers: GatewayRequestHandlers = {
     }
 
     const restoredSession = await forkCompactionCheckpointTranscriptAsync({
-      sourceFile: checkpoint.preCompaction.sessionFile,
-      sessionDir: path.dirname(checkpoint.preCompaction.sessionFile),
+      sourceFile: forkSource.sourceFile,
+      sourceLeafId: forkSource.sourceLeafId,
+      sessionDir: path.dirname(forkSource.sourceFile),
     });
     if (!restoredSession?.sessionFile) {
       respond(
@@ -1717,7 +1748,7 @@ export const sessionsHandlers: GatewayRequestHandlers = {
       currentEntry: entry,
       nextSessionId: restoredSession.sessionId,
       nextSessionFile: restoredSession.sessionFile,
-      totalTokens: checkpoint.tokensBefore,
+      totalTokens: forkSource.totalTokens,
       preserveCompactionCheckpoints: true,
     });
 
