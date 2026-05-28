@@ -2296,5 +2296,12 @@ export const testing = {
   flushPendingCodexNativeHookRelayUnregistersForTests,
   clearPendingCodexNativeHookRelayUnregistersForTests,
   resolveCodexNativeHookRelayUnregisterGraceMs,
+  // frankclaw: expose drain-timeout helpers so the bundler never tree-shakes them
+  // away during nightly merges. The May 28 2026 nightly-merge incident (46e17b3a1a)
+  // dropped the usages but not the call site, causing ReferenceError on every Codex
+  // turn. These must stay in the testing export until the drain timer implementation
+  // is fully restored so the bundler has a live call-site to anchor on.
+  CODEX_RAW_RESPONSE_ITEM_DRAIN_TIMEOUT_MS,
+  resolveCodexRawResponseItemDrainTimeoutMs,
 } as const;
 export { testing as __testing };
