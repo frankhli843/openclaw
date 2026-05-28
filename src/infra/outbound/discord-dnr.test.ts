@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runWithDirectAction } from "./direct-action-context.frankclaw.js";
 import {
   __resetDiscordDnrPolicyCacheForTests,
@@ -19,9 +19,39 @@ import {
 } from "./discord-dnr.js";
 
 describe("discord DNR policy", () => {
+  let defaultTmp = "";
+  beforeEach(() => {
+    defaultTmp = fs.mkdtempSync(path.join(os.tmpdir(), "discord-dnr-default-"));
+    // Write a policy file with the standard Toronto defaults so readPolicyStore
+    // sees the expected recurring entry regardless of any real ~/.openclaw file.
+    const stateDir = path.join(defaultTmp, "state");
+    fs.mkdirSync(stateDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(stateDir, "discord-dnr-policies.json"),
+      JSON.stringify({
+        version: 1,
+        recurring: [
+          {
+            id: "discord-all-default",
+            threadId: "*",
+            enabled: true,
+            window: { timeZone: "America/Toronto", start: "17:00", end: "08:30" },
+          },
+        ],
+        oneOff: [],
+      }),
+    );
+    vi.stubEnv("OPENCLAW_HOME", defaultTmp);
+    __resetDiscordDnrPolicyCacheForTests();
+  });
   afterEach(() => {
     __resetDiscordDnrPolicyCacheForTests();
     vi.unstubAllEnvs();
+    try {
+      fs.rmSync(defaultTmp, { recursive: true, force: true });
+    } catch {
+      // best effort
+    }
   });
   it("matches all discord channels (global recurring policy)", () => {
     expect(

@@ -80,9 +80,11 @@ vi.mock("../../media/read-capability.js", () => ({
 }));
 vi.mock("../../infra/diagnostic-events.js", () => ({
   emitDiagnosticEvent: vi.fn(),
+  emitInternalDiagnosticEvent: vi.fn(),
 }));
 vi.mock("../diagnostic-events.js", () => ({
   emitDiagnosticEvent: vi.fn(),
+  emitInternalDiagnosticEvent: vi.fn(),
 }));
 
 // ── Tests ────────────────────────────────────────────────────────────────────

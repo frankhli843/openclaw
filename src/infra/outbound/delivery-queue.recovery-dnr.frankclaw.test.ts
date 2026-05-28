@@ -27,6 +27,7 @@ describe("[frankclaw] delivery-queue recovery DNR pre-check", () => {
 
   beforeEach(() => {
     openclawTmp = fs.mkdtempSync(path.join(os.tmpdir(), "oc-dnr-rec-"));
+    vi.stubEnv("OPENCLAW_HOME", openclawTmp);
     __resetDiscordDnrPolicyCacheForTests();
   });
 
