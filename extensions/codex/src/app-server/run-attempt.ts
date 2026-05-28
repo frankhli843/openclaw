@@ -238,6 +238,7 @@ import {
 } from "./usage-limit-error.js";
 import { createCodexUserInputBridge } from "./user-input-bridge.js";
 
+const CODEX_RAW_RESPONSE_ITEM_DRAIN_TIMEOUT_MS = 30_000;
 const CODEX_NATIVE_HOOK_RELAY_RENEW_INTERVAL_MS = 60_000;
 const ensuredCodexWorkspaceDirs = new Set<string>();
 
@@ -2257,6 +2258,16 @@ function handleApprovalRequest(params: {
     autoApprove: params.autoApprove,
     signal: params.signal,
   });
+}
+
+function resolveCodexRawResponseItemDrainTimeoutMs(value: number | undefined): number {
+  if (value === undefined) {
+    return CODEX_RAW_RESPONSE_ITEM_DRAIN_TIMEOUT_MS;
+  }
+  if (!Number.isFinite(value)) {
+    return CODEX_RAW_RESPONSE_ITEM_DRAIN_TIMEOUT_MS;
+  }
+  return Math.max(1, Math.floor(value));
 }
 
 export const testing = {
