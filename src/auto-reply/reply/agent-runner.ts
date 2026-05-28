@@ -7,21 +7,21 @@ import {
 } from "../../agents/agent-scope.js";
 import { resolveContextTokensForModel } from "../../agents/context.js";
 import { DEFAULT_CONTEXT_TOKENS } from "../../agents/defaults.js";
+import {
+  formatEmbeddedAgentQueueFailureSummary,
+  queueEmbeddedAgentMessageWithOutcomeAsync,
+} from "../../agents/embedded-agent-runner/runs.js";
 import { resolveModelAuthMode } from "../../agents/model-auth.js";
 import { isCliProvider } from "../../agents/model-selection.js";
-import {
-  formatEmbeddedPiQueueFailureSummary,
-  queueEmbeddedPiMessageWithOutcomeAsync,
-} from "../../agents/pi-embedded-runner/runs.js";
 import { deriveContextPromptTokens, hasNonzeroUsage, normalizeUsage } from "../../agents/usage.js";
 import { enqueueCommitmentExtraction } from "../../commitments/runtime.js";
 import type { OpenClawConfig } from "../../config/config.js";
 import {
+  applySessionStoreEntryPatch,
   loadSessionStore,
   resolveSessionPluginStatusLines,
   resolveSessionPluginTraceLines,
   type SessionEntry,
-  updateSessionStoreEntry,
 } from "../../config/sessions.js";
 import type { TypingMode } from "../../config/types.js";
 import { resolveSessionTranscriptCandidates } from "../../gateway/session-utils.fs.js";
@@ -1149,10 +1149,10 @@ export async function runReplyAgent(params: {
     activeSessionEntry.updatedAt = updatedAt;
     activeSessionStore[sessionKey] = activeSessionEntry;
     if (storePath) {
-      await updateSessionStoreEntry({
+      await applySessionStoreEntryPatch({
         storePath,
         sessionKey,
-        update: async () => ({ updatedAt }),
+        patch: { updatedAt },
       });
     }
   };
@@ -1161,7 +1161,7 @@ export async function runReplyAgent(params: {
     const steerSessionId =
       (sessionKey ? replyRunRegistry.resolveSessionId(sessionKey) : undefined) ??
       followupRun.run.sessionId;
-    const steerOutcome = await queueEmbeddedPiMessageWithOutcomeAsync(
+    const steerOutcome = await queueEmbeddedAgentMessageWithOutcomeAsync(
       steerSessionId,
       followupRun.prompt,
       {
@@ -1174,7 +1174,7 @@ export async function runReplyAgent(params: {
       typing.cleanup();
       return undefined;
     }
-    const summary = formatEmbeddedPiQueueFailureSummary(steerOutcome);
+    const summary = formatEmbeddedAgentQueueFailureSummary(steerOutcome);
     logVerbose(`queue: active session ${steerSessionId} rejected steering injection: ${summary}`);
   }
 
@@ -1578,13 +1578,13 @@ export async function runReplyAgent(params: {
       activeSessionEntry.updatedAt = updatedAt;
       activeSessionStore[sessionKey] = activeSessionEntry;
       if (storePath) {
-        await updateSessionStoreEntry({
+        await applySessionStoreEntryPatch({
           storePath,
           sessionKey,
-          update: async () => ({
+          patch: {
             groupActivationNeedsSystemIntro: false,
             updatedAt,
-          }),
+          },
         });
       }
     }
@@ -1626,6 +1626,7 @@ export async function runReplyAgent(params: {
       activeModel: modelUsed,
       attempts: fallbackAttempts,
       state: fallbackStateEntry,
+      cfg,
     });
     if (fallbackTransition.stateChanged && !preserveUserFacingSessionState) {
       if (fallbackStateEntry) {
@@ -1639,14 +1640,14 @@ export async function runReplyAgent(params: {
         activeSessionStore[sessionKey] = fallbackStateEntry;
       }
       if (sessionKey && storePath) {
-        await updateSessionStoreEntry({
+        await applySessionStoreEntryPatch({
           storePath,
           sessionKey,
-          update: async () => ({
+          patch: {
             fallbackNoticeSelectedModel: fallbackTransition.nextState.selectedModel,
             fallbackNoticeActiveModel: fallbackTransition.nextState.activeModel,
             fallbackNoticeReason: fallbackTransition.nextState.reason,
-          }),
+          },
         });
       }
     }
@@ -1749,6 +1750,7 @@ export async function runReplyAgent(params: {
         activeProvider: providerUsed,
         activeModel: modelUsed,
         attempts: fallbackAttempts,
+        cfg,
       });
       if (fallbackNotice) {
         fallbackNoticePayloads.push(
@@ -2213,15 +2215,17 @@ export async function runReplyAgent(params: {
           })()
         : pendingText;
       if (resolvedPendingText) {
-        await updateSessionStoreEntry({
+        await applySessionStoreEntryPatch({
           storePath,
           sessionKey,
-          update: async () => ({
+          skipMaintenance: true,
+          takeCacheOwnership: true,
+          patch: {
             pendingFinalDelivery: true,
             pendingFinalDeliveryText: resolvedPendingText,
             pendingFinalDeliveryCreatedAt: Date.now(),
             updatedAt: Date.now(),
-          }),
+          },
         });
       }
     }

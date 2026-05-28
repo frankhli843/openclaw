@@ -44,9 +44,9 @@ import { rewakeParentAfterAnnounce } from "./subagent-announce-rewake.frankclaw.
 import {
   callGateway,
   dispatchGatewayMethodInProcess,
-  isEmbeddedPiRunActive,
+  isEmbeddedAgentRunActive,
   getRuntimeConfig,
-  waitForEmbeddedPiRunEnd,
+  waitForEmbeddedAgentRunEnd,
 } from "./subagent-announce.runtime.js";
 import { getSubagentDepthFromSessionStore } from "./subagent-depth.js";
 import { deleteSubagentSessionForCleanup } from "./subagent-session-cleanup.js";
@@ -311,9 +311,9 @@ export async function runSubagentAnnounceFlow(params: {
     const settleTimeoutMs = Math.min(Math.max(params.timeoutMs, 1), 120_000);
     let reply = params.roundOneReply;
     let outcome: SubagentRunOutcome | undefined = params.outcome;
-    if (childSessionId && isEmbeddedPiRunActive(childSessionId)) {
-      const settled = await waitForEmbeddedPiRunEnd(childSessionId, settleTimeoutMs);
-      if (!settled && isEmbeddedPiRunActive(childSessionId)) {
+    if (childSessionId && isEmbeddedAgentRunActive(childSessionId)) {
+      const settled = await waitForEmbeddedAgentRunEnd(childSessionId, settleTimeoutMs);
+      if (!settled && isEmbeddedAgentRunActive(childSessionId)) {
         shouldDeleteChildSession = false;
         return false;
       }
@@ -568,7 +568,7 @@ export async function runSubagentAnnounceFlow(params: {
         } else if (isCronSessionKey(targetRequesterSessionKey)) {
           const cronSessionId =
             (parentSessionEntry as { sessionId?: string })?.sessionId?.trim() ?? "";
-          if (cronSessionId && !isEmbeddedPiRunActive(cronSessionId)) {
+          if (cronSessionId && !isEmbeddedAgentRunActive(cronSessionId)) {
             defaultRuntime.log(
               `[info] Subagent announce skipped for completed cron ${targetRequesterSessionKey}: ` +
                 `embedded PI no longer active, treating as delivered`,

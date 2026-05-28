@@ -1,7 +1,8 @@
-import type { CurrentInboundPromptContext } from "../../agents/pi-embedded-runner/run/params.js";
+import type { CurrentInboundPromptContext } from "../../agents/embedded-agent-runner/run/params.js";
 import type { InboundEventKind } from "../../channels/inbound-event/kind.js";
 import { annotateInterSessionPromptText } from "../../sessions/input-provenance.js";
 import { normalizeOptionalString } from "../../shared/string-coerce.js";
+import type { SourceReplyDeliveryMode } from "../get-reply-options.types.js";
 import { HEARTBEAT_TRANSCRIPT_PROMPT } from "../heartbeat.js";
 import { buildInboundMediaNote } from "../media-note.js";
 import type { MsgContext, TemplateContext } from "../templating.js";
@@ -12,7 +13,7 @@ const REPLY_MEDIA_HINT =
 const INBOUND_VISUAL_MEDIA_INSPECTION_HINT =
   "Inbound image/video attachments are file references, not visual evidence by themselves. If the user asks what an attachment shows, inspect the latest attached file with a vision-capable path/tool before answering. Do not infer attachment contents from surrounding conversation or older attachments.";
 const ROOM_EVENT_PROMPT = "[OpenClaw room event]";
-const ROOM_EVENT_VISIBLE_REPLY_CONTRACT = "message_tool_only";
+const ROOM_EVENT_SOURCE_REPLY_DELIVERY_MODE = "message_tool_only";
 
 const VISUAL_MEDIA_EXTENSION_RE =
   /\.(?:png|jpe?g|gif|webp|bmp|tiff?|heic|heif|mp4|mov|webm|mkv|avi|m4v)$/i;
@@ -136,6 +137,7 @@ type ReplyPromptEnvelopeBaseParams = {
   softResetTail?: string;
   isHeartbeat?: boolean;
   inboundEventKind?: InboundEventKind;
+  sourceReplyDeliveryMode?: SourceReplyDeliveryMode;
 };
 
 function formatRoomEventLine(ctx: TemplateContext, body: string): string {
@@ -164,10 +166,14 @@ function resolveRoomEventBody(params: ReplyPromptEnvelopeBaseParams): string {
 
 function buildRoomEventContext(params: ReplyPromptEnvelopeBaseParams): string {
   const roomEventBody = resolveRoomEventBody(params);
+  const visibleReplyContract =
+    params.sourceReplyDeliveryMode === "message_tool_only"
+      ? `visible_reply_contract: ${ROOM_EVENT_SOURCE_REPLY_DELIVERY_MODE}`
+      : undefined;
   return [
     "[OpenClaw room event]",
     "inbound_event_kind: room_event",
-    `visible_reply_contract: ${ROOM_EVENT_VISIBLE_REPLY_CONTRACT}`,
+    visibleReplyContract,
     params.inboundUserContext.trim() ? `Room context:\n${params.inboundUserContext.trim()}` : "",
     `Current event:\n${formatRoomEventLine(params.sessionCtx, roomEventBody)}`,
     "Treat this as observed room activity. Decide whether to act.",

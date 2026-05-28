@@ -1,3 +1,5 @@
+import type { OutboundIdentity } from "openclaw/plugin-sdk/channel-outbound";
+import { resolveOutboundSendDep } from "openclaw/plugin-sdk/channel-outbound";
 import {
   type ChannelOutboundAdapter,
   createEmptyChannelResult,
@@ -9,8 +11,6 @@ import {
   DiscordDnrSuppressedError,
   deferDelivery,
 } from "openclaw/plugin-sdk/infra-runtime";
-import type { OutboundIdentity } from "openclaw/plugin-sdk/outbound-runtime";
-import { resolveOutboundSendDep } from "openclaw/plugin-sdk/outbound-send-deps";
 import { createSubsystemLogger } from "openclaw/plugin-sdk/runtime-env";
 import {
   normalizeOptionalString,

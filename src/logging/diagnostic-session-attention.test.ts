@@ -177,9 +177,62 @@ describe("classifySessionAttention", () => {
         recoveryEligible: true,
       },
     },
-  ])("$name", ({ activity, expected, queueDepth, ageMs }) => {
+    {
+      name: "idle queued stale model activity without active embedded run",
+      state: "idle" as const,
+      queueDepth: 1,
+      activity: {
+        activeWorkKind: "model_call" as const,
+        hasActiveEmbeddedRun: false,
+        lastProgressAgeMs: 31_000,
+        lastProgressReason: "model_call:started",
+      },
+      expected: {
+        eventType: "session.stuck",
+        reason: "queued_work_without_active_run",
+        classification: "stale_session_state",
+        recoveryEligible: true,
+      },
+    },
+    {
+      name: "idle queued stale tool_call activity without active embedded run",
+      state: "idle" as const,
+      queueDepth: 1,
+      activity: {
+        activeWorkKind: "tool_call" as const,
+        hasActiveEmbeddedRun: false,
+        activeToolAgeMs: 31_000,
+        lastProgressAgeMs: 31_000,
+        lastProgressReason: "tool:shell:started",
+      },
+      expected: {
+        eventType: "session.stuck",
+        reason: "queued_work_without_active_run",
+        classification: "stale_session_state",
+        recoveryEligible: true,
+      },
+    },
+    {
+      name: "processing session with orphaned activity is not recoverable",
+      state: "processing" as const,
+      queueDepth: 1,
+      activity: {
+        activeWorkKind: "model_call" as const,
+        hasActiveEmbeddedRun: false,
+        lastProgressAgeMs: 31_000,
+      },
+      expected: {
+        eventType: "session.stalled",
+        reason: "active_work_without_progress",
+        classification: "stalled_agent_run",
+        activeWorkKind: "model_call",
+        recoveryEligible: false,
+      },
+    },
+  ])("$name", ({ activity, expected, queueDepth, state = "processing" as const, ageMs = 0 }) => {
     expect(
       classifySessionAttention({
+        state,
         queueDepth,
         activity,
         staleMs: 30_000,

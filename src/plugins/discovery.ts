@@ -74,6 +74,8 @@ export type PluginCandidate = {
   bundledManifestId?: string;
   bundledManifest?: PluginManifest;
   bundledManifestPath?: string;
+  requiredPluginIds?: string[];
+  requiredPluginSource?: string;
   rawPackageManifest?: PackageManifest;
 };
 
@@ -389,6 +391,29 @@ function mergeDiscoveryResult(
   }
 }
 
+function addMissingRequiredPluginDiagnostics(result: PluginDiscoveryResult): void {
+  const candidateIds = new Set(result.candidates.map((candidate) => candidate.idHint));
+  const seen = new Set<string>();
+  for (const candidate of result.candidates) {
+    for (const requiredPluginId of candidate.requiredPluginIds ?? []) {
+      if (candidateIds.has(requiredPluginId) || requiredPluginId === candidate.idHint) {
+        continue;
+      }
+      const key = `${candidate.idHint}\0${requiredPluginId}`;
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      result.diagnostics.push({
+        level: "warn",
+        pluginId: candidate.idHint,
+        source: candidate.requiredPluginSource ?? candidate.source,
+        message: `plugin "${candidate.idHint}" requires plugin "${requiredPluginId}"; install "${requiredPluginId}" to use it`,
+      });
+    }
+  }
+}
+
 type InstalledPluginRecordPath = {
   path: string;
   requireBuiltRuntimeEntry: boolean;
@@ -637,13 +662,20 @@ function pushInvalidPackageExtensionDiagnostic(params: {
   return false;
 }
 
-function resolveIdHintManifestId(
+type ResolvedCandidateManifest = {
+  manifest: PluginManifest;
+  manifestPath: string;
+};
+
+function resolveCandidateManifest(
   rootDir: string,
   rejectHardlinks: boolean,
   rootRealPath?: string,
-): string | undefined {
+): ResolvedCandidateManifest | undefined {
   const manifest = loadPluginManifest(rootDir, rejectHardlinks, rootRealPath);
-  return manifest.ok ? manifest.manifest.id : undefined;
+  return manifest.ok
+    ? { manifest: manifest.manifest, manifestPath: manifest.manifestPath }
+    : undefined;
 }
 
 function addCandidate(params: {
@@ -664,6 +696,8 @@ function addCandidate(params: {
   bundledManifestId?: string;
   bundledManifest?: PluginManifest;
   bundledManifestPath?: string;
+  requiredPluginIds?: string[];
+  requiredPluginSource?: string;
   realpathCache: Map<string, string>;
 }) {
   const resolved = path.resolve(params.source);
@@ -712,6 +746,10 @@ function addCandidate(params: {
     bundledManifestId: params.bundledManifestId,
     bundledManifest: params.bundledManifest,
     bundledManifestPath: params.bundledManifestPath,
+    ...(params.requiredPluginIds && params.requiredPluginIds.length > 0
+      ? { requiredPluginIds: params.requiredPluginIds }
+      : {}),
+    ...(params.requiredPluginSource ? { requiredPluginSource: params.requiredPluginSource } : {}),
   });
 }
 
@@ -901,7 +939,8 @@ function discoverInDirectory(params: {
       continue;
     }
     const extensions = extensionResolution.status === "ok" ? extensionResolution.entries : [];
-    const manifestId = resolveIdHintManifestId(fullPath, rejectHardlinks, fullPathRealPath);
+    const candidateManifest = resolveCandidateManifest(fullPath, rejectHardlinks, fullPathRealPath);
+    const manifestId = candidateManifest?.manifest.id;
     const setupSource = resolvePackageSetupSource({
       packageDir: fullPath,
       ...(fullPathRealPath !== undefined ? { packageRootRealPath: fullPathRealPath } : {}),
@@ -945,6 +984,8 @@ function discoverInDirectory(params: {
           workspaceDir: params.workspaceDir,
           manifest,
           packageDir: fullPath,
+          requiredPluginIds: candidateManifest?.manifest.requiresPlugins,
+          requiredPluginSource: candidateManifest?.manifestPath,
           realpathCache: params.realpathCache,
         });
       }
@@ -984,6 +1025,8 @@ function discoverInDirectory(params: {
         workspaceDir: params.workspaceDir,
         manifest,
         packageDir: fullPath,
+        requiredPluginIds: candidateManifest?.manifest.requiresPlugins,
+        requiredPluginSource: candidateManifest?.manifestPath,
         realpathCache: params.realpathCache,
       });
       continue;
@@ -1146,7 +1189,8 @@ function discoverFromPath(params: {
       return;
     }
     const extensions = extensionResolution.status === "ok" ? extensionResolution.entries : [];
-    const manifestId = resolveIdHintManifestId(resolved, rejectHardlinks, resolvedRealPath);
+    const candidateManifest = resolveCandidateManifest(resolved, rejectHardlinks, resolvedRealPath);
+    const manifestId = candidateManifest?.manifest.id;
     const setupSource = resolvePackageSetupSource({
       packageDir: resolved,
       ...(resolvedRealPath !== undefined ? { packageRootRealPath: resolvedRealPath } : {}),
@@ -1190,6 +1234,8 @@ function discoverFromPath(params: {
           workspaceDir: params.workspaceDir,
           manifest,
           packageDir: resolved,
+          requiredPluginIds: candidateManifest?.manifest.requiresPlugins,
+          requiredPluginSource: candidateManifest?.manifestPath,
           realpathCache: params.realpathCache,
         });
       }
@@ -1230,6 +1276,8 @@ function discoverFromPath(params: {
         workspaceDir: params.workspaceDir,
         manifest,
         packageDir: resolved,
+        requiredPluginIds: candidateManifest?.manifest.requiresPlugins,
+        requiredPluginSource: candidateManifest?.manifestPath,
         realpathCache: params.realpathCache,
       });
       return;
@@ -1467,5 +1515,6 @@ export function discoverOpenClawPlugins(params: {
   const seenDiagnostics = new Set<string>();
   mergeDiscoveryResult(result, scopedResult, seenSources, seenDiagnostics);
   mergeDiscoveryResult(result, sharedResult, seenSources, seenDiagnostics);
+  addMissingRequiredPluginDiagnostics(result);
   return result;
 }

@@ -4,8 +4,43 @@ import path from "node:path";
 
 const command = process.argv[2];
 const scratchRoot = process.env.OPENCLAW_PLUGINS_TMP_DIR || os.tmpdir();
+const CLAWHUB_PREFLIGHT_TIMEOUT_MS = readPositiveInt(
+  process.env.OPENCLAW_PLUGINS_E2E_CLAWHUB_PREFLIGHT_TIMEOUT_MS,
+  30_000,
+);
 const readJson = (file) => JSON.parse(fs.readFileSync(file, "utf8"));
 const scratchFile = (name) => path.join(scratchRoot, name);
+
+function readPositiveInt(raw, fallback) {
+  const parsed = Number.parseInt(String(raw || ""), 10);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function createTimeoutError(label, timeoutMs) {
+  const error = new Error(`${label} timed out after ${timeoutMs}ms`);
+  error.code = "ETIMEDOUT";
+  return error;
+}
+
+async function withTimeout(label, timeoutMs, run) {
+  const controller = new AbortController();
+  const timeoutError = createTimeoutError(label, timeoutMs);
+  let timeout;
+  const timeoutPromise = new Promise((_, reject) => {
+    timeout = setTimeout(() => {
+      controller.abort(timeoutError);
+      reject(timeoutError);
+    }, timeoutMs);
+    timeout.unref?.();
+  });
+  try {
+    return await Promise.race([run(controller.signal), timeoutPromise]);
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  }
+}
 
 function resolveHomePath(value) {
   if (value === "~") {
@@ -757,16 +792,31 @@ async function assertClawHubPreflight() {
     process.env.CLAWHUB_TOKEN ||
     process.env.CLAWHUB_AUTH_TOKEN ||
     "";
-  const response = await fetch(`${baseUrl}/api/v1/packages/${encodeURIComponent(packageName)}`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-  });
+  const preflightUrl = `${baseUrl}/api/v1/packages/${encodeURIComponent(packageName)}`;
+  const response = await withTimeout(
+    `ClawHub package preflight for ${packageName}`,
+    CLAWHUB_PREFLIGHT_TIMEOUT_MS,
+    (signal) =>
+      fetch(preflightUrl, {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        signal,
+      }),
+  );
   if (!response.ok) {
-    const body = await response.text().catch(() => "");
+    const body = await withTimeout(
+      `ClawHub package preflight response for ${packageName}`,
+      CLAWHUB_PREFLIGHT_TIMEOUT_MS,
+      () => response.text().catch(() => ""),
+    );
     throw new Error(
       `ClawHub package preflight failed for ${packageName}: ${response.status} ${body}`,
     );
   }
-  const detail = await response.json();
+  const detail = await withTimeout(
+    `ClawHub package preflight response for ${packageName}`,
+    CLAWHUB_PREFLIGHT_TIMEOUT_MS,
+    () => response.json(),
+  );
   const family = detail.package?.family;
   if (family !== "code-plugin" && family !== "bundle-plugin") {
     throw new Error(`ClawHub package ${packageName} is not installable as a plugin: ${family}`);

@@ -246,30 +246,23 @@ describe("builder compatibility", () => {
     expect(stripInboundMetadata(input)).toBe("Actual user message");
   });
 
-  it("strips generated joined inbound context block alongside other metadata blocks", () => {
-    const input = `${buildInboundUserContextPrefix({
-      ChatType: "group",
-      OriginatingTo: "telegram:-100123",
-      OriginatingChannel: "telegram",
-      Provider: "telegram",
-      MessageSid: "msg-1",
-      SenderName: "Alice",
-      SenderId: "user-1",
-    } as TemplateContext)}\n\nActual user message`;
+  it("strips stale message-tool delivery hints from replayed user text", () => {
+    const input = [
+      "Delivery: to send a message, use the `message` tool.",
+      "",
+      "Actual user message",
+    ].join("\n");
 
-    expect(input).toContain("Inbound context (joined; trusted+untrusted):");
-    expect(input).toContain("Conversation info (untrusted metadata):");
-    expect(input).toContain("Sender (untrusted metadata):");
     expect(stripInboundMetadata(input)).toBe("Actual user message");
   });
 
-  it("strips a standalone joined block", () => {
-    const input = `Inbound context (joined; trusted+untrusted):
-\`\`\`json
-{"schema": "openclaw.joined_inbound_context.v1"}
-\`\`\`
+  it("strips current message-tool-only delivery hints from replayed user text", () => {
+    const input = [
+      "Delivery: Final assistant text is not automatically delivered in this run. Use the `message` tool to send user-visible output.",
+      "",
+      "Actual user message",
+    ].join("\n");
 
-User message after joined block`;
-    expect(stripInboundMetadata(input)).toBe("User message after joined block");
+    expect(stripInboundMetadata(input)).toBe("Actual user message");
   });
 });

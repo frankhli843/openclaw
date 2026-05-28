@@ -89,22 +89,30 @@ if (IS_MAIN) {
 }
 
 function parsePositiveInt(raw, fallback, label) {
-  if (!raw) {
+  if (raw === undefined || raw === "") {
     return fallback;
   }
-  const parsed = Number(raw);
-  if (!Number.isInteger(parsed) || parsed < 1) {
+  const text = String(raw).trim();
+  if (!/^\d+$/u.test(text)) {
+    throw new Error(`${label} must be a positive integer. Got: ${JSON.stringify(raw)}`);
+  }
+  const parsed = Number(text);
+  if (!Number.isSafeInteger(parsed) || parsed < 1) {
     throw new Error(`${label} must be a positive integer. Got: ${JSON.stringify(raw)}`);
   }
   return parsed;
 }
 
 function parseNonNegativeInt(raw, fallback, label) {
-  if (!raw) {
+  if (raw === undefined || raw === "") {
     return fallback;
   }
-  const parsed = Number(raw);
-  if (!Number.isInteger(parsed) || parsed < 0) {
+  const text = String(raw).trim();
+  if (!/^\d+$/u.test(text)) {
+    throw new Error(`${label} must be a non-negative integer. Got: ${JSON.stringify(raw)}`);
+  }
+  const parsed = Number(text);
+  if (!Number.isSafeInteger(parsed) || parsed < 0) {
     throw new Error(`${label} must be a non-negative integer. Got: ${JSON.stringify(raw)}`);
   }
   return parsed;
@@ -515,12 +523,12 @@ function printLaneManifest(label, poolLanes, timingStore) {
   }
 }
 
-function dockerPreflightContainerNames(raw) {
+export function dockerPreflightContainerNames(raw) {
   return raw
     .split(/\r?\n/)
     .map((line) => line.trim().split(/\s+/, 1)[0])
     .filter((name) =>
-      /^(?:openclaw-(?:gateway-e2e|openwebui|openwebui-gateway|config-reload-e2e)-)/.test(name),
+      /^(?:openclaw-[a-z0-9-]+-e2e-\d+|openclaw-openwebui(?:-gateway)?-\d+)$/u.test(name),
     );
 }
 

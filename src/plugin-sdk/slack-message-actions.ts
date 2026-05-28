@@ -1,6 +1,6 @@
-import type { AgentToolResult } from "@earendil-works/pi-agent-core";
 import { parseSlackBlocksInput } from "../../extensions/slack/src/blocks-input.js";
 import { buildSlackInteractiveBlocks } from "../../extensions/slack/src/blocks-render.js";
+import type { AgentToolResult } from "../agents/runtime/index.js";
 import { readNumberParam, readStringParam } from "../agents/tools/common.js";
 import type { ChannelMessageActionContext } from "../channels/plugins/types.js";
 import { normalizeInteractiveReply } from "../interactive/payload.js";
