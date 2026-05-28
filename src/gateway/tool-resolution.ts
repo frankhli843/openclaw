@@ -125,7 +125,15 @@ export function resolveGatewayScopedTools(params: {
     Array.isArray(gatewayToolsCfg?.deny) ? { deny: gatewayToolsCfg.deny } : undefined,
     excludedToolNames.length > 0 ? { deny: excludedToolNames } : undefined,
   ]);
-  const inheritedToolDenylist = [...explicitDenylist];
+  // Surface restrictions (HTTP deny list + excluded native tools) must not propagate
+  // to child sessions via inheritedToolDenylist. They are surface-specific exclusions,
+  // not policy denials. Including them breaks ACP spawn from HTTP-surface cron sessions
+  // because findAcpUnsupportedInheritedToolDeny() checks for apply_patch in the deny list.
+  const surfaceOnlyDenySet = new Set([...defaultGatewayDeny, ...excludedToolNames]);
+  const inheritedToolDenylist =
+    surfaceOnlyDenySet.size > 0
+      ? explicitDenylist.filter((name) => !surfaceOnlyDenySet.has(name))
+      : [...explicitDenylist];
   // Passed by reference to sessions_spawn and populated after the final policy
   // pass so child sessions inherit the actual parent tool surface.
   const inheritedToolAllowlist: string[] = [];
@@ -211,5 +219,7 @@ export function resolveGatewayScopedTools(params: {
   return {
     agentId,
     tools,
+    inheritedToolDenylist,
+    inheritedToolAllowlist,
   };
 }

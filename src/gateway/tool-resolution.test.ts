@@ -67,4 +67,34 @@ describe("resolveGatewayScopedTools", () => {
 
     expect(result.tools.some((tool) => tool.name === "message")).toBe(false);
   });
+
+  it("does not propagate HTTP surface denials to inheritedToolDenylist", () => {
+    const result = resolveGatewayScopedTools({
+      cfg: { tools: { profile: "minimal" } } as OpenClawConfig,
+      sessionKey: "agent:main:cron:orchestrator",
+      surface: "http",
+    });
+
+    // apply_patch must not appear in inheritedToolDenylist even though it is in
+    // DEFAULT_GATEWAY_HTTP_TOOL_DENY — HTTP surface restrictions are not policy
+    // denials and must not block ACP spawn from cron sessions.
+    expect(result.inheritedToolDenylist).not.toContain("apply_patch");
+    expect(result.inheritedToolDenylist).not.toContain("exec");
+    expect(result.inheritedToolDenylist).not.toContain("spawn");
+  });
+
+  it("does not propagate excludeToolNames to inheritedToolDenylist", () => {
+    const result = resolveGatewayScopedTools({
+      cfg: { tools: { profile: "minimal" } } as OpenClawConfig,
+      sessionKey: "agent:main:mcp:loopback",
+      surface: "loopback",
+      excludeToolNames: ["read", "write", "edit", "apply_patch", "exec", "process"],
+    });
+
+    // Native tool exclusions are surface exclusions, not policy denials.
+    // They must not block ACP spawn from MCP loopback sessions.
+    expect(result.inheritedToolDenylist).not.toContain("apply_patch");
+    expect(result.inheritedToolDenylist).not.toContain("read");
+    expect(result.inheritedToolDenylist).not.toContain("exec");
+  });
 });
