@@ -403,7 +403,9 @@ describe("whatsapp inbound dispatch", () => {
 
     expect(ctx.MediaPath).toBe("/media/inbound/own-photo.jpg");
     expect(ctx.MediaType).toBe("image/jpeg");
-    expect(ctx.MediaPaths).toBeUndefined();
+    // MediaPaths is now always populated for any media (upstream centralised media
+    // payload assembly); verify own media is used, not history media.
+    expect(ctx.MediaPaths).toEqual(["/media/inbound/own-photo.jpg"]);
   });
 
   it("keeps agent and command bodies independently overridable", async () => {
