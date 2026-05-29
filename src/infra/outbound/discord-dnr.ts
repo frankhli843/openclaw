@@ -306,6 +306,13 @@ function readPolicyStore(nowMs: number): {
     // no file -> defaults only
   }
 
+  // frankclaw: merge in any defaults not overridden by file entries.
+  for (const [, defaultPolicy] of defaultsById) {
+    if (!recurring.some((r) => r.id === defaultPolicy.id)) {
+      recurring.push(defaultPolicy);
+    }
+  }
+
   cache = {
     loadedAtMs: nowMs,
     recurring,
