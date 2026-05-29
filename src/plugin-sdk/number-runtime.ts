@@ -2,6 +2,11 @@
 
 export {
   parseFiniteNumber,
+  resolveIntegerOption,
+  resolveNonNegativeIntegerOption,
+  resolveOptionalIntegerOption,
+  parseStrictInteger,
   parseStrictFiniteNumber,
+  parseStrictNonNegativeInteger,
   parseStrictPositiveInteger,
-} from "../infra/parse-finite-number.js";
+} from "../shared/number-coercion.js";

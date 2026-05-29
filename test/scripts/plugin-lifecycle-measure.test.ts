@@ -45,6 +45,44 @@ afterEach(() => {
 });
 
 describe("plugin lifecycle resource sampler", () => {
+  it("rejects loose numeric env values instead of parsing prefixes", () => {
+    const dir = makeTempDir();
+    const summary = path.join(dir, "summary.tsv");
+    const result = spawnSync("node", [scriptPath, summary, "invalid-env", "--", "node", "-e", ""], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        OPENCLAW_PLUGIN_LIFECYCLE_PHASE_TIMEOUT_MS: "150ms",
+      },
+      timeout: 5000,
+    });
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain(
+      "OPENCLAW_PLUGIN_LIFECYCLE_PHASE_TIMEOUT_MS must be a positive integer; got: 150ms",
+    );
+  });
+
+  it("rejects zero lifecycle timeouts instead of disabling the guard", () => {
+    const dir = makeTempDir();
+    const summary = path.join(dir, "summary.tsv");
+    const result = spawnSync("node", [scriptPath, summary, "invalid-env", "--", "node", "-e", ""], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        OPENCLAW_PLUGIN_LIFECYCLE_PHASE_TIMEOUT_MS: "0",
+      },
+      timeout: 5000,
+    });
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain(
+      "OPENCLAW_PLUGIN_LIFECYCLE_PHASE_TIMEOUT_MS must be a positive integer; got: 0",
+    );
+  });
+
   it("configures a phase timeout with process-group cleanup", () => {
     const script = readFileSync(scriptPath, "utf8");
 

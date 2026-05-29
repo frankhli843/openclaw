@@ -2246,6 +2246,7 @@ export async function runAgentTurnWithFallback(params: {
                             await params.opts?.onReasoningStream?.({
                               text: payload.text,
                               mediaUrls: payload.mediaUrls,
+                              isReasoningSnapshot: payload.isReasoningSnapshot,
                             });
                           }
                         : undefined,
@@ -2283,6 +2284,8 @@ export async function runAgentTurnWithFallback(params: {
                         }
                         if (phase === "start" || phase === "update") {
                           const toolStartProgressPromise = params.opts?.onToolStart?.({
+                            itemId: readStringValue(evt.data.itemId),
+                            toolCallId: readStringValue(evt.data.toolCallId),
                             name,
                             phase,
                             args,

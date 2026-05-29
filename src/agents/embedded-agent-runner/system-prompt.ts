@@ -122,30 +122,6 @@ export function buildEmbeddedSystemPrompt(params: {
   });
 }
 
-export function createSystemPromptOverride(
-  systemPrompt: string,
-): (defaultPrompt?: string) => string {
-  const override = systemPrompt.trim();
-  return (_defaultPrompt?: string) => override;
-}
-
-export function applySystemPromptOverrideToSession(
-  session: AgentSession,
-  override: string | ((defaultPrompt?: string) => string),
-) {
-  const prompt = typeof override === "function" ? override() : override.trim();
-  // WORKAROUND: rolldown's class accessor transform rewrites property
-  // assignments (even bracket notation, even on `_state`) into a non-existent
-  // `.setSystemPrompt()` call.  Use Object.assign on a runtime-computed
-  // object to make the assignment completely opaque to static analysis.
-  // oxlint-disable-next-line no-explicit-any, no-useless-concat -- intentional: defeat bundler static analysis
-  const state = (session.agent as any)["_st" + "ate"];
-  // oxlint-disable-next-line no-useless-concat -- intentional: defeat bundler static analysis
-  Object.assign(state, { ["system" + "Prompt"]: prompt });
-  const mutableSession = session as unknown as {
-    _baseSystemPrompt?: string;
-    _rebuildSystemPrompt?: (toolNames: string[]) => string;
-  };
-  mutableSession["_baseSystemPrompt"] = prompt;
-  mutableSession["_rebuildSystemPrompt"] = () => prompt;
+export function applySystemPromptToSession(session: AgentSession, systemPrompt: string) {
+  session.setBaseSystemPrompt(systemPrompt.trim());
 }

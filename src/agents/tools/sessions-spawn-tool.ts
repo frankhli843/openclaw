@@ -35,6 +35,7 @@ import type { AnyAgentTool } from "./common.js";
 import {
   jsonResult,
   normalizeToolModelOverride,
+  readNonNegativeIntegerParam,
   readStringParam,
   ToolInputError,
 } from "./common.js";
@@ -175,9 +176,9 @@ function createSessionsSpawnToolSchema(params: {
           "ACP-only environment overrides for session creation. Values are persisted in session metadata; use for non-secret selectors such as CLAUDE_CONFIG_DIR.",
       }),
     ),
-    runTimeoutSeconds: Type.Optional(Type.Number({ minimum: 0 })),
+    runTimeoutSeconds: Type.Optional(Type.Integer({ minimum: 0 })),
     // Back-compat: older callers used timeoutSeconds for this tool.
-    timeoutSeconds: Type.Optional(Type.Number({ minimum: 0 })),
+    timeoutSeconds: Type.Optional(Type.Integer({ minimum: 0 })),
     ...(params.threadAvailable
       ? {
           thread: Type.Optional(
@@ -355,17 +356,10 @@ export function createSessionsSpawnTool(
       if (runtime !== "acp" && envOverride) {
         throw new Error("env is only supported for runtime='acp'.");
       }
-      // Back-compat: older callers used timeoutSeconds for this tool.
-      const timeoutSecondsCandidate =
-        typeof params.runTimeoutSeconds === "number"
-          ? params.runTimeoutSeconds
-          : typeof params.timeoutSeconds === "number"
-            ? params.timeoutSeconds
-            : undefined;
       const runTimeoutSeconds =
-        typeof timeoutSecondsCandidate === "number" && Number.isFinite(timeoutSecondsCandidate)
-          ? Math.max(0, Math.floor(timeoutSecondsCandidate))
-          : undefined;
+        readNonNegativeIntegerParam(params, "runTimeoutSeconds") ??
+        // Back-compat: older callers used timeoutSeconds for this tool.
+        readNonNegativeIntegerParam(params, "timeoutSeconds");
       const thread = params.thread === true;
       const attachments = Array.isArray(params.attachments)
         ? (params.attachments as Array<{

@@ -1,7 +1,7 @@
 import {
   MIN_CLIENT_PROTOCOL_VERSION,
   PROTOCOL_VERSION,
-} from "../../src/gateway/protocol/version.ts";
+} from "../../packages/gateway-protocol/src/version.js";
 import { createArgReader, createGatewayWsClient, resolveGatewayUrl } from "./gateway-ws-client.ts";
 
 function writeStdoutLine(message: string): void {

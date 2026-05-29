@@ -36,6 +36,16 @@ describe("parallels npm update smoke", () => {
     expect(script).toContain("freshTargetStatus");
   });
 
+  it("guards beta validation against cross-version harness checkouts", () => {
+    const script = readFileSync(SCRIPT_PATH, "utf8");
+
+    expect(script).toContain("assertPublishedTargetMatchesHarnessCheckout");
+    expect(script).toContain("readHarnessCheckoutVersion");
+    expect(script).toContain("openClawVersionFamily");
+    expect(script).toContain("OPENCLAW_PARALLELS_ALLOW_HARNESS_TARGET_MISMATCH");
+    expect(script).toContain("checkout the matching release branch");
+  });
+
   it("lets callers override the Parallels host IP", () => {
     const script = readFileSync(SCRIPT_PATH, "utf8");
 
