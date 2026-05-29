@@ -232,7 +232,6 @@ function buildSendSchema(options: {
       }),
     ),
     quoteText: Type.Optional(Type.String({ description: "Telegram reply quote text." })),
-    bestEffort: Type.Optional(Type.Boolean()),
     gifPlayback: Type.Optional(Type.Boolean()),
     forceDocument: Type.Optional(
       Type.Boolean({
