@@ -222,9 +222,11 @@ function readPolicyStore(nowMs: number): {
   let oneOff: DiscordDnrOneOffPolicy[] = [];
 
   const policyPath = resolvePolicyPath();
+  let policyFileFound = false;
   try {
     const raw = fs.readFileSync(policyPath, "utf-8");
     const parsed = JSON.parse(raw) as DiscordDnrPolicyStore;
+    policyFileFound = true;
     if (Array.isArray(parsed.recurring)) {
       for (const p of parsed.recurring) {
         if (!p || typeof p !== "object") {
@@ -306,9 +308,11 @@ function readPolicyStore(nowMs: number): {
     // no file -> defaults only
   }
 
-  // frankclaw: merge in any defaults not overridden by file entries.
-  for (const [, defaultPolicy] of defaultsById) {
-    if (!recurring.some((r) => r.id === defaultPolicy.id)) {
+  // frankclaw: when no policy file exists, apply defaults so the built-in
+  // quiet-hours window is active without requiring an explicit config file.
+  // If a file was loaded (even with recurring: []), the file is authoritative.
+  if (!policyFileFound) {
+    for (const [, defaultPolicy] of defaultsById) {
       recurring.push(defaultPolicy);
     }
   }

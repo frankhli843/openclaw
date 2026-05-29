@@ -539,10 +539,10 @@ describe("whatsapp DNR policy", () => {
       }),
     );
 
-    // Discord without its own policy file has no recurring policies loaded
-    // (DEFAULT_RECURRING is populated but not merged into the read path
-    //  when the discord-dnr-policies.json file is absent)
-    expect(isDiscordDnrTarget({ channel: "discord", to: "channel:123" })).toBe(false);
+    // Discord without its own policy file falls back to DEFAULT_RECURRING,
+    // so it is still a DNR target (the two policy files are independent but
+    // Discord always has at least the built-in quiet-hours default).
+    expect(isDiscordDnrTarget({ channel: "discord", to: "channel:123" })).toBe(true);
     // WhatsApp policy works independently via channel-dnr-policies.json
     expect(isWhatsAppDnrTarget("any@g.us")).toBe(true);
   });
