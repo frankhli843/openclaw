@@ -197,6 +197,7 @@ const explicitNeverBundleDependencies = [
   "@larksuiteoapi/node-sdk",
   "@matrix-org/matrix-sdk-crypto-nodejs",
   "@vitest/expect",
+  "highlight.js",
   "matrix-js-sdk",
   "prism-media",
   "qrcode-terminal",
