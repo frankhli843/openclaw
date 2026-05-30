@@ -93,11 +93,16 @@ let _installedPluginIndexCache: InstalledPluginIndex | null = null;
 export function loadInstalledPluginIndex(
   params: LoadInstalledPluginIndexParams = {},
 ): InstalledPluginIndex {
-  if (_installedPluginIndexCache) {
+  // frankclaw: skip cache when explicit params are provided (doctor/repair/test paths).
+  // Only cache for default-param gateway startup calls where the index is stable.
+  const hasExplicitParams = Object.keys(params).length > 0;
+  if (_installedPluginIndexCache && !hasExplicitParams) {
     return _installedPluginIndexCache;
   }
   const { index } = buildInstalledPluginIndex(params);
-  _installedPluginIndexCache = index;
+  if (!hasExplicitParams) {
+    _installedPluginIndexCache = index;
+  }
   return index;
 }
 

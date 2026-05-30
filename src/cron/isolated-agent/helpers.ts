@@ -281,12 +281,26 @@ export function resolveCronPayloadOutcome(params: {
     !hasStructuredDeliveryPayloads &&
     errorPayloads.length > 0 &&
     errorPayloads.every((payload) => isCronToolWarning(payload?.text));
+  // frankclaw: when the agent's ONLY output was a single error payload but
+  // it provided a successful final answer via preferFinalAssistantVisibleText,
+  // treat the run as recovered. Multiple errors or success-then-error patterns
+  // remain fatal — only a lone exec/tool error overridden by the final answer
+  // qualifies for this recovery path.
+  const hasRecoveredViaFinalAssistantText =
+    !params.runLevelError &&
+    params.failureSignal?.fatalForCron !== true &&
+    params.preferFinalAssistantVisibleText === true &&
+    normalizedFinalAssistantVisibleText !== undefined &&
+    !hasStructuredDeliveryPayloads &&
+    params.payloads.length === 1 &&
+    params.payloads[0]?.isError === true;
   const hasFatalStructuredErrorPayload =
     hasErrorPayload &&
     !hasSuccessfulPayloadAfterLastError &&
     !hasPendingPresentationWarning &&
     !hasNonTerminalToolErrorWarning &&
-    !hasRecoveredToolWarning;
+    !hasRecoveredToolWarning &&
+    !hasRecoveredViaFinalAssistantText;
   // Keep structured/media announce payloads intact. Only collapse purely textual
   // cron announce output to the final assistant-visible answer.
   const shouldUseFinalAssistantVisibleText =
