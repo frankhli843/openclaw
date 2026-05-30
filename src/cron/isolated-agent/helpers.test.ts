@@ -5,6 +5,7 @@ import {
   pickLastDeliverablePayload,
   pickLastNonEmptyTextFromPayloads,
   pickSummaryFromPayloads,
+  resolveCronPayloadOutcome,
 } from "./helpers.js";
 
 type TextPayload = { text?: string | undefined; isError?: boolean | undefined };
@@ -147,6 +148,42 @@ describe("pickDeliverablePayloads", () => {
     ];
 
     expect(pickDeliverablePayloads(payloads)).toEqual([{ text: "last error", isError: true }]);
+  });
+});
+
+describe("resolveCronPayloadOutcome", () => {
+  it("treats a tool error as recovered when the assistant final answer succeeds", () => {
+    const result = resolveCronPayloadOutcome({
+      payloads: [
+        {
+          text: "sed: can't read skills/reddit/scripts/localllama-aggregate.py: No such file or directory",
+          isError: true,
+        },
+      ],
+      finalAssistantVisibleText:
+        "Gemma4 research cron completed.\n\nNo blockers. The Gemma4-specific pipeline completed successfully.",
+      preferFinalAssistantVisibleText: true,
+    });
+
+    expect(result.hasFatalErrorPayload).toBe(false);
+    expect(result.outputText).toContain("Gemma4 research cron completed");
+    expect(result.deliveryPayloads).toEqual([
+      {
+        text: "Gemma4 research cron completed.\n\nNo blockers. The Gemma4-specific pipeline completed successfully.",
+      },
+    ]);
+  });
+
+  it("keeps a run-level error fatal even when partial success-looking text exists", () => {
+    const result = resolveCronPayloadOutcome({
+      payloads: [{ text: "Partial success-looking text" }],
+      runLevelError: { kind: "retry_limit", message: "retry limit exceeded" },
+      finalAssistantVisibleText: "Partial success-looking text",
+      preferFinalAssistantVisibleText: true,
+    });
+
+    expect(result.hasFatalErrorPayload).toBe(true);
+    expect(result.outputText).toBe("cron isolated run failed: retry limit exceeded");
   });
 });
 
