@@ -7,6 +7,7 @@ import { parseJsonl } from "../jsonl/parse.js";
 import { parseOcPath } from "../oc-path.js";
 import { parseMd } from "../parse.js";
 import { detectInsertion, resolveOcPath, setOcPath } from "../universal.js";
+import { parseYaml } from "../yaml/parse.js";
 
 function expectLeaf(
   match: ReturnType<typeof resolveOcPath>,
@@ -32,7 +33,6 @@ function expectInsertionPoint(match: ReturnType<typeof resolveOcPath>, container
     expect(match.container).toBe(container);
   }
 }
-
 
 describe("detectInsertion", () => {
   it("returns null for plain paths", () => {
@@ -185,6 +185,16 @@ describe("resolveOcPath — insertion-point detection", () => {
     const ast = parseJsonc('{ "k": 42 }').ast;
     const m = resolveOcPath(ast, parseOcPath("oc://config/k/+"));
     expect(m).toBeNull();
+  });
+});
+
+describe("resolveOcPath — yaml AST", () => {
+  it("preserves source line lookup for numeric map keys", () => {
+    const ast = parseYaml("name: x\n1: one\n").ast;
+    const m = resolveOcPath(ast, parseOcPath("oc://workflow.yaml/1"));
+
+    expectLeaf(m, { valueText: "one", leafType: "string" });
+    expect(m?.line).toBe(2);
   });
 });
 

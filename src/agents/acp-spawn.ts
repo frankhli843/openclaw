@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import { getAcpSessionManager } from "../acp/control-plane/manager.js";
+import type { AcpTurnAttachment } from "../acp/control-plane/manager.types.js";
 import {
   cleanupFailedAcpSpawn,
   type AcpSpawnRuntimeCloseHandle,
@@ -131,7 +132,33 @@ export type SpawnAcpParams = {
   thread?: boolean;
   sandbox?: SpawnAcpSandboxMode;
   streamTo?: SpawnAcpStreamTarget;
+  attachments?: AcpTurnAttachment[];
 };
+
+type GatewayImageAttachmentInput = {
+  type: "image";
+  source: {
+    type: "base64";
+    media_type: string;
+    data: string;
+  };
+};
+
+function toGatewayImageAttachments(
+  attachments: AcpTurnAttachment[] | undefined,
+): GatewayImageAttachmentInput[] | undefined {
+  if (!attachments || attachments.length === 0) {
+    return undefined;
+  }
+  return attachments.map((attachment) => ({
+    type: "image",
+    source: {
+      type: "base64",
+      media_type: attachment.mediaType,
+      data: attachment.data,
+    },
+  }));
+}
 
 export type SpawnAcpContext = {
   agentSessionKey?: string;
@@ -1520,6 +1547,7 @@ export async function spawnAcpDirect(
     });
   }
 
+  const gatewayAttachments = toGatewayImageAttachments(params.attachments);
   try {
     acpSpawnDiag("DISPATCH_START", sessionKey, { runId: childIdem });
     const response = await callGateway({
@@ -1537,6 +1565,7 @@ export async function spawnAcpDirect(
         acpTurnSource: "manual_spawn",
         ...(params.runTimeoutSeconds != null ? { timeout: params.runTimeoutSeconds } : {}),
         label: params.label || undefined,
+        ...(gatewayAttachments ? { attachments: gatewayAttachments } : {}),
       },
       // frankclaw: bumped from 10s -> 30s for the same reason as sessions.patch
       // above. Dispatch is the second hop where the gateway must accept and

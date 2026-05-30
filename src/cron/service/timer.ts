@@ -57,6 +57,7 @@ import {
   nextWakeAtMs,
   recomputeNextRunsForMaintenance,
   recordScheduleComputeError,
+  resolveJobErrorBackoffUntilMs,
   resolveJobPayloadTextForMain,
 } from "./jobs.js";
 import { locked } from "./locked.js";
@@ -1493,6 +1494,7 @@ export async function onTimer(state: CronServiceState) {
 }
 
 function isRunnableJob(params: {
+  state: CronServiceState;
   job: CronJob;
   nowMs: number;
   skipJobIds?: ReadonlySet<string>;
@@ -1530,13 +1532,13 @@ function isRunnableJob(params: {
     return false;
   }
   const next = job.state.nextRunAtMs;
+  if (isErrorBackoffPending(params.state, job, nowMs)) {
+    // Error retry windows are anchored at run end; persisted start-based
+    // retry timestamps from older state must not bypass active backoff.
+    return false;
+  }
   if (hasScheduledNextRunAtMs(next) && nowMs >= next) {
     return true;
-  }
-  if (hasScheduledNextRunAtMs(next) && next > nowMs && isErrorBackoffPending(job, nowMs)) {
-    // Respect active retry backoff windows on restart, but allow missed-slot
-    // replay once the backoff window has elapsed.
-    return false;
   }
   if (!params.allowCronMissedRunByLastRun || job.schedule.kind !== "cron") {
     return false;
@@ -1558,20 +1560,15 @@ function isRunnableJob(params: {
   return previousRunAtMs > lastRunAtMs;
 }
 
-function isErrorBackoffPending(job: CronJob, nowMs: number): boolean {
+function isErrorBackoffPending(state: CronServiceState, job: CronJob, nowMs: number): boolean {
   if (job.schedule.kind === "at" || job.state.lastStatus !== "error") {
     return false;
   }
-  const lastRunAtMs = job.state.lastRunAtMs;
-  if (typeof lastRunAtMs !== "number" || !Number.isFinite(lastRunAtMs)) {
-    return false;
-  }
-  const consecutiveErrorsRaw = job.state.consecutiveErrors;
-  const consecutiveErrors =
-    typeof consecutiveErrorsRaw === "number" && Number.isFinite(consecutiveErrorsRaw)
-      ? Math.max(1, Math.floor(consecutiveErrorsRaw))
-      : 1;
-  return nowMs < lastRunAtMs + errorBackoffMs(consecutiveErrors);
+  const backoffUntilMs = resolveJobErrorBackoffUntilMs(
+    job,
+    state.deps.cronConfig?.retry?.backoffMs ?? DEFAULT_ERROR_BACKOFF_SCHEDULE_MS,
+  );
+  return backoffUntilMs !== undefined && nowMs < backoffUntilMs;
 }
 
 function collectRunnableJobs(
@@ -1588,6 +1585,7 @@ function collectRunnableJobs(
   }
   return state.store.jobs.filter((job) =>
     isRunnableJob({
+      state,
       job,
       nowMs,
       skipJobIds: opts?.skipJobIds,
@@ -1595,6 +1593,55 @@ function collectRunnableJobs(
       allowCronMissedRunByLastRun: opts?.allowCronMissedRunByLastRun,
     }),
   );
+}
+
+function deferPendingBackoffMissedCronSlots(
+  state: CronServiceState,
+  nowMs: number,
+  opts?: { skipJobIds?: ReadonlySet<string> },
+): boolean {
+  if (!state.store) {
+    return false;
+  }
+  let changed = false;
+  for (const job of state.store.jobs) {
+    if (
+      !isJobEnabled(job) ||
+      job.schedule.kind !== "cron" ||
+      opts?.skipJobIds?.has(job.id) ||
+      typeof job.state.runningAtMs === "number"
+    ) {
+      continue;
+    }
+    const backoffUntilMs = resolveJobErrorBackoffUntilMs(
+      job,
+      state.deps.cronConfig?.retry?.backoffMs ?? DEFAULT_ERROR_BACKOFF_SCHEDULE_MS,
+    );
+    if (backoffUntilMs === undefined || nowMs >= backoffUntilMs) {
+      continue;
+    }
+    let previousRunAtMs: number | undefined;
+    try {
+      previousRunAtMs = computeJobPreviousRunAtMs(job, nowMs);
+    } catch {
+      continue;
+    }
+    const lastRunAtMs = job.state.lastRunAtMs;
+    if (
+      typeof previousRunAtMs !== "number" ||
+      !Number.isFinite(previousRunAtMs) ||
+      typeof lastRunAtMs !== "number" ||
+      !Number.isFinite(lastRunAtMs) ||
+      previousRunAtMs <= lastRunAtMs
+    ) {
+      continue;
+    }
+    if (job.state.nextRunAtMs !== backoffUntilMs) {
+      job.state.nextRunAtMs = backoffUntilMs;
+      changed = true;
+    }
+  }
+  return changed;
 }
 
 export async function runMissedJobs(
@@ -1625,12 +1672,18 @@ async function planStartupCatchup(
     }
 
     const now = state.deps.nowMs();
+    const deferredBackoffMissedSlot = deferPendingBackoffMissedCronSlots(state, now, {
+      skipJobIds: opts?.skipJobIds,
+    });
     const missed = collectRunnableJobs(state, now, {
       skipJobIds: opts?.skipJobIds,
       skipAtIfAlreadyRan: true,
       allowCronMissedRunByLastRun: true,
     });
     if (missed.length === 0) {
+      if (deferredBackoffMissedSlot) {
+        await persist(state);
+      }
       return { candidates: [], deferredJobs: [] };
     }
     const sorted = missed.toSorted(

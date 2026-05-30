@@ -307,7 +307,7 @@ export function createDiscordMessageHandler(
       }
     },
     onError: (err) => {
-      params.runtime.error?.(danger(`discord debounce flush failed: ${String(err)}`));
+      params.runtime.error(danger(`discord debounce flush failed: ${String(err)}`));
     },
   });
 
@@ -415,7 +415,7 @@ export function createDiscordMessageHandler(
         replayKey: replayKey ?? undefined,
       });
     } catch (err) {
-      params.runtime.error?.(danger(`handler failed: ${String(err)}`));
+      params.runtime.error(danger(`handler failed: ${String(err)}`));
     }
   };
 

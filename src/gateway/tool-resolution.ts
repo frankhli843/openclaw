@@ -36,6 +36,9 @@ export function resolveGatewayScopedTools(params: {
   cfg: OpenClawConfig;
   sessionKey: string;
   messageProvider?: string;
+  currentChannelId?: string;
+  currentThreadTs?: string;
+  currentMessageId?: string | number;
   accountId?: string;
   inboundEventKind?: InboundEventKind;
   sourceReplyDeliveryMode?: SourceReplyDeliveryMode;
@@ -158,6 +161,9 @@ export function resolveGatewayScopedTools(params: {
     sourceReplyDeliveryMode,
     agentTo: params.agentTo,
     agentThreadId: params.agentThreadId,
+    currentChannelId: params.currentChannelId ?? params.agentTo,
+    currentThreadTs: params.currentThreadTs ?? params.agentThreadId,
+    currentMessageId: params.currentMessageId,
     senderIsOwner: params.senderIsOwner,
     allowGatewaySubagentBinding: params.allowGatewaySubagentBinding,
     allowMediaInvokeCommands: params.allowMediaInvokeCommands,

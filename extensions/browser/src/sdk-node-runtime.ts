@@ -23,11 +23,10 @@ export {
   type LazyPluginServiceHandle,
 } from "openclaw/plugin-sdk/plugin-runtime";
 export { defaultRuntime } from "openclaw/plugin-sdk/runtime-env";
+import { clampTimerTimeoutMs } from "openclaw/plugin-sdk/number-runtime";
 
 function normalizeTimeoutMs(timeoutMs: number | undefined): number | undefined {
-  return typeof timeoutMs === "number" && Number.isFinite(timeoutMs)
-    ? Math.max(1, Math.floor(timeoutMs))
-    : undefined;
+  return clampTimerTimeoutMs(timeoutMs);
 }
 
 function createTimeoutAbortSignal(timeoutMs: number, label: string | undefined) {
