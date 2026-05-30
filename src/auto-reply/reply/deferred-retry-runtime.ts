@@ -201,6 +201,7 @@ async function sendProgrammaticRetryUpdate(followupRun: FollowupRun, text: strin
       accountId: followupRun.originatingAccountId,
       threadId: followupRun.originatingThreadId,
       cfg: followupRun.run.config,
+      replyKind: "final",
     });
     if (result.ok) {
       return;
@@ -223,6 +224,7 @@ async function sendRetryLogPost(followupRun: FollowupRun, summary: string, detai
     sessionKey: followupRun.run.sessionKey,
     cfg: followupRun.run.config,
     mirror: false,
+    replyKind: "final",
   });
   if (!result.ok) {
     defaultRuntime.error?.(`retry log route failed: ${result.error ?? "unknown"}`);
@@ -245,6 +247,7 @@ async function sendRetryFailureAlert(
     sessionKey: followupRun.run.sessionKey,
     cfg: followupRun.run.config,
     mirror: false,
+    replyKind: "final",
   });
   if (!result.ok) {
     defaultRuntime.error?.(`retry failure alert route failed: ${result.error ?? "unknown"}`);

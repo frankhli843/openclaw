@@ -66,6 +66,7 @@ export function buildSendProgrammaticRetryUpdate(params: {
         accountId: params.followupRun.originatingAccountId,
         threadId: params.followupRun.originatingThreadId,
         cfg: params.followupRun.run.config,
+        replyKind: "final",
       });
       if (result.ok) {
         return;

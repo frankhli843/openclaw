@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { emptyChannelConfigSchema } from "../channels/plugins/config-schema.js";
@@ -148,6 +149,8 @@ const moduleLoaders: PluginModuleLoaderCache = new Map();
 const entryBoundaryInfoCache = new Map<string, BundledEntryBoundaryInfo>();
 const resolvedModulePaths = new Map<string, string>();
 const loadedModuleExports = new Map<string, unknown>();
+// frankclaw: nodeRequire used as ESM-interop fallback in loadBundledEntryExportSync.
+const nodeRequire = createRequire(import.meta.url);
 const disableBundledEntrySourceFallbackEnv = "OPENCLAW_DISABLE_BUNDLED_ENTRY_SOURCE_FALLBACK";
 
 function isTruthyEnvFlag(value: string | undefined): boolean {
