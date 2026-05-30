@@ -396,6 +396,16 @@ async function assertNoUnexpectedDiskDrops(state: CronServiceState): Promise<voi
     if (state.pendingDeleteJobIds?.has(id)) {
       continue;
     }
+    // frankclaw: quarantined jobs are intentionally absent from the active
+    // in-memory store. Allow them through without flagging as unexpected drops.
+    if (
+      state.pendingQuarantineConfigJobs.some((q) => {
+        const qid = q.job?.id;
+        return typeof qid === "string" && qid === id;
+      })
+    ) {
+      continue;
+    }
     // Otherwise: the ID was not explicitly deleted from memory, meaning it
     // either appeared on disk after our last load (cross-process add) or was
     // accidentally dropped from the in-memory store without going through the

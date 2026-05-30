@@ -931,12 +931,13 @@ export async function enqueueRun(state: CronServiceState, id: string, mode?: "du
   // the slot here (setting runningAtMs under lock), { enqueued: true }
   // guarantees the execution will proceed.
   // frankclaw: fix enqueue-drop TOCTOU race
-  const prepared = await prepareManualRun(state, id, mode);
+  // Generate runId first so it matches the ID stored in history (prepareManualRun
+  // passes opts.runId through to the task run record via opts?.runId ?? taskRunId).
+  const runId = `manual:${id}:${state.deps.nowMs()}:${nextManualRunId++}`;
+  const prepared = await prepareManualRun(state, id, mode, { runId });
   if (!prepared.ok || !prepared.ran) {
     return prepared;
   }
-
-  const runId = `manual:${id}:${state.deps.nowMs()}:${nextManualRunId++}`;
   // frankclaw: track whether the lane task has started executing.  If it
   // sits in the queue longer than ENQUEUE_LANE_TIMEOUT_MS the reservation
   // is released so the job doesn't get permanently stuck in "running" state
