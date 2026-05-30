@@ -290,6 +290,11 @@ export async function persist(
   if (!state.store) {
     return;
   }
+  // frankclaw: tripwire must run BEFORE flushPendingQuarantine because the
+  // flush clears pendingQuarantineConfigJobs. The bypass inside
+  // assertNoUnexpectedDiskDrops relies on that array being populated so
+  // quarantined job IDs are not flagged as unexpected drops.
+  await assertNoUnexpectedDiskDrops(state);
   let flushedPendingQuarantine = false;
   if (state.pendingQuarantineConfigJobs.length > 0) {
     const quarantinePath = await flushPendingQuarantine(state, state.deps.nowMs());
@@ -298,11 +303,6 @@ export async function persist(
     }
     flushedPendingQuarantine = true;
   }
-  // frankclaw: tripwire against the file-race silent-drop class-of-bug
-  // (2026-05-02). Refuse to write a snapshot that would drop jobs which were
-  // added to disk after our last forceReload. See assertNoUnexpectedDiskDrops
-  // for the full check.
-  await assertNoUnexpectedDiskDrops(state);
   const saveOpts = flushedPendingQuarantine ? { skipBackup: opts?.skipBackup } : opts;
   await saveCronStore(state.deps.storePath, state.store, saveOpts);
   // Update file mtime after save to prevent immediate reload
