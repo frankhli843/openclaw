@@ -24,6 +24,7 @@ export function createUnitFastFakeTimersVitestConfig(
       exclude: sharedTest.exclude ?? [],
       maxWorkers: 1,
       fileParallelism: false,
+      sequence: { groupOrder: 5 },
       passWithNoTests: true,
     },
   });
