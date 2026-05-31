@@ -1,3 +1,7 @@
+import {
+  normalizeAtHashSlug,
+  normalizeHyphenSlug,
+} from "@openclaw/normalization-core/string-normalization";
 import { inspectSlackAccount } from "../../../extensions/slack/src/account-inspect.js";
 import type { OpenClawConfig } from "../../config/config.js";
 import {
@@ -13,7 +17,6 @@ import type {
   GroupToolPolicyBySenderConfig,
   GroupToolPolicyConfig,
 } from "../../config/types.tools.js";
-import { normalizeAtHashSlug, normalizeHyphenSlug } from "../../shared/string-normalization.js";
 import type { ChannelGroupContext } from "./types.js";
 
 type GroupMentionParams = ChannelGroupContext;

@@ -15,9 +15,9 @@
 // the model-failure direct-delivery bypass when announce retries all fail
 // due to FallbackSummaryError (all LLM providers down).
 
+import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import { callGateway } from "../gateway/call.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
-import { normalizeOptionalString } from "../shared/string-coerce.js";
 import type { SubagentRunRecord } from "./subagent-registry.types.js";
 
 const log = createSubsystemLogger("agents/subagent-announce-giveup-fallback");

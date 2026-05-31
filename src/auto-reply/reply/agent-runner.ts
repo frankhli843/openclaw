@@ -1619,7 +1619,7 @@ export async function runReplyAgent(params: {
     replyOperation.setPhase("running");
     const runStartedAt = Date.now();
     await persistRestartRecoveryDeliveryContext();
-    const runOutcome = await traceAgentPhase("reply.run_agent_turn", () =>
+    let runOutcome = await traceAgentPhase("reply.run_agent_turn", () =>
       runAgentTurnWithFallback({
         commandBody,
         transcriptCommandBody,

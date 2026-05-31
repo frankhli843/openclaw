@@ -23,10 +23,10 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import { requestHeartbeat } from "../infra/heartbeat-wake.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import { scopedHeartbeatWakeOptions } from "../routing/session-key.js";
-import { normalizeOptionalString } from "../shared/string-coerce.js";
 
 const log = createSubsystemLogger("agents/subagent-announce-rewake");
 

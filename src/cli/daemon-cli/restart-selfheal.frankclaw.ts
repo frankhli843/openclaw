@@ -24,9 +24,9 @@
 import { execSync, spawn } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync, mkdirSync, appendFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { theme } from "@openclaw/terminal-core/theme";
 import { loadConfig } from "../../config/config.js";
 import { defaultRuntime } from "../../runtime.js";
-import { theme } from "../../terminal/theme.js";
 
 // ---------------------------------------------------------------------------
 // Config / constants
