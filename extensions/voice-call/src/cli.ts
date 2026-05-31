@@ -5,7 +5,13 @@ import { format } from "node:util";
 import type { Command } from "commander";
 import { formatErrorMessage } from "openclaw/plugin-sdk/error-runtime";
 import { callGatewayFromCli } from "openclaw/plugin-sdk/gateway-runtime";
-import { MAX_TCP_PORT, parseStrictNonNegativeInteger } from "openclaw/plugin-sdk/number-runtime";
+import {
+  addTimerTimeoutGraceMs,
+  clampTimerTimeoutMs,
+  MAX_TIMER_TIMEOUT_MS,
+  MAX_TCP_PORT,
+  parseStrictNonNegativeInteger,
+} from "openclaw/plugin-sdk/number-runtime";
 import {
   isRecord,
   normalizeOptionalLowercaseString,
@@ -66,6 +72,10 @@ export const testing = {
   },
   isGatewayUnavailableForLocalFallback,
   parseVoiceCallIntOption,
+  resolveGatewayContinueTimeoutMs,
+  resolveGatewayOperationTimeoutMs,
+  readGatewayPollTimeoutMs,
+  resolveVoiceCallDeadlineMs,
 };
 
 function writeStdoutLine(...values: unknown[]): void {
@@ -128,15 +138,24 @@ async function callVoiceCallGateway(
 }
 
 function resolveGatewayOperationTimeoutMs(config: VoiceCallConfig): number {
-  return Math.max(VOICE_CALL_GATEWAY_OPERATION_TIMEOUT_MS, config.ringTimeoutMs + 5000);
+  return Math.max(
+    VOICE_CALL_GATEWAY_OPERATION_TIMEOUT_MS,
+    addTimerTimeoutGraceMs(config.ringTimeoutMs) ?? 1,
+  );
 }
 
 function resolveGatewayContinueTimeoutMs(config: VoiceCallConfig): number {
   return (
-    config.transcriptTimeoutMs +
-    VOICE_CALL_GATEWAY_OPERATION_TIMEOUT_MS +
-    VOICE_CALL_GATEWAY_TRANSCRIPT_BUFFER_MS
+    clampTimerTimeoutMs(
+      config.transcriptTimeoutMs +
+        VOICE_CALL_GATEWAY_OPERATION_TIMEOUT_MS +
+        VOICE_CALL_GATEWAY_TRANSCRIPT_BUFFER_MS,
+    ) ?? 1
   );
+}
+
+function resolveVoiceCallDeadlineMs(timeoutMs: number, nowMs = Date.now()): number {
+  return nowMs + (clampTimerTimeoutMs(timeoutMs) ?? MAX_TIMER_TIMEOUT_MS);
 }
 
 function isUnknownGatewayMethod(err: unknown, method: VoiceCallGatewayMethod): boolean {
@@ -152,7 +171,7 @@ function readGatewayOperationId(payload: unknown): string {
 
 function readGatewayPollTimeoutMs(payload: unknown, fallbackTimeoutMs: number): number {
   if (isRecord(payload) && typeof payload.pollTimeoutMs === "number") {
-    return Math.max(1, Math.ceil(payload.pollTimeoutMs));
+    return clampTimerTimeoutMs(payload.pollTimeoutMs) ?? fallbackTimeoutMs;
   }
   return fallbackTimeoutMs;
 }
@@ -185,7 +204,7 @@ async function pollVoiceCallContinueGateway(params: {
   operationId: string;
   timeoutMs: number;
 }): Promise<unknown> {
-  const deadlineMs = Date.now() + params.timeoutMs;
+  const deadlineMs = resolveVoiceCallDeadlineMs(params.timeoutMs);
 
   while (Date.now() <= deadlineMs) {
     const gateway = await callVoiceCallGateway(

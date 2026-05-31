@@ -6,7 +6,7 @@ import { handleBashChatCommand } from "./bash-command.js";
 import { requireGatewayClientScope } from "./command-gates.js";
 import { handleConfigCommand, handleDebugCommand } from "./commands-config.js";
 import type { HandleCommandsParams } from "./commands-types.js";
-import { type ConfigSnapshotMock } from "./commands.test-harness.js";
+import type { ConfigSnapshotMock } from "./commands.test-harness.js";
 import { parseInlineDirectives } from "./directive-handling.parse.js";
 
 const readConfigFileSnapshotMock = vi.hoisted(() =>

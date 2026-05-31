@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { MAX_DATE_TIMESTAMP_MS } from "@openclaw/normalization-core/number-coercion";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { attachOutboundDeliveryCommitHook } from "./delivery-commit-hooks.js";
 import {
@@ -748,6 +749,31 @@ describe("delivery-queue recovery", () => {
     // that were never actually attempted.
     expect(remaining.every((entry) => entry.retryCount === 0)).toBe(true);
     expect(log.warn).toHaveBeenCalledWith(expect.stringContaining("deferred to next startup"));
+  });
+
+  it("defers recovery when the recovery deadline would exceed the Date timestamp range", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(MAX_DATE_TIMESTAMP_MS));
+    try {
+      await enqueueCrashRecoveryEntries();
+      const deliver = vi.fn().mockResolvedValue([]);
+      const { result, log } = await runRecovery({
+        deliver,
+        maxRecoveryMs: 1,
+      });
+
+      expect(deliver).not.toHaveBeenCalled();
+      expect(result).toEqual({
+        recovered: 0,
+        failed: 0,
+        skippedMaxRetries: 0,
+        deferredBackoff: 0,
+      });
+      expect(await loadPendingDeliveries(tmpDir())).toHaveLength(2);
+      expectMockMessageContaining(log.warn, "deferred to next startup");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("defers entries until backoff becomes eligible", async () => {

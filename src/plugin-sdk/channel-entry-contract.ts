@@ -2,6 +2,7 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { normalizeLowercaseStringOrEmpty } from "../../packages/normalization-core/src/string-coerce.js";
 import { emptyChannelConfigSchema } from "../channels/plugins/config-schema.js";
 import type { ChannelOutboundAdapter } from "../channels/plugins/types.adapters.js";
 import type { ChannelConfigSchema } from "../channels/plugins/types.config.js";
@@ -29,7 +30,6 @@ import type {
   PluginCommandContext,
 } from "../plugins/types.js";
 import { toSafeImportPath } from "../shared/import-specifier.js";
-import { normalizeLowercaseStringOrEmpty } from "../shared/string-coerce.js";
 
 export type {
   AnyAgentTool,

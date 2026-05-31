@@ -7,7 +7,6 @@ import { danger, logVerbose } from "openclaw/plugin-sdk/runtime-env";
 import { resolveOpenProviderRuntimeGroupPolicy } from "openclaw/plugin-sdk/runtime-group-policy";
 // frankclaw: import note-to-self detector for pre-debounce bot-self bypass
 import { isNoteToSelf } from "../../../../src/auto-reply/note-to-self.frankclaw.js";
-import { createDiscordRestClient } from "../client.js";
 import type { Client } from "../internal/discord.js";
 import { reactMessageDiscord } from "../send.reactions.js";
 import {
@@ -23,11 +22,14 @@ import {
   DiscordRetryableInboundError,
   releaseDiscordInboundReplay,
 } from "./inbound-dedupe.js";
-import { buildDiscordInboundJob } from "./inbound-job.js";
+import { buildDiscordInboundJob, resolveDiscordInboundJobQueueKey } from "./inbound-job.js";
 import type { DiscordMessageEvent, DiscordMessageHandler } from "./listeners.js";
 import { applyImplicitReplyBatchGate } from "./message-handler.batch-gate.js";
-import type { DiscordMessagePreflightContext } from "./message-handler.preflight.js";
-import type { DiscordMessagePreflightParams } from "./message-handler.preflight.types.js";
+import type {
+  DiscordMessagePreflightContext,
+  DiscordMessagePreflightParams,
+} from "./message-handler.preflight.types.js";
+import { resolveDiscordAcceptedTypingPrestart } from "./message-handler.reply-typing-policy.js";
 // [frankclaw] Durable worker for crash-resistant message processing.
 import { createFrankclawDurableInboundWorker } from "./message-handler.worker.frankclaw.js";
 import {
@@ -39,11 +41,15 @@ import {
   resolveDiscordMessageChannelId,
   resolveDiscordMessageText,
 } from "./message-utils.js";
+import {
+  createDiscordReplyTypingFeedback,
+  type DiscordReplyTypingFeedback,
+} from "./reply-typing-feedback.js";
 import type { DiscordMonitorStatusSink } from "./status.js";
-import { sendTyping } from "./typing.js";
 
 type PreflightDiscordMessage =
   typeof import("./message-handler.preflight.js").preflightDiscordMessage;
+type CreateDiscordReplyTypingFeedback = typeof createDiscordReplyTypingFeedback;
 
 type DiscordMessageHandlerParams = Omit<
   DiscordMessagePreflightParams,
@@ -59,6 +65,12 @@ type DiscordMessageHandlerParams = Omit<
 
 type DiscordMessageHandlerTestingHooks = DiscordMessageRunQueueTestingHooks & {
   preflightDiscordMessage?: PreflightDiscordMessage;
+  createReplyTypingFeedback?: CreateDiscordReplyTypingFeedback;
+};
+
+type PrestartedTypingFeedbackEntry = {
+  channelId: string;
+  feedback: DiscordReplyTypingFeedback;
 };
 
 let messagePreflightRuntimePromise:
@@ -78,34 +90,47 @@ function isNonEmptyString(value: string | undefined): value is string {
   return typeof value === "string" && value.length > 0;
 }
 
-function shouldSendAcceptedDiscordTypingCue(ctx: DiscordMessagePreflightContext): boolean {
-  if (ctx.abortSignal?.aborted) {
-    return false;
+function startAcceptedTypingFeedback(params: {
+  ctx: DiscordMessagePreflightContext;
+  createFeedback?: CreateDiscordReplyTypingFeedback;
+  dedupeKey: string;
+  activeFeedback: Map<string, PrestartedTypingFeedbackEntry>;
+}): DiscordReplyTypingFeedback | undefined {
+  const { ctx, createFeedback, dedupeKey, activeFeedback } = params;
+  if (!resolveDiscordAcceptedTypingPrestart(ctx).shouldPrestart) {
+    return undefined;
   }
-  if (!ctx.isDirectMessage || ctx.isGuildMessage || ctx.isGroupDm) {
-    return false;
+  const channelId = ctx.messageChannelId.trim();
+  const existing = activeFeedback.get(dedupeKey);
+  if (existing) {
+    // One pre-dispatch keepalive owns each serialized Discord queue key.
+    // Later queued jobs get fresh typing when their dispatch turn starts.
+    return undefined;
   }
-  if (!ctx.messageText.trim()) {
-    return false;
-  }
-  const configuredTypingMode = ctx.cfg.session?.typingMode ?? ctx.cfg.agents?.defaults?.typingMode;
-  return configuredTypingMode === undefined || configuredTypingMode === "instant";
-}
-
-function queueAcceptedDiscordTypingCue(ctx: DiscordMessagePreflightContext): void {
-  if (!shouldSendAcceptedDiscordTypingCue(ctx)) {
-    return;
-  }
-  const { rest } = createDiscordRestClient({
-    cfg: ctx.cfg,
-    token: ctx.token,
-    accountId: ctx.accountId,
+  const replyTypingFeedback =
+    ctx.replyTypingFeedback ??
+    (createFeedback ?? createDiscordReplyTypingFeedback)({
+      cfg: ctx.cfg,
+      token: ctx.token,
+      accountId: ctx.accountId,
+      channelId: ctx.messageChannelId,
+      log: logVerbose,
+    });
+  const cleanup = replyTypingFeedback.onCleanup;
+  replyTypingFeedback.onCleanup = () => {
+    cleanup?.();
+    // Cleanup is the lease release for both normal dispatch and skipped jobs.
+    // Without this, a stale queue key would suppress future accepted typing.
+    if (activeFeedback.get(dedupeKey)?.feedback === replyTypingFeedback) {
+      activeFeedback.delete(dedupeKey);
+    }
+  };
+  activeFeedback.set(dedupeKey, { channelId, feedback: replyTypingFeedback });
+  ctx.replyTypingFeedback = replyTypingFeedback;
+  void replyTypingFeedback.onReplyStart().catch((err) => {
+    logVerbose(`discord accepted typing feedback failed: ${String(err)}`);
   });
-  void sendTyping({ rest, channelId: ctx.messageChannelId }).catch((err) => {
-    logVerbose(
-      `discord early typing cue failed for channel ${ctx.messageChannelId}: ${String(err)}`,
-    );
-  });
+  return replyTypingFeedback;
 }
 
 export function createDiscordMessageHandler(
@@ -129,6 +154,9 @@ export function createDiscordMessageHandler(
   });
   const preflightDiscordMessageImpl = params.testing?.preflightDiscordMessage;
   const replayGuard = createDiscordInboundReplayGuard();
+  // The map owns pre-dispatch typing leases, not queued work itself.
+  // Each lease is released by the feedback cleanup hook installed below.
+  const prestartedTypingFeedback = new Map<string, PrestartedTypingFeedbackEntry>();
 
   // [frankclaw] Use durable worker when client is available (crash-resistant).
   // Falls back to in-memory worker if client ref is not provided.
@@ -231,8 +259,14 @@ export function createDiscordMessageHandler(
             await commitDiscordInboundReplay({ replayKeys, replayGuard });
             return;
           }
+          const queueKey = resolveDiscordInboundJobQueueKey(ctx);
+          startAcceptedTypingFeedback({
+            ctx,
+            createFeedback: params.testing?.createReplyTypingFeedback,
+            dedupeKey: queueKey,
+            activeFeedback: prestartedTypingFeedback,
+          });
           applyImplicitReplyBatchGate(ctx, params.replyToMode, false);
-          queueAcceptedDiscordTypingCue(ctx);
           messageRunQueue.enqueue(buildDiscordInboundJob(ctx, { replayKeys }));
           return;
         }
@@ -281,6 +315,13 @@ export function createDiscordMessageHandler(
           await commitDiscordInboundReplay({ replayKeys, replayGuard });
           return;
         }
+        const queueKey = resolveDiscordInboundJobQueueKey(ctx);
+        startAcceptedTypingFeedback({
+          ctx,
+          createFeedback: params.testing?.createReplyTypingFeedback,
+          dedupeKey: queueKey,
+          activeFeedback: prestartedTypingFeedback,
+        });
         applyImplicitReplyBatchGate(ctx, params.replyToMode, true);
         if (entries.length > 1) {
           const ids = entries.map((entry) => entry.data.message?.id).filter(isNonEmptyString);
@@ -295,7 +336,6 @@ export function createDiscordMessageHandler(
             ctxBatch.MessageSidLast = ids[ids.length - 1];
           }
         }
-        queueAcceptedDiscordTypingCue(ctx);
         messageRunQueue.enqueue(buildDiscordInboundJob(ctx, { replayKeys }));
       } catch (error) {
         if (error instanceof DiscordRetryableInboundError) {

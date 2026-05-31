@@ -1,5 +1,6 @@
 import type { ChannelId } from "../channels/plugins/types.public.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
+import { resolveTimerTimeoutMs } from "../shared/number-coercion.js";
 // frankclaw: skip health-monitor restarts for accounts in permanent conflict state
 import { shouldSkipHealthRestartForConflict } from "./channel-health-monitor.frankclaw.js";
 import {
@@ -78,11 +79,11 @@ function resolveTimingPolicy(
 export function startChannelHealthMonitor(deps: ChannelHealthMonitorDeps): ChannelHealthMonitor {
   const {
     channelManager,
-    checkIntervalMs = DEFAULT_CHECK_INTERVAL_MS,
     cooldownCycles = DEFAULT_COOLDOWN_CYCLES,
     maxRestartsPerHour = DEFAULT_MAX_RESTARTS_PER_HOUR,
     abortSignal,
   } = deps;
+  const checkIntervalMs = resolveTimerTimeoutMs(deps.checkIntervalMs, DEFAULT_CHECK_INTERVAL_MS);
   const timing = resolveTimingPolicy(deps);
 
   const cooldownMs = cooldownCycles * checkIntervalMs;

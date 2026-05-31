@@ -207,7 +207,7 @@ describe("AcpxRuntime fresh reset wrapper", () => {
       sessionKey: "agent:codex:acp:test",
       agent: "codex",
       mode: "persistent",
-      model: "openai-codex/gpt-5.4",
+      model: "openai/gpt-5.4",
     });
 
     expect(readFirstEnsureSessionInput(ensure)).toEqual({
@@ -632,14 +632,14 @@ describe("AcpxRuntime fresh reset wrapper", () => {
       sessionKey: "agent:main:acp:test",
       agent: "main",
       mode: "persistent",
-      model: "openai-codex/gpt-5.5",
+      model: "openai/gpt-5.5",
     });
 
     expect(readFirstEnsureSessionInput(ensure)).toEqual({
       sessionKey: "agent:main:acp:test",
       agent: "main",
       mode: "persistent",
-      model: "openai-codex/gpt-5.5",
+      model: "openai/gpt-5.5",
     });
   });
 
@@ -678,7 +678,7 @@ describe("AcpxRuntime fresh reset wrapper", () => {
       sessionKey: "agent:codex:acp:test",
       agent: "codex",
       mode: "persistent",
-      model: "openai-codex/gpt-5.5",
+      model: "openai/gpt-5.5",
     });
 
     expect(readFirstEnsureSessionInput(ensure)).toEqual({
@@ -764,7 +764,7 @@ describe("AcpxRuntime fresh reset wrapper", () => {
       sessionKey: "agent:codex:acp:test",
       agent: "codex",
       mode: "persistent",
-      model: "openai-codex/gpt-5.4",
+      model: "openai/gpt-5.4",
       thinking: "x-high",
     });
 
@@ -797,7 +797,7 @@ describe("AcpxRuntime fresh reset wrapper", () => {
     await runtime.setConfigOption({
       handle,
       key: "model",
-      value: "openai-codex/gpt-5.4",
+      value: "openai/gpt-5.4",
     });
 
     expect(setConfigOption).toHaveBeenNthCalledWith(1, {
@@ -828,7 +828,7 @@ describe("AcpxRuntime fresh reset wrapper", () => {
     await runtime.setConfigOption({
       handle,
       key: "model",
-      value: "openai-codex/gpt-5.4/high",
+      value: "openai/gpt-5.4/high",
     });
 
     expect(setConfigOption).toHaveBeenNthCalledWith(1, {

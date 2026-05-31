@@ -1,7 +1,7 @@
+import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import type { CurrentInboundPromptContext } from "../../agents/embedded-agent-runner/run/params.js";
 import type { InboundEventKind } from "../../channels/inbound-event/kind.js";
 import { annotateInterSessionPromptText } from "../../sessions/input-provenance.js";
-import { normalizeOptionalString } from "../../shared/string-coerce.js";
 import type { SourceReplyDeliveryMode } from "../get-reply-options.types.js";
 import { HEARTBEAT_TRANSCRIPT_PROMPT } from "../heartbeat.js";
 import { buildInboundMediaNote } from "../media-note.js";
@@ -14,6 +14,10 @@ const INBOUND_VISUAL_MEDIA_INSPECTION_HINT =
   "Inbound image/video attachments are file references, not visual evidence by themselves. If the user asks what an attachment shows, inspect the latest attached file with a vision-capable path/tool before answering. Do not infer attachment contents from surrounding conversation or older attachments.";
 const ROOM_EVENT_PROMPT = "[OpenClaw room event]";
 const ROOM_EVENT_SOURCE_REPLY_DELIVERY_MODE = "message_tool_only";
+const RESUMABLE_ROOM_CONTEXT_OMITTED_PREFIXES = [
+  "Conversation context (untrusted, chronological, selected for current message):",
+  "Chat history since last reply (untrusted, for context):",
+];
 
 const VISUAL_MEDIA_EXTENSION_RE =
   /\.(?:png|jpe?g|gif|webp|bmp|tiff?|heic|heif|mp4|mov|webm|mkv|avi|m4v)$/i;
@@ -164,8 +168,9 @@ function resolveRoomEventBody(params: ReplyPromptEnvelopeBaseParams): string {
   );
 }
 
-function buildRoomEventContext(params: ReplyPromptEnvelopeBaseParams): string {
+function buildRoomEventContext(params: ReplyPromptEnvelopeBaseParams, roomContext: string): string {
   const roomEventBody = resolveRoomEventBody(params);
+  const roomContextBlock = roomContext.trim() ? `Room context:\n${roomContext.trim()}` : "";
   const visibleReplyContract =
     params.sourceReplyDeliveryMode === "message_tool_only"
       ? `visible_reply_contract: ${ROOM_EVENT_SOURCE_REPLY_DELIVERY_MODE}`
@@ -174,11 +179,21 @@ function buildRoomEventContext(params: ReplyPromptEnvelopeBaseParams): string {
     "[OpenClaw room event]",
     "inbound_event_kind: room_event",
     visibleReplyContract,
-    params.inboundUserContext.trim() ? `Room context:\n${params.inboundUserContext.trim()}` : "",
+    roomContextBlock,
     `Current event:\n${formatRoomEventLine(params.sessionCtx, roomEventBody)}`,
     "Treat this as observed room activity. Decide whether to act.",
   ]
     .filter(Boolean)
+    .join("\n\n");
+}
+
+function buildResumableRoomContext(roomContext: string): string {
+  return roomContext
+    .split(/\n{2,}/u)
+    .filter(
+      (block) =>
+        !RESUMABLE_ROOM_CONTEXT_OMITTED_PREFIXES.some((prefix) => block.startsWith(prefix)),
+    )
     .join("\n\n");
 }
 
@@ -187,10 +202,12 @@ export function buildReplyPromptEnvelopeBase(
 ): ReplyPromptEnvelopeBase {
   const softResetTail = params.softResetTail?.trim() ?? "";
   const isRoomEvent = params.inboundEventKind === "room_event";
-  const roomEventContext = buildRoomEventContext(params);
-  const currentInboundContextText = isRoomEvent
-    ? roomEventContext
-    : params.inboundUserContext.trim();
+  const inboundUserContext = params.inboundUserContext.trim();
+  const roomEventContext = buildRoomEventContext(params, inboundUserContext);
+  const resumableRoomEventContext = isRoomEvent
+    ? buildRoomEventContext(params, buildResumableRoomContext(inboundUserContext))
+    : undefined;
+  const currentInboundContextText = isRoomEvent ? roomEventContext : inboundUserContext;
   const resetModelBody = params.isBareSessionReset
     ? [
         params.inboundUserContext,
@@ -221,6 +238,7 @@ export function buildReplyPromptEnvelopeBase(
     !params.isBareSessionReset && currentInboundContextText
       ? {
           text: currentInboundContextText,
+          ...(resumableRoomEventContext ? { resumableText: resumableRoomEventContext } : {}),
           promptJoiner: params.inboundUserContextPromptJoiner,
         }
       : undefined;

@@ -1,14 +1,17 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
+import {
+  normalizeTrimmedStringList,
+  uniqueStrings,
+} from "@openclaw/normalization-core/string-normalization";
 import { resolveSandboxPath } from "../../agents/sandbox-paths.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { walkDirectorySync } from "../../infra/fs-safe.js";
 import { resolveOsHomeDir } from "../../infra/home-dir.js";
 import { isPathInside } from "../../infra/path-guards.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
-import { normalizeOptionalString } from "../../shared/string-coerce.js";
-import { normalizeTrimmedStringList, uniqueStrings } from "../../shared/string-normalization.js";
 import { CONFIG_DIR, resolveHomeDir, resolveUserPath } from "../../utils.js";
 import {
   resolveEffectiveAgentSkillFilter,
@@ -60,12 +63,12 @@ function resolveNativeUserHomeDir(): string | undefined {
 
 function resolveCompactHomePrefixes(): string[] {
   const homes = [resolveHomeDir(), resolveUserHomeDir(), resolveNativeUserHomeDir()].filter(
-    (home): home is string => !!home,
+    (home): home is string => Boolean(home),
   );
   const resolvedHomes = homes.map((home) => path.resolve(home));
   const realHomes = resolvedHomes
     .map((home) => tryRealpath(home))
-    .filter((home): home is string => !!home);
+    .filter((home): home is string => Boolean(home));
   return uniqueStrings([...resolvedHomes, ...realHomes]).toSorted((a, b) => b.length - a.length);
 }
 
@@ -369,7 +372,7 @@ function hasLoadableSkillFrontmatter(
   });
   const fallbackName = path.basename(skillDir).trim();
   const name = frontmatter?.name?.trim() || fallbackName;
-  return !!name && !!frontmatter?.description?.trim();
+  return Boolean(name) && Boolean(frontmatter?.description?.trim());
 }
 
 function tryRealpath(filePath: string): string | null {

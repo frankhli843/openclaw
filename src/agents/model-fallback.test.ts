@@ -1127,7 +1127,7 @@ describe("runWithModelFallback", () => {
     const rawError = "You exceeded your current OpenAI quota.";
     const run = vi.fn().mockRejectedValue(
       new FailoverError("LLM request timed out.", {
-        provider: "openai-codex",
+        provider: "openai",
         model: "gpt-5.4",
         reason: "timeout",
         status: 408,
@@ -1191,7 +1191,7 @@ describe("runWithModelFallback", () => {
       agents: {
         defaults: {
           model: {
-            primary: "openai-codex/gpt-5.4",
+            primary: "openai/gpt-5.4",
             fallbacks: ["anthropic/claude-haiku-3-5"],
           },
         },
@@ -1215,7 +1215,7 @@ describe("runWithModelFallback", () => {
 
     const result = await runWithModelFallback({
       cfg,
-      provider: "openai-codex",
+      provider: "openai",
       model: "gpt-5.4",
       run,
       classifyResult,
@@ -1224,7 +1224,7 @@ describe("runWithModelFallback", () => {
     expect(result.result).toEqual({ payloads: [{ text: "fallback ok" }] });
     expect(run).toHaveBeenCalledTimes(2);
     expect(requireMockCall(run, 1, "fallback run")).toEqual(["anthropic", "claude-haiku-3-5"]);
-    expect(result.attempts[0]?.provider).toBe("openai-codex");
+    expect(result.attempts[0]?.provider).toBe("openai");
     expect(result.attempts[0]?.model).toBe("gpt-5.4");
     expect(result.attempts[0]?.reason).toBe("format");
     expect(result.attempts[0]?.code).toBe("empty_result");
@@ -1284,7 +1284,7 @@ describe("runWithModelFallback", () => {
       agents: {
         defaults: {
           model: {
-            primary: "openai-codex/gpt-5.4",
+            primary: "openai/gpt-5.4",
             fallbacks: [],
           },
         },
@@ -1296,7 +1296,7 @@ describe("runWithModelFallback", () => {
       await captureRejection(
         runWithModelFallback({
           cfg,
-          provider: "openai-codex",
+          provider: "openai",
           model: "gpt-5.4",
           run,
           classifyResult: ({ result }) => {
@@ -1314,20 +1314,20 @@ describe("runWithModelFallback", () => {
     );
     expect(error.name).toBe("FailoverError");
     expect(error.reason).toBe("format");
-    expect(error.provider).toBe("openai-codex");
+    expect(error.provider).toBe("openai");
     expect(error.model).toBe("gpt-5.4");
     expect(error.code).toBe("empty_result");
     expect(run).toHaveBeenCalledTimes(1);
   });
 
   it("does not classify successful results when the optional classifier returns null", async () => {
-    const cfg = makeProviderFallbackCfg("openai-codex");
+    const cfg = makeProviderFallbackCfg("openai");
     const run = vi.fn().mockResolvedValueOnce({ payloads: [{ text: "ok" }] });
     const classifyResult = vi.fn(() => null);
 
     const result = await runWithModelFallback({
       cfg,
-      provider: "openai-codex",
+      provider: "openai",
       model: "m1",
       run,
       classifyResult,
@@ -1352,7 +1352,7 @@ describe("runWithModelFallback", () => {
 
     expect(
       classifyEmbeddedAgentRunResultForModelFallback({
-        provider: "openai-codex",
+        provider: "openai",
         model: "gpt-5.4",
         result: runResult,
       }),
@@ -1370,7 +1370,7 @@ describe("runWithModelFallback", () => {
 
     expect(
       classifyEmbeddedAgentRunResultForModelFallback({
-        provider: "openai-codex",
+        provider: "openai",
         model: "gpt-5.4",
         result: runResult,
       }),
@@ -2348,7 +2348,7 @@ describe("runWithModelFallback", () => {
   });
 
   it("does not fall back when a timed-out caller abort is classified from the result", async () => {
-    const cfg = makeProviderFallbackCfg("openai-codex");
+    const cfg = makeProviderFallbackCfg("openai");
     const timeoutReason = new Error("chat run timed out");
     timeoutReason.name = "TimeoutError";
     const controller = new AbortController();
@@ -2366,7 +2366,7 @@ describe("runWithModelFallback", () => {
     await expect(
       runWithModelFallback({
         cfg,
-        provider: "openai-codex",
+        provider: "openai",
         model: "m1",
         abortSignal: controller.signal,
         run,
@@ -2774,14 +2774,14 @@ describe("runWithImageModelFallback", () => {
           agents: {
             defaults: {
               imageModel: {
-                primary: "openai-codex/gpt-5.4",
-                fallbacks: ["openai-codex/gpt-5.4-mini"],
+                primary: "openai/gpt-5.4",
+                fallbacks: ["openai/gpt-5.4-mini"],
               },
             },
           },
         }),
         modelOverride: "gpt-5.4-mini",
-        expected: [["openai-codex", "gpt-5.4-mini"]],
+        expected: [["openai", "gpt-5.4-mini"]],
       },
       {
         name: "qualified override keeps provider",
@@ -2789,7 +2789,7 @@ describe("runWithImageModelFallback", () => {
           agents: {
             defaults: {
               imageModel: {
-                primary: "openai-codex/gpt-5.4",
+                primary: "openai/gpt-5.4",
               },
             },
           },

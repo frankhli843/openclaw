@@ -191,7 +191,6 @@ function configureTaskRegistryMaintenanceRuntimeForTest(params: {
     isCronRuntimeAuthoritative: () => true,
     resolveCronStorePath: () => "/tmp/openclaw-test-cron/jobs.json",
     loadCronStoreSync: () => ({ version: 1, jobs: [] }),
-    resolveCronRunLogPath: ({ jobId }) => jobId,
     readCronRunLogEntriesSync: () => [],
   });
 }
@@ -2656,7 +2655,6 @@ describe("task-registry", () => {
         isCronRuntimeAuthoritative: () => true,
         resolveCronStorePath: () => "/tmp/openclaw-test-cron/jobs.json",
         loadCronStoreSync: () => ({ version: 1, jobs: [] }),
-        resolveCronRunLogPath: ({ jobId }) => jobId,
         readCronRunLogEntriesSync: () => [],
       });
 

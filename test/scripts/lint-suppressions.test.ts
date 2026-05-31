@@ -162,6 +162,8 @@ function summarizeSuppressions(entries: readonly SuppressionEntry[]): string[] {
   return [...counts.entries()].map(([key, count]) => `${key}|${count}`).toSorted();
 }
 
+collectProductionLintSuppressions();
+
 describe("production lint suppressions", () => {
   it("lists production files from git without walking source roots", () => {
     expectNoReaddirSyncDuring(() => {
@@ -191,7 +193,6 @@ describe("production lint suppressions", () => {
       "src/agents/agent-scope.ts|no-control-regex|1",
       "src/agents/code-mode.worker.ts|unicorn/require-post-message-target-origin|1",
       "src/agents/embedded-agent-runner/run/images.ts|no-control-regex|1",
-      "src/agents/subagent-attachments.ts|no-control-regex|1",
       "src/agents/subagent-spawn.ts|no-control-regex|1",
       "src/channels/plugins/channel-runtime-surface.types.ts|typescript/no-unnecessary-type-parameters|1",
       "src/channels/plugins/contracts/test-helpers.ts|typescript/no-unnecessary-type-parameters|1",

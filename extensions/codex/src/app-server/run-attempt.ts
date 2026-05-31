@@ -61,9 +61,8 @@ import {
   prependCodexOpenClawPromptContext,
   readContextEngineThreadBootstrapProjection,
   readMirroredSessionHistoryMessages,
-  renderCodexWorkspaceMemoryReference,
+  renderCodexSkillsCollaborationInstructions,
   resolveContextEngineBootstrapProjectionDecision,
-  shouldProjectMirroredHistoryForCodexStart,
 } from "./attempt-context.js";
 import {
   classifyCodexModelCallFailureKind,
@@ -193,15 +192,15 @@ import {
   assertCodexTurnStartResponse,
   readCodexDynamicToolCallParams,
 } from "./protocol-validators.js";
-import {
-  type CodexSandboxPolicy,
-  type CodexTurnEnvironmentParams,
-  type CodexServerNotification,
-  type CodexDynamicToolCallParams,
-  type CodexDynamicToolCallResponse,
-  type CodexTurnStartResponse,
-  type JsonObject,
-  type JsonValue,
+import type {
+  CodexSandboxPolicy,
+  CodexTurnEnvironmentParams,
+  CodexServerNotification,
+  CodexDynamicToolCallParams,
+  CodexDynamicToolCallResponse,
+  CodexTurnStartResponse,
+  JsonObject,
+  JsonValue,
 } from "./protocol.js";
 import { releaseCodexSandboxExecServerEnvironment } from "./sandbox-exec-server.js";
 import {
@@ -247,7 +246,16 @@ import { createCodexUserInputBridge } from "./user-input-bridge.js";
 
 const CODEX_RAW_RESPONSE_ITEM_DRAIN_TIMEOUT_MS = 30_000;
 const CODEX_NATIVE_HOOK_RELAY_RENEW_INTERVAL_MS = 60_000;
+const CODEX_APP_SERVER_PROJECTED_CHARS_PER_TOKEN = 4;
 const ensuredCodexWorkspaceDirs = new Set<string>();
+
+function estimateCodexAppServerProjectedTurnTokens(params: {
+  prompt: string;
+  developerInstructions?: string;
+}): number {
+  const inputChars = params.prompt.length + (params.developerInstructions?.length ?? 0);
+  return Math.max(1, Math.ceil(inputChars / CODEX_APP_SERVER_PROJECTED_CHARS_PER_TOKEN));
+}
 
 async function ensureCodexWorkspaceDirOnce(workspaceDir: string): Promise<void> {
   const normalized = path.resolve(workspaceDir);
@@ -664,12 +672,11 @@ export async function runCodexAppServerAttempt(
   );
   const openClawPromptContext = buildCodexOpenClawPromptContext({
     params,
-    skillsPrompt: params.skillsSnapshot?.prompt,
     workspacePromptContext: workspaceBootstrapContext.promptContext,
-    workspaceMemoryReference: renderCodexWorkspaceMemoryReference({
-      files: workspaceBootstrapContext.memoryReferenceFiles ?? [],
-      toolNames: workspaceBootstrapContext.memoryToolNames,
-    }),
+  });
+  const skillsCollaborationInstructions = renderCodexSkillsCollaborationInstructions({
+    attempt: params,
+    skillsPrompt: params.skillsSnapshot?.prompt,
   });
   let promptText = params.prompt;
   let developerInstructions = baseDeveloperInstructions;
@@ -758,36 +765,30 @@ export async function runCodexAppServerAttempt(
         error: formatErrorMessage(assembleErr),
       });
     }
-  } else if (
-    shouldProjectMirroredHistoryForCodexStart({
-      startupBinding,
-      dynamicToolsFingerprint: codexDynamicToolsFingerprint(toolBridge.specs),
-      historyMessages,
-      forceProject: !nativeToolSurfaceEnabled,
-    })
-  ) {
-    const projection = projectContextEngineAssemblyForCodex({
-      assembledMessages: historyMessages,
-      originalHistoryMessages: historyMessages,
-      prompt: params.prompt,
-    });
-    promptText = projection.promptText;
-    prePromptMessageCount = projection.prePromptMessageCount;
   }
+  // Codex app-server threads own conversation continuity. The mirrored
+  // OpenClaw transcript is persistence/search state. Context-engine output is
+  // rendered into the prompt/developer instructions, not parallel history.
+  const codexModelInputHistoryMessages: typeof historyMessages = [];
   const buildPromptFromCurrentInputs = () =>
     resolveAgentHarnessBeforePromptBuildResult({
       prompt: prependCurrentInboundContext(promptText, params.currentInboundContext),
       developerInstructions,
-      messages: historyMessages,
+      messages: codexModelInputHistoryMessages,
       ctx: hookContext,
     });
   let promptBuild = await buildPromptFromCurrentInputs();
   const decorateCodexTurnPromptText = (prompt: string) =>
-    prependCodexOpenClawPromptContext(prompt, openClawPromptContext);
+    prependCodexOpenClawPromptContext(prompt, openClawPromptContext, {
+      preservePromptWithoutContext:
+        params.bootstrapContextMode === "lightweight" && params.bootstrapContextRunKind === "cron",
+    });
   let codexTurnPromptText = decorateCodexTurnPromptText(promptBuild.prompt);
   const buildCodexTurnCollaborationDeveloperInstructions = () =>
     buildTurnCollaborationMode(params, {
       turnScopedDeveloperInstructions: workspaceBootstrapContext.turnScopedDeveloperInstructions,
+      skillsCollaborationInstructions,
+      memoryCollaborationInstructions: workspaceBootstrapContext.memoryCollaborationInstructions,
       heartbeatCollaborationInstructions:
         workspaceBootstrapContext.heartbeatCollaborationInstructions,
     }).settings.developer_instructions ?? undefined;
@@ -796,13 +797,58 @@ export async function runCodexAppServerAttempt(
       promptBuild.developerInstructions,
       buildCodexTurnCollaborationDeveloperInstructions(),
     );
+  const rebuildCodexTurnPromptFromCurrentProjection = async () => {
+    promptBuild = await buildPromptFromCurrentInputs();
+    codexTurnPromptText = decorateCodexTurnPromptText(promptBuild.prompt);
+  };
+  const rotateStartupBindingForProjectedTurn = async () => {
+    if (!startupBinding?.threadId) {
+      return;
+    }
+    const previousThreadId = startupBinding.threadId;
+    const projectedTurnTokens = estimateCodexAppServerProjectedTurnTokens({
+      prompt: codexTurnPromptText,
+      developerInstructions: buildRenderedCodexDeveloperInstructions(),
+    });
+    startupBinding = await rotateOversizedCodexAppServerStartupBinding({
+      binding: startupBinding,
+      sessionFile: params.sessionFile,
+      agentDir,
+      codexHome: appServer.start.env?.CODEX_HOME,
+      config: params.config,
+      contextEngineActive: Boolean(activeContextEngine),
+      projectedTurnTokens,
+    });
+    if (startupBinding?.threadId) {
+      return;
+    }
+    if (activeContextEngine) {
+      contextEngineProjection = undefined;
+      try {
+        await applyActiveContextEngineProjection(undefined);
+      } catch (assembleErr) {
+        embeddedAgentLog.warn("context engine assemble failed; using Codex baseline prompt", {
+          error: formatErrorMessage(assembleErr),
+        });
+      }
+    }
+    await rebuildCodexTurnPromptFromCurrentProjection();
+    embeddedAgentLog.info("codex app-server rebuilt turn prompt after native thread rotation", {
+      sessionId: params.sessionId,
+      sessionKey: contextSessionKey,
+      previousThreadId,
+      promptChars: codexTurnPromptText.length,
+      developerInstructionChars: buildRenderedCodexDeveloperInstructions()?.length ?? 0,
+    });
+  };
+  await rotateStartupBindingForProjectedTurn();
   const systemPromptReport = buildCodexSystemPromptReport({
     attempt: params,
     sessionKey: contextSessionKey,
     workspaceDir: effectiveWorkspace,
     developerInstructions: buildRenderedCodexDeveloperInstructions(),
     workspaceBootstrapContext,
-    skillsPrompt: openClawPromptContext ? (params.skillsSnapshot?.prompt ?? "") : "",
+    skillsPrompt: skillsCollaborationInstructions ? (params.skillsSnapshot?.prompt ?? "") : "",
     tools: toolBridge.availableSpecs,
   });
   const trajectoryRecorder = createCodexTrajectoryRecorder({
@@ -934,7 +980,7 @@ export async function runCodexAppServerAttempt(
   recordCodexTrajectoryContext(trajectoryRecorder, {
     attempt: params,
     cwd: effectiveCwd,
-    developerInstructions: promptBuild.developerInstructions,
+    developerInstructions: buildRenderedCodexDeveloperInstructions(),
     prompt: codexTurnPromptText,
     tools: toolBridge.availableSpecs,
   });
@@ -1218,7 +1264,6 @@ export async function runCodexAppServerAttempt(
       threadId: thread.threadId,
       turnId,
       currentPromptTexts: [codexTurnPromptText],
-      sourceReplyDeliveryMode: params.sourceReplyDeliveryMode,
       turnWatches,
       activeTurnItemIds,
       activeAppServerTurnRequests,
@@ -1303,14 +1348,16 @@ export async function runCodexAppServerAttempt(
       (!isNativeResponseStreamDelta && correlation.matchesActiveTurn !== false) ||
       nativeResponseStreamDeltaMatchesActiveTurn;
     if (notificationMatchesActiveTurn) {
-      // If a future Codex app-server exposes raw response deltas, treat them as
-      // activity only when scoped to this turn or attributable to a single lease.
-      // Today the durable app-server raw-event surface is rawResponseItem/completed.
+      // If Codex app-server exposes raw response deltas, treat them as activity
+      // only when scoped to this turn or attributable to a single lease.
       turnWatches.noteNotificationReceived(
         notification.method,
         isNativeResponseStreamDelta
           ? {
               attemptProgress: true,
+              ...(turnCrossedToolHandoff
+                ? { attemptTimeoutMs: postToolRawAssistantCompletionIdleTimeoutMs }
+                : {}),
               details: { lastNotificationMethod: notification.method },
             }
           : undefined,
@@ -1574,10 +1621,20 @@ export async function runCodexAppServerAttempt(
     } finally {
       if (requestCountsAsTurnActivity) {
         activeAppServerTurnRequests = Math.max(0, activeAppServerTurnRequests - 1);
+        const postToolContinuationTimeoutMs =
+          request.method === "item/tool/call" && turnCrossedToolHandoff
+            ? postToolRawAssistantCompletionIdleTimeoutMs
+            : undefined;
         turnWatches.touchActivity(`request:${request.method}:response`, {
           arm: armCompletionWatchOnResponse,
           attemptProgress: true,
+          ...(postToolContinuationTimeoutMs !== undefined
+            ? { attemptTimeoutMs: postToolContinuationTimeoutMs }
+            : {}),
         });
+        if (armCompletionWatchOnResponse && postToolContinuationTimeoutMs !== undefined) {
+          turnWatches.armCompletionIdleWatch({ timeoutMs: postToolContinuationTimeoutMs });
+        }
         scheduleTerminalDynamicToolReleaseCheck();
       } else {
         turnWatches.scheduleProgressWatches();
@@ -1593,12 +1650,12 @@ export async function runCodexAppServerAttempt(
     model: params.modelId,
     systemPrompt: buildRenderedCodexDeveloperInstructions(),
     prompt: codexTurnPromptText,
-    historyMessages,
+    historyMessages: codexModelInputHistoryMessages,
     imagesCount: params.images?.length ?? 0,
     tools,
   });
-  const buildTurnStartFailureMessages = () => [
-    ...historyMessages,
+  const buildCodexModelInputMessages = () => [
+    ...codexModelInputHistoryMessages,
     buildCodexUserPromptMessage({ ...params, prompt: codexTurnPromptText }),
   ];
   const codexModelCallBaseFields = {
@@ -1617,7 +1674,7 @@ export async function runCodexAppServerAttempt(
     baseFields: codexModelCallBaseFields,
     capture: codexModelContentCapture,
     tools,
-    buildInputMessages: buildTurnStartFailureMessages,
+    buildInputMessages: buildCodexModelInputMessages,
     buildSystemPrompt: buildRenderedCodexDeveloperInstructions,
     onErrorDiagnostic: (error) => {
       embeddedAgentLog.debug("codex app-server model call diagnostic ended with error", {
@@ -1636,6 +1693,8 @@ export async function runCodexAppServerAttempt(
       sandboxPolicy: codexSandboxPolicy,
       environmentSelection: codexEnvironmentSelection,
       turnScopedDeveloperInstructions: workspaceBootstrapContext.turnScopedDeveloperInstructions,
+      skillsCollaborationInstructions,
+      memoryCollaborationInstructions: workspaceBootstrapContext.memoryCollaborationInstructions,
       heartbeatCollaborationInstructions:
         workspaceBootstrapContext.heartbeatCollaborationInstructions,
     });
@@ -1662,7 +1721,7 @@ export async function runCodexAppServerAttempt(
   } catch (error) {
     let turnStartError = error;
     if (
-      shouldRetryContextEngineTurnOnFreshCodexThread({
+      shouldUseFreshCodexThreadAfterContextEngineOverflow({
         error: turnStartError,
         contextEngineActive: Boolean(activeContextEngine),
         thread,
@@ -1681,19 +1740,33 @@ export async function runCodexAppServerAttempt(
       );
       try {
         const preRetrySessionFile = activeSessionFile;
-        await clearCodexAppServerBinding(preRetrySessionFile);
-        if (activeSessionFile !== preRetrySessionFile) {
-          await clearCodexAppServerBinding(activeSessionFile);
-        }
-        thread = await restartContextEngineCodexThread();
-        emitCodexAppServerEvent(params, {
-          stream: "codex_app_server.lifecycle",
-          data: { phase: "thread_ready_retry", threadId: thread.threadId },
-        });
-        try {
-          turn = await startCodexTurn();
-        } catch (retryError) {
-          turnStartError = retryError;
+        const clearedPreRetryBinding = await clearCodexAppServerBindingForThread(
+          preRetrySessionFile,
+          thread.threadId,
+        );
+        const clearedActiveBinding =
+          activeSessionFile !== preRetrySessionFile
+            ? await clearCodexAppServerBindingForThread(activeSessionFile, thread.threadId)
+            : false;
+        if (!clearedPreRetryBinding && !clearedActiveBinding) {
+          embeddedAgentLog.warn(
+            "codex app-server preserved newer context-engine binding after resume overflow; skipping fresh retry",
+            {
+              threadId: thread.threadId,
+              error: formatErrorMessage(turnStartError),
+            },
+          );
+        } else {
+          thread = await restartContextEngineCodexThread();
+          emitCodexAppServerEvent(params, {
+            stream: "codex_app_server.lifecycle",
+            data: { phase: "thread_ready_retry", threadId: thread.threadId },
+          });
+          try {
+            turn = await startCodexTurn();
+          } catch (retryError) {
+            turnStartError = retryError;
+          }
         }
       } catch (retrySetupError) {
         turnStartError = retrySetupError;
@@ -1757,9 +1830,13 @@ export async function runCodexAppServerAttempt(
         turnStartErrorMessage,
         turnStartFailureKind ? { failureKind: turnStartFailureKind } : {},
       );
+      const turnStartFailureMessages = [
+        ...historyMessages,
+        buildCodexUserPromptMessage({ ...params, prompt: codexTurnPromptText }),
+      ];
       await runCodexAgentEndHook(params, {
         event: {
-          messages: buildTurnStartFailureMessages(),
+          messages: turnStartFailureMessages,
           success: false,
           error: turnStartErrorMessage,
           durationMs: Date.now() - attemptStartedAt,
@@ -1799,7 +1876,7 @@ export async function runCodexAppServerAttempt(
           ...buildCodexTurnStartFailureResult({
             params,
             message: usageLimitError.message,
-            messagesSnapshot: buildTurnStartFailureMessages(),
+            messagesSnapshot: turnStartFailureMessages,
             systemPromptReport,
           }),
         };
@@ -1868,6 +1945,8 @@ export async function runCodexAppServerAttempt(
   const activeProjector = projector;
   turnWatches.armTerminalIdleWatch();
   turnWatches.touchActivity("turn:start", { arm: true });
+  turnWatches.armAttemptIdleWatch();
+  turnWatches.touchActivity("turn:start", { attemptProgress: true });
   for (const notification of pendingNotifications.splice(0)) {
     await enqueueNotification(notification);
   }
@@ -1911,9 +1990,6 @@ export async function runCodexAppServerAttempt(
     threadId: thread.threadId,
     turnId: activeTurnId,
   });
-  turnWatches.armAttemptIdleWatch();
-  turnWatches.armTerminalIdleWatch();
-  turnWatches.touchActivity("turn:start", { attemptProgress: true });
 
   const abortListener = () => {
     const shouldRetireClient = timedOut;
@@ -1972,6 +2048,27 @@ export async function runCodexAppServerAttempt(
         turnId: activeTurnId,
         error: finalPromptErrorMessage,
       });
+    }
+    if (
+      shouldUseFreshCodexThreadAfterContextEngineOverflow({
+        error: finalPromptError,
+        contextEngineActive: Boolean(activeContextEngine),
+        thread,
+      })
+    ) {
+      embeddedAgentLog.warn(
+        "codex app-server context-engine turn overflowed after resume; clearing thread binding for recovery",
+        {
+          threadId: thread.threadId,
+          turnId: activeTurnId,
+          error: finalPromptErrorMessage,
+        },
+      );
+      const preClearSessionFile = activeSessionFile;
+      await clearCodexAppServerBindingForThread(preClearSessionFile, thread.threadId);
+      if (activeSessionFile !== preClearSessionFile) {
+        await clearCodexAppServerBindingForThread(activeSessionFile, thread.threadId);
+      }
     }
     const refreshedUsageLimitPromptError = await refreshCodexUsageLimitPromptError({
       client,
@@ -2268,7 +2365,7 @@ function isUnscopedCodexNotification(
   );
 }
 
-function shouldRetryContextEngineTurnOnFreshCodexThread(params: {
+function shouldUseFreshCodexThreadAfterContextEngineOverflow(params: {
   error: unknown;
   contextEngineActive: boolean;
   thread: CodexAppServerThreadLifecycleBinding;
