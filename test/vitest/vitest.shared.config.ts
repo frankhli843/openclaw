@@ -375,6 +375,90 @@ export const sharedVitestConfig = {
         find: "@openclaw/normalization-core",
         replacement: path.join(repoRoot, "packages", "normalization-core", "src", "index.ts"),
       },
+      {
+        find: "@openclaw/terminal-core/ansi",
+        replacement: path.join(repoRoot, "packages", "terminal-core", "src", "ansi.ts"),
+      },
+      {
+        find: "@openclaw/terminal-core/decorative-emoji",
+        replacement: path.join(repoRoot, "packages", "terminal-core", "src", "decorative-emoji.ts"),
+      },
+      {
+        find: "@openclaw/terminal-core/health-style",
+        replacement: path.join(repoRoot, "packages", "terminal-core", "src", "health-style.ts"),
+      },
+      {
+        find: "@openclaw/terminal-core/links",
+        replacement: path.join(repoRoot, "packages", "terminal-core", "src", "links.ts"),
+      },
+      {
+        find: "@openclaw/terminal-core/note",
+        replacement: path.join(repoRoot, "packages", "terminal-core", "src", "note.ts"),
+      },
+      {
+        find: "@openclaw/terminal-core/osc-progress",
+        replacement: path.join(repoRoot, "packages", "terminal-core", "src", "osc-progress.ts"),
+      },
+      {
+        find: "@openclaw/terminal-core/palette",
+        replacement: path.join(repoRoot, "packages", "terminal-core", "src", "palette.ts"),
+      },
+      {
+        find: "@openclaw/terminal-core/progress-line",
+        replacement: path.join(repoRoot, "packages", "terminal-core", "src", "progress-line.ts"),
+      },
+      {
+        find: "@openclaw/terminal-core/prompt-select-styled-params",
+        replacement: path.join(
+          repoRoot,
+          "packages",
+          "terminal-core",
+          "src",
+          "prompt-select-styled-params.ts",
+        ),
+      },
+      {
+        find: "@openclaw/terminal-core/prompt-select-styled",
+        replacement: path.join(
+          repoRoot,
+          "packages",
+          "terminal-core",
+          "src",
+          "prompt-select-styled.ts",
+        ),
+      },
+      {
+        find: "@openclaw/terminal-core/prompt-style",
+        replacement: path.join(repoRoot, "packages", "terminal-core", "src", "prompt-style.ts"),
+      },
+      {
+        find: "@openclaw/terminal-core/restore",
+        replacement: path.join(repoRoot, "packages", "terminal-core", "src", "restore.ts"),
+      },
+      {
+        find: "@openclaw/terminal-core/safe-text",
+        replacement: path.join(repoRoot, "packages", "terminal-core", "src", "safe-text.ts"),
+      },
+      {
+        find: "@openclaw/terminal-core/stream-writer",
+        replacement: path.join(repoRoot, "packages", "terminal-core", "src", "stream-writer.ts"),
+      },
+      {
+        find: "@openclaw/terminal-core/table",
+        replacement: path.join(repoRoot, "packages", "terminal-core", "src", "table.ts"),
+      },
+      {
+        find: "@openclaw/terminal-core/terminal-link",
+        replacement: path.join(repoRoot, "packages", "terminal-core", "src", "terminal-link.ts"),
+      },
+      {
+        find: "@openclaw/terminal-core/theme",
+        replacement: path.join(repoRoot, "packages", "terminal-core", "src", "theme.ts"),
+      },
+      {
+        find: "@openclaw/terminal-core",
+        replacement: path.join(repoRoot, "packages", "terminal-core", "src", "index.ts"),
+      },
       ...sourcePluginSdkSubpaths.map((subpath) => ({
         find: `openclaw/plugin-sdk/${subpath}`,
         replacement: path.join(repoRoot, "src", "plugin-sdk", `${subpath}.ts`),
