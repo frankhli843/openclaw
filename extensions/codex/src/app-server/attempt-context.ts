@@ -71,11 +71,15 @@ type CodexWorkspaceBootstrapContext = CodexBootstrapContext & {
 
 export async function readMirroredSessionHistoryMessages(
   sessionFile: string,
+  // frankclaw: extra context for structured warning; aids correlation with channel/session in logs.
+  context?: { sessionId?: string; sessionKey?: string },
 ): Promise<AgentMessage[] | undefined> {
   const messages = await readCodexMirroredSessionHistoryMessages(sessionFile);
   if (!messages) {
     embeddedAgentLog.warn("failed to read mirrored session history for codex harness hooks", {
       sessionFile,
+      ...(context?.sessionId ? { sessionId: context.sessionId } : {}),
+      ...(context?.sessionKey ? { sessionKey: context.sessionKey } : {}),
     });
   }
   return messages;

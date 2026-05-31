@@ -345,6 +345,17 @@ export async function runCodexAppServerAttempt(
   } = {},
 ): Promise<EmbeddedRunAttemptResult> {
   const attemptStartedAt = Date.now();
+  // frankclaw: emit a run.progress event at attempt start so the diagnostic stall detector has a
+  // fresh lastProgressAt baseline for this session. The startup phase (dynamic tools, workspace
+  // bootstrap, context engine) runs entirely before setActiveEmbeddedRun is called; without this
+  // touch the detector reads age from the prior session and can report false stale-progress stalls.
+  emitTrustedDiagnosticEvent({
+    type: "run.progress",
+    runId: params.runId,
+    sessionId: params.sessionId,
+    sessionKey: params.sessionKey,
+    reason: "codex_startup:attempt_started",
+  });
   const profilerEnabled = isCodexAppServerProfilerEnabled(params.config);
   const codexModelCallTrace = freezeDiagnosticTraceContext(
     createDiagnosticTraceContextFromActiveScope(),
@@ -585,6 +596,17 @@ export async function runCodexAppServerAttempt(
     },
     onCodexAppServerEvent: (event) => emitCodexAppServerEvent(params, event),
   });
+  // frankclaw: touch diagnostic progress after dynamic-tool build so the stall detector sees a
+  // fresh lastProgressAt. Without this, the detector reads age from the prior session's last mark
+  // and can classify an actively-starting run as stale. The two buildDynamicTools calls are the
+  // most expensive pre-startup phases and can collectively take >60s on a cold workspace.
+  emitTrustedDiagnosticEvent({
+    type: "run.progress",
+    runId: params.runId,
+    sessionId: params.sessionId,
+    sessionKey: params.sessionKey,
+    reason: "codex_startup:dynamic_tools_built",
+  });
   const toolBridge = createCodexDynamicToolBridge({
     tools,
     registeredTools,
@@ -601,7 +623,10 @@ export async function runCodexAppServerAttempt(
     },
   });
   const hadSessionFile = await pathExists(activeSessionFile);
-  let historyMessages = (await readMirroredSessionHistoryMessages(activeSessionFile)) ?? [];
+  // frankclaw: pass session context so mirrored-history failures are correlated by channel/session.
+  const mirroredHistoryContext = { sessionId: params.sessionId, sessionKey: params.sessionKey };
+  let historyMessages =
+    (await readMirroredSessionHistoryMessages(activeSessionFile, mirroredHistoryContext)) ?? [];
   const hookContextWindowFields = {
     ...(params.contextWindowInfo?.tokens
       ? { contextTokenBudget: params.contextWindowInfo.tokens }
@@ -653,7 +678,9 @@ export async function runCodexAppServerAttempt(
       warn: (message) => embeddedAgentLog.warn(message),
     });
     historyMessages =
-      (await readMirroredSessionHistoryMessages(activeSessionFile)) ?? historyMessages;
+      // frankclaw: pass session context for structured warning correlation.
+      (await readMirroredSessionHistoryMessages(activeSessionFile, mirroredHistoryContext)) ??
+      historyMessages;
   }
   const memoryToolNames = getCodexWorkspaceMemoryToolNames(toolBridge.availableSpecs);
   const workspaceBootstrapContext = await buildCodexWorkspaceBootstrapContext({
@@ -663,6 +690,16 @@ export async function runCodexAppServerAttempt(
     sessionKey: contextSessionKey,
     sessionAgentId,
     memoryToolNames,
+  });
+  // frankclaw: touch diagnostic progress after workspace bootstrap context build.
+  // buildCodexWorkspaceBootstrapContext reads workspace files and can take >30s on large workspaces.
+  // The stall detector needs a fresh lastProgressAt to avoid classifying this as a stalled session.
+  emitTrustedDiagnosticEvent({
+    type: "run.progress",
+    runId: params.runId,
+    sessionId: params.sessionId,
+    sessionKey: params.sessionKey,
+    reason: "codex_startup:bootstrap_context_built",
   });
   const baseDeveloperInstructions = joinPresentSections(
     buildDeveloperInstructions(params, {
