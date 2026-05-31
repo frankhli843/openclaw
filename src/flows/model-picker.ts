@@ -422,7 +422,7 @@ function createPreferredProviderMatcher(params: {
       return cached;
     }
     const value =
-      Boolean(preferredOwnerPluginIdSet) &&
+      preferredOwnerPluginIdSet != null &&
       Boolean(
         resolveOwningPluginIdsForProviderRef({
           provider: normalizedEntryProvider,

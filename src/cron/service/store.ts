@@ -1,11 +1,11 @@
 import fs from "node:fs";
-import { parseJsonWithJson5Fallback } from "../../utils/parse-json-compat.js";
 import { normalizeCronJobIdentityFields } from "../normalize-job-identity.js";
 import { normalizeCronJobInput } from "../normalize.js";
 import { getInvalidPersistedCronJobReason } from "../persisted-shape.js";
 import { cronSchedulingInputsEqual } from "../schedule-identity.js";
 import { isInvalidCronSessionTargetIdError } from "../session-target.js";
 import {
+  loadCronStore,
   loadCronStoreWithConfigJobs,
   saveCronQuarantineFile,
   saveCronStore,
@@ -14,6 +14,15 @@ import {
 import type { CronJob } from "../types.js";
 import { recomputeNextRuns } from "./jobs.js";
 import type { CronServiceState } from "./state.js";
+
+async function getFileMtimeMs(path: string): Promise<number | null> {
+  try {
+    const stats = await fs.promises.stat(path);
+    return stats.mtimeMs;
+  } catch {
+    return null;
+  }
+}
 
 function invalidateStaleNextRunOnScheduleChange(params: {
   previousJobsById: ReadonlyMap<string, CronJob>;
@@ -101,6 +110,7 @@ export async function ensureLoaded(
   for (const job of state.store?.jobs ?? []) {
     previousJobsById.set(job.id, job);
   }
+  const fileMtimeMs = await getFileMtimeMs(state.deps.storePath);
   const loaded = await loadCronStoreWithConfigJobs(state.deps.storePath);
   const loadedJobs = (loaded.store.jobs ?? []) as unknown as CronJob[];
   const jobs: CronJob[] = [];
@@ -237,8 +247,7 @@ export async function persist(state: CronServiceState, opts?: { stateOnly?: bool
     }
     flushedPendingQuarantine = true;
   }
-  const saveOpts = flushedPendingQuarantine ? { skipBackup: opts?.skipBackup } : opts;
-  await saveCronStore(state.deps.storePath, state.store, saveOpts);
+  await saveCronStore(state.deps.storePath, state.store, opts);
   // Update file mtime after save to prevent immediate reload
   state.storeFileMtimeMs = await getFileMtimeMs(state.deps.storePath);
   // After successful save, the disk snapshot now matches in-memory; refresh
@@ -269,42 +278,22 @@ export async function persist(state: CronServiceState, opts?: { stateOnly?: bool
 // explicitly added to pendingDeleteJobIds count as "unexpected" drops.
 async function assertNoUnexpectedDiskDrops(state: CronServiceState): Promise<void> {
   const storePath = state.deps.storePath;
-  let raw: string;
+  // frankclaw: read current store state from SQLite (the authoritative source
+  // since upstream migrated from file-based to SQLite storage). This replaces
+  // the old JSON-file read and preserves the same TOCTOU protection: if any
+  // jobs were added to the store by a concurrent writer between our load and
+  // our persist, we detect and reject to prevent silent data loss.
+  let diskStore: { jobs: Array<{ id?: string }> };
   try {
-    raw = await fs.promises.readFile(storePath, "utf-8");
-  } catch (err) {
-    if ((err as { code?: string }).code === "ENOENT") {
-      // First write: nothing on disk yet, nothing to drop.
-      return;
-    }
-    // Unreadable for some other reason: do not block writes, the existing
-    // saveCronStore atomic-write path will surface the failure.
-    return;
-  }
-  let parsed: unknown;
-  try {
-    parsed = parseJsonWithJson5Fallback(raw);
+    diskStore = await loadCronStore(storePath);
   } catch {
-    // Unparseable disk content: saveCronStore will overwrite anyway.
-    return;
-  }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    return;
-  }
-  const parsedRecord = parsed as { jobs?: unknown };
-  if (!Array.isArray(parsedRecord.jobs)) {
+    // Unreadable: do not block writes, saveCronStore will surface failures.
     return;
   }
   const diskIds = new Set<string>();
-  for (const entry of parsedRecord.jobs) {
-    if (entry && typeof entry === "object") {
-      const id = (entry as { id?: unknown; jobId?: unknown }).id;
-      const legacyId = (entry as { id?: unknown; jobId?: unknown }).jobId;
-      if (typeof id === "string" && id.length > 0) {
-        diskIds.add(id);
-      } else if (typeof legacyId === "string" && legacyId.length > 0) {
-        diskIds.add(legacyId);
-      }
+  for (const job of diskStore.jobs) {
+    if (typeof job.id === "string" && job.id.length > 0) {
+      diskIds.add(job.id);
     }
   }
   const memIds = new Set<string>();

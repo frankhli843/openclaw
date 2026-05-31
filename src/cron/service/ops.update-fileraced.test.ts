@@ -4,9 +4,9 @@
 // call would persist the stale in-memory snapshot and drop the on-disk
 // additions. This file pins the safe behavior: update/add/remove must read
 // from disk before write so external additions survive a mutation.
-import fs from "node:fs/promises";
 import { describe, expect, it, vi } from "vitest";
 import { setupCronServiceSuite } from "../service.test-harness.js";
+import { loadCronStore, saveCronStore } from "../store.js";
 import type { CronJob } from "../types.js";
 import { add, remove, update } from "./ops.js";
 import { createCronServiceState } from "./state.js";
@@ -46,16 +46,15 @@ function makeJob(id: string, overrides: Partial<CronJob> = {}): CronJob {
   };
 }
 
+// frankclaw: write jobs to the SQLite-backed cron store (simulates both
+// initial setup and concurrent external writes post-migration from JSON files).
 async function writeJobsFile(storePath: string, jobs: CronJob[]) {
-  await fs.mkdir(storePath.replace(/[/\\][^/\\]+$/, ""), { recursive: true });
-  await fs.writeFile(storePath, JSON.stringify({ version: 1, jobs }, null, 2), "utf8");
+  await saveCronStore(storePath, { version: 1, jobs });
 }
 
 async function readJobIds(storePath: string): Promise<string[]> {
-  const raw = JSON.parse(await fs.readFile(storePath, "utf8")) as {
-    jobs: Array<{ id?: string }>;
-  };
-  return (raw.jobs ?? []).map((j) => String(j.id));
+  const store = await loadCronStore(storePath);
+  return store.jobs.map((j) => String(j.id));
 }
 
 // frankclaw: explicit-delete-intent guard (st_91d93c012595).

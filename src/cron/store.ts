@@ -758,6 +758,25 @@ type SaveCronStoreOptions = {
   stateOnly?: boolean;
 };
 
+// frankclaw: fsync the containing directory after an atomic rename so the
+// directory entry is durable on crash. Platform errors (EINVAL/EISDIR/EPERM
+// on Windows or tmpfs) are silently ignored — the rename itself provides
+// atomicity; the fsync is a best-effort durability guard.
+async function fsyncDirectory(dir: string): Promise<void> {
+  let handle: Awaited<ReturnType<typeof fs.promises.open>> | null = null;
+  try {
+    handle = await fs.promises.open(dir, fs.constants.O_RDONLY);
+    await handle.sync();
+  } catch (err) {
+    const code = (err as { code?: string }).code;
+    if (code !== "EINVAL" && code !== "EISDIR" && code !== "EPERM" && code !== "ENOENT") {
+      throw err;
+    }
+  } finally {
+    await handle?.close().catch(() => undefined);
+  }
+}
+
 async function atomicWrite(filePath: string, content: string, dirMode = 0o700): Promise<void> {
   await replaceFileAtomic({
     filePath,
@@ -768,6 +787,7 @@ async function atomicWrite(filePath: string, content: string, dirMode = 0o700): 
     renameMaxRetries: 3,
     copyFallbackOnPermissionError: true,
   });
+  await fsyncDirectory(path.dirname(filePath));
 }
 
 export async function saveCronStore(
