@@ -1313,17 +1313,17 @@
       "description": "Dead-session ACP repair and persisted ACP resume prefer agentSessionId so Claude transcript continuity follows the live underlying agent session instead of the stale ACPX queue-owner id.",
       "static": [
         {
-          "file": "src/acp/runtime/session-identity.ts",
+          "file": "packages/acp-core/src/runtime/session-identity.ts",
           "pattern": "normalizeText(identity.agentSessionId) ?? normalizeText(identity.acpxSessionId)",
           "minCount": 1
         },
         {
-          "file": "src/acp/runtime/session-identity.ts",
+          "file": "packages/acp-core/src/runtime/session-identity.ts",
           "pattern": "agentSessionId",
           "minCount": 1
         },
         {
-          "file": "src/acp/runtime/session-identity.ts",
+          "file": "packages/acp-core/src/runtime/session-identity.ts",
           "pattern": "acpxSessionId",
           "minCount": 1
         },
