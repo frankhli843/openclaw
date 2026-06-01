@@ -793,6 +793,10 @@ export async function dispatchWhatsAppBufferedReply(params: {
       },
     },
     replyOptions: {
+      // Message-tool-only unmentioned group turns have no automatic visible reply.
+      // Suppress composing there so silent background runs do not leak presence.
+      suppressTyping:
+        sourceRepliesAreToolOnly && params.msg.chatType === "group" && !params.msg.wasMentioned,
       disableBlockStreaming,
       ...(sourceReplyDeliveryMode ? { sourceReplyDeliveryMode } : {}),
       onModelSelected: params.onModelSelected,
@@ -853,7 +857,9 @@ async function finalizeWhatsAppStatusReaction(params: {
   if (params.outcome === "done") {
     await params.controller.setDone();
     if (params.removeAckAfterReply) {
-      await new Promise<void>((resolve) => setTimeout(resolve, params.timing.doneHoldMs));
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, params.timing.doneHoldMs);
+      });
       await params.controller.clear();
     } else {
       await params.controller.restoreInitial();
@@ -863,7 +869,9 @@ async function finalizeWhatsAppStatusReaction(params: {
   await params.controller.setError();
   if (params.hasFinalResponse) {
     if (params.removeAckAfterReply) {
-      await new Promise<void>((resolve) => setTimeout(resolve, params.timing.errorHoldMs));
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, params.timing.errorHoldMs);
+      });
       await params.controller.clear();
     } else {
       await params.controller.restoreInitial();
@@ -871,7 +879,9 @@ async function finalizeWhatsAppStatusReaction(params: {
     return;
   }
   if (params.removeAckAfterReply) {
-    await new Promise<void>((resolve) => setTimeout(resolve, params.timing.errorHoldMs));
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, params.timing.errorHoldMs);
+    });
   }
   await params.controller.restoreInitial();
 }

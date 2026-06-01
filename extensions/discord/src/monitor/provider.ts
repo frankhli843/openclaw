@@ -508,7 +508,7 @@ export async function monitorDiscordProvider(opts: MonitorDiscordOpts = {}) {
       string,
       import("openclaw/plugin-sdk/reply-history").HistoryEntry[]
     >();
-    let { botUserId, botUserName } = await fetchDiscordBotIdentity({
+    const { botUserId, botUserName } = await fetchDiscordBotIdentity({
       client,
       token,
       runtime,

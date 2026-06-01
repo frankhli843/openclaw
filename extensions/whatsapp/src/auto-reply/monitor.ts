@@ -330,7 +330,7 @@ export async function monitorWebChannel(
       try {
         connection = await controller.openConnection({
           connectionId,
-          createListener: async ({ sock, connection }) => {
+          createListener: async ({ sock, connection: connectionLocal }) => {
             const onMessage = createWebOnMessageHandler({
               cfg,
               loadConfig: loadCurrentMonitorConfig,
@@ -341,7 +341,7 @@ export async function monitorWebChannel(
               groupHistories,
               groupMemberNames,
               echoTracker,
-              backgroundTasks: connection.backgroundTasks,
+              backgroundTasks: connectionLocal.backgroundTasks,
               replyResolver: activeReplyResolver,
               replyLogger,
               baseMentionConfig,
@@ -575,7 +575,7 @@ export async function monitorWebChannel(
             normalizeReconnectAccountId(entry.accountId) === normalizedAccountId,
           bypassBackoff: isNoListenerReconnectError(entry.lastError),
         }),
-      }).catch((err) => {
+      }).catch((err: unknown) => {
         reconnectLogger.warn(
           { connectionId: connection.connectionId, error: String(err) },
           "reconnect drain failed",
@@ -594,7 +594,7 @@ export async function monitorWebChannel(
               normalizeReconnectAccountId(entry.accountId) === normalizedAccountId,
             bypassBackoff: false,
           }),
-        }).catch((err) => {
+        }).catch((err: unknown) => {
           reconnectLogger.warn(
             { connectionId: connection.connectionId, error: String(err) },
             "periodic drain failed",

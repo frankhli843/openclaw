@@ -85,14 +85,12 @@ describe("createSequentialQueue", () => {
         }),
       ).rejects.toThrow("boom");
 
-      await new Promise<void>((resolve) => setImmediate(resolve));
+      await new Promise<void>((resolve) => {
+        setImmediate(resolve);
+      });
       expect(unhandled).toStrictEqual([]);
 
-      await expect(
-        enqueue("feishu:default:chat-1", async () => {
-          return;
-        }),
-      ).resolves.toBeUndefined();
+      await expect(enqueue("feishu:default:chat-1", async () => {})).resolves.toBeUndefined();
     } finally {
       process.off("unhandledRejection", onUnhandledRejection);
     }

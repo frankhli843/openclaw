@@ -76,6 +76,7 @@ export function createTypingCallbacks(params: CreateTypingCallbacksParams): Typi
         fireStop();
       }
     }, maxDurationMs);
+    ttlTimer.unref?.();
   };
 
   const clearTtlTimer = () => {
@@ -112,7 +113,7 @@ export function createTypingCallbacks(params: CreateTypingCallbacksParams): Typi
       return;
     }
     stopSent = true;
-    void stop().catch((err) => (params.onStopError ?? params.onStartError)(err));
+    void stop().catch((err: unknown) => (params.onStopError ?? params.onStartError)(err));
   };
 
   return { onReplyStart, onIdle: fireStop, onCleanup: fireStop };

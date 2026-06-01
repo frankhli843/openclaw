@@ -6,9 +6,9 @@ import { cronSchedulingInputsEqual } from "../schedule-identity.js";
 import { isInvalidCronSessionTargetIdError } from "../session-target.js";
 import {
   loadCronStore,
-  loadCronStoreWithConfigJobs,
+  loadCronJobsStoreWithConfigJobs,
   saveCronQuarantineFile,
-  saveCronStore,
+  saveCronJobsStore,
   type QuarantinedCronConfigJob,
 } from "../store.js";
 import type { CronJob } from "../types.js";
@@ -92,6 +92,7 @@ async function flushPendingQuarantine(
   }
 }
 
+/** Loads and normalizes the cron store, quarantining invalid persisted rows before runtime use. */
 export async function ensureLoaded(
   state: CronServiceState,
   opts?: {
@@ -111,15 +112,18 @@ export async function ensureLoaded(
     previousJobsById.set(job.id, job);
   }
   const fileMtimeMs = await getFileMtimeMs(state.deps.storePath);
-  const loaded = await loadCronStoreWithConfigJobs(state.deps.storePath);
+  const loaded = await loadCronJobsStoreWithConfigJobs(state.deps.storePath);
   const loadedJobs = (loaded.store.jobs ?? []) as unknown as CronJob[];
   const jobs: CronJob[] = [];
   const quarantinedConfigJobs: QuarantinedCronConfigJob[] = [...loaded.invalidConfigRows];
   for (const [index, job] of loadedJobs.entries()) {
-    const raw = job as unknown as Record<string, unknown>;
-    const rawConfigJob = loaded.configJobs[index] ?? structuredClone(raw);
+    const decodedRaw = job as unknown as Record<string, unknown>;
+    const rawConfigJob = loaded.configJobs[index] ?? structuredClone(decodedRaw);
+    const raw = decodedRaw;
     const sourceIndex = loaded.configJobIndexes[index] ?? index;
     const runtimeEntry = loaded.configJobRuntimeEntries[index];
+    // Accept old `jobId` rows at the raw boundary only; the in-memory store
+    // uses canonical `id` before validation and scheduling.
     normalizeCronJobIdentityFields(raw);
     let normalized: Record<string, unknown> | null;
     try {
@@ -147,6 +151,8 @@ export async function ensureLoaded(
       };
       const runtimeState = runtimeEntry?.state ?? raw.state;
       if (runtimeState && typeof runtimeState === "object" && !Array.isArray(runtimeState)) {
+        // Preserve runtime state with the quarantined config so doctor can
+        // repair shape without losing last/next run information.
         quarantineEntry.state = structuredClone(runtimeState as Record<string, unknown>);
       }
       const updatedAtMs = runtimeEntry?.updatedAtMs ?? raw.updatedAtMs;
@@ -190,7 +196,7 @@ export async function ensureLoaded(
     const quarantinePath = await flushPendingQuarantine(state, state.storeLoadedAtMs);
     if (quarantinePath) {
       try {
-        await saveCronStore(state.deps.storePath, state.store);
+        await saveCronJobsStore(state.deps.storePath, state.store);
         state.deps.log.warn(
           {
             storePath: state.deps.storePath,
@@ -216,6 +222,7 @@ export async function ensureLoaded(
   }
 }
 
+/** Emits the cron-disabled warning once per service state. */
 export function warnIfDisabled(state: CronServiceState, action: string) {
   if (state.deps.cronEnabled) {
     return;
@@ -230,6 +237,7 @@ export function warnIfDisabled(state: CronServiceState, action: string) {
   );
 }
 
+/** Persists the in-memory cron store, flushing pending quarantine records first. */
 export async function persist(state: CronServiceState, opts?: { stateOnly?: boolean }) {
   if (!state.store) {
     return;
@@ -247,7 +255,11 @@ export async function persist(state: CronServiceState, opts?: { stateOnly?: bool
     }
     flushedPendingQuarantine = true;
   }
-  await saveCronStore(state.deps.storePath, state.store, opts);
+  await saveCronJobsStore(
+    state.deps.storePath,
+    state.store,
+    flushedPendingQuarantine ? undefined : opts,
+  );
   // Update file mtime after save to prevent immediate reload
   state.storeFileMtimeMs = await getFileMtimeMs(state.deps.storePath);
   // After successful save, the disk snapshot now matches in-memory; refresh

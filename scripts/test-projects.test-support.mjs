@@ -403,6 +403,63 @@ const TOOLING_SOURCE_TEST_TARGETS = new Map([
   ["scripts/ci-changed-scope.mjs", ["src/scripts/ci-changed-scope.test.ts"]],
   ["scripts/ci-docker-pull-retry.sh", ["test/scripts/ci-docker-pull-retry.test.ts"]],
   ["scripts/control-ui-i18n.ts", ["test/scripts/control-ui-i18n.test.ts"]],
+  [
+    "scripts/e2e/agent-bundle-mcp-tools-docker.sh",
+    [
+      "test/scripts/docker-build-helper.test.ts",
+      "test/scripts/docker-e2e-plan.test.ts",
+      "test/scripts/plugin-prerelease-test-plan.test.ts",
+      "src/agents/agent-bundle-mcp-runtime.test.ts",
+      "src/agents/agent-bundle-mcp-tools.materialize.test.ts",
+    ],
+  ],
+  [
+    "scripts/e2e/agent-bundle-mcp-tools-docker-client.ts",
+    [
+      "src/agents/agent-bundle-mcp-runtime.test.ts",
+      "src/agents/agent-bundle-mcp-tools.materialize.test.ts",
+    ],
+  ],
+  [
+    "scripts/e2e/mcp-channels-docker.sh",
+    [
+      "test/scripts/docker-build-helper.test.ts",
+      "test/scripts/docker-e2e-observability.test.ts",
+      "test/scripts/docker-e2e-plan.test.ts",
+      "test/scripts/plugin-prerelease-test-plan.test.ts",
+    ],
+  ],
+  [
+    "scripts/e2e/mcp-channels-docker-client.ts",
+    ["test/scripts/docker-e2e-plan.test.ts", "test/scripts/plugin-prerelease-test-plan.test.ts"],
+  ],
+  [
+    "scripts/e2e/mcp-code-mode-gateway-docker.sh",
+    [
+      "test/scripts/docker-build-helper.test.ts",
+      "test/scripts/docker-e2e-plan.test.ts",
+      "test/scripts/plugin-prerelease-test-plan.test.ts",
+      "test/scripts/mcp-code-mode-gateway-client.test.ts",
+      "test/scripts/session-log-mentions.test.ts",
+    ],
+  ],
+  [
+    "scripts/e2e/mcp-code-mode-gateway-live-docker.sh",
+    [
+      "test/scripts/docker-build-helper.test.ts",
+      "test/scripts/docker-e2e-plan.test.ts",
+      "test/scripts/plugin-prerelease-test-plan.test.ts",
+      "test/scripts/mcp-code-mode-gateway-client.test.ts",
+      "test/scripts/session-log-mentions.test.ts",
+    ],
+  ],
+  [
+    "scripts/mcp-code-mode-gateway-e2e.ts",
+    [
+      "test/scripts/mcp-code-mode-gateway-client.test.ts",
+      "test/scripts/session-log-mentions.test.ts",
+    ],
+  ],
   ["scripts/dependency-changes-report.mjs", ["test/scripts/dependency-changes-report.test.ts"]],
   [
     "scripts/dependency-ownership-surface-report.mjs",
@@ -1297,7 +1354,7 @@ function findDirectImportersWithGitGrep(cwd, importedFile, fileSet) {
       if (file === importedFile || !fileSet.has(file) || importers.includes(file)) {
         continue;
       }
-      let source = "";
+      let source;
       try {
         source = fs.readFileSync(path.join(cwd, file), "utf8");
       } catch {
@@ -1338,8 +1395,7 @@ function resolveAffectedTestsFromTargetedImportScan(changedPath, cwd) {
   const seen = new Set(queue);
   const targets = [];
 
-  for (let index = 0; index < queue.length; index += 1) {
-    const current = queue[index];
+  for (const current of queue) {
     const importers = findDirectImportersWithGitGrep(cwd, current, fileSet);
     if (importers === null) {
       return null;
@@ -1373,7 +1429,7 @@ function getImportGraph(cwd) {
   );
 
   for (const file of files) {
-    let source = "";
+    let source;
     try {
       source = fs.readFileSync(path.join(cwd, file), "utf8");
     } catch {
@@ -1409,8 +1465,7 @@ function resolveAffectedTestsFromImportGraph(changedPath, cwd, options = {}) {
   const seen = new Set(queue);
   const targets = [];
 
-  for (let index = 0; index < queue.length; index += 1) {
-    const current = queue[index];
+  for (const current of queue) {
     for (const importer of reverseImports.get(current) ?? []) {
       if (seen.has(importer)) {
         continue;
@@ -2305,7 +2360,8 @@ function hasConservativeVitestWorkerBudget(env) {
   return workerBudget !== null && workerBudget <= 1;
 }
 
-export function resolveParallelFullSuiteConcurrency(specCount, env, hostInfo) {
+export function resolveParallelFullSuiteConcurrency(specCount, envInput, hostInfo) {
+  let env = envInput;
   env ??= process.env;
   const override = parsePositiveInt(env.OPENCLAW_TEST_PROJECTS_PARALLEL);
   if (override !== null) {

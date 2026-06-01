@@ -30,6 +30,7 @@ import { resolveMessageChannelSelection } from "../infra/outbound/channel-select
 import { buildOutboundSessionContext } from "../infra/outbound/session-context.js";
 import { parseStrictNonNegativeInteger } from "../infra/parse-finite-number.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
+import { normalizePluginsConfig } from "../plugins/config-state.js";
 import { loadManifestMetadataSnapshot } from "../plugins/manifest-contract-eligibility.js";
 import {
   classifySessionKeyShape,
@@ -65,6 +66,7 @@ import { resolveAgentRuntimeConfig } from "./agent-runtime-config.js";
 import {
   clearAutoFallbackPrimaryProbeSelection,
   entryMatchesAutoFallbackPrimaryProbe,
+  hasLegacyAutoFallbackWithoutOrigin,
   hasSessionAutoModelFallbackProvenance,
   listAgentIds,
   markAutoFallbackPrimaryProbe,
@@ -104,11 +106,13 @@ import { AGENT_LANE_SUBAGENT } from "./lanes.js";
 import { LiveSessionModelSwitchError } from "./live-model-switch.js";
 import { loadManifestModelCatalog } from "./model-catalog.js";
 import { runWithModelFallback } from "./model-fallback.js";
+import { normalizeConfiguredProviderCatalogModelId } from "./model-ref-shared.js";
 import type { ModelManifestNormalizationContext } from "./model-selection-normalize.js";
 import {
   buildConfiguredModelCatalog,
   modelKey,
   normalizeModelRef,
+  normalizeProviderId,
   parseModelRef,
   resolveConfiguredModelRef,
   resolveDefaultModelForAgent,
@@ -125,12 +129,98 @@ import { resolveAgentTimeoutMs } from "./timeout.js";
 import { ensureAgentWorkspace } from "./workspace.js";
 
 const log = createSubsystemLogger("agents/agent-command");
+
+function hasExactConfiguredProviderModel(params: {
+  cfg: OpenClawConfig;
+  provider: string;
+  model: string;
+}): boolean {
+  const normalizedProvider = normalizeProviderId(params.provider);
+  const model = params.model.trim();
+  if (!normalizedProvider || !model) {
+    return false;
+  }
+  for (const [providerId, providerConfig] of Object.entries(params.cfg.models?.providers ?? {})) {
+    if (normalizeProviderId(providerId) !== normalizedProvider) {
+      continue;
+    }
+    return (providerConfig.models ?? []).some((entry) => entry.id.trim() === model);
+  }
+  return false;
+}
+
+function hasConfiguredProvider(params: { cfg: OpenClawConfig; provider: string }): boolean {
+  const normalizedProvider = normalizeProviderId(params.provider);
+  if (!normalizedProvider) {
+    return false;
+  }
+  return Object.keys(params.cfg.models?.providers ?? {}).some(
+    (providerId) => normalizeProviderId(providerId) === normalizedProvider,
+  );
+}
+
+function allowPluginModelNormalizationForRef(params: {
+  cfg: OpenClawConfig;
+  provider: string;
+  model: string;
+}): boolean {
+  if (!normalizePluginsConfig(params.cfg.plugins).enabled && hasConfiguredProvider(params)) {
+    return false;
+  }
+  return !hasExactConfiguredProviderModel(params);
+}
+
+function normalizeAgentCommandModelRef(
+  cfg: OpenClawConfig,
+  provider: string,
+  model: string,
+  modelManifestContext: ModelManifestNormalizationContext,
+) {
+  return normalizeModelRef(provider, model, {
+    ...modelManifestContext,
+    allowPluginNormalization: allowPluginModelNormalizationForRef({ cfg, provider, model }),
+  });
+}
+
+function normalizeAgentCommandDefaultModelRef(
+  cfg: OpenClawConfig,
+  provider: string,
+  model: string,
+  modelManifestContext: ModelManifestNormalizationContext,
+) {
+  const normalizedProvider = normalizeProviderId(provider);
+  if (hasConfiguredProvider({ cfg, provider: normalizedProvider })) {
+    return {
+      provider: normalizedProvider,
+      model: normalizeConfiguredProviderCatalogModelId(normalizedProvider, model, {
+        manifestPlugins: modelManifestContext.manifestPlugins,
+      }),
+    };
+  }
+  return normalizeAgentCommandModelRef(cfg, provider, model, modelManifestContext);
+}
+
+function parseAgentCommandModelRef(
+  cfg: OpenClawConfig,
+  raw: string,
+  defaultProvider: string,
+  modelManifestContext: ModelManifestNormalizationContext,
+) {
+  const parsed = parseModelRef(raw, defaultProvider, {
+    ...modelManifestContext,
+    allowPluginNormalization: false,
+  });
+  return parsed
+    ? normalizeAgentCommandModelRef(cfg, parsed.provider, parsed.model, modelManifestContext)
+    : null;
+}
+
 type AttemptExecutionRuntime = typeof import("./command/attempt-execution.runtime.js");
 type AgentAttemptResult = Awaited<ReturnType<AttemptExecutionRuntime["runAgentAttempt"]>>;
 type AcpManagerRuntime = typeof import("../acp/control-plane/manager.js");
 type AcpPolicyRuntime = typeof import("../acp/policy.js");
 type AcpRuntimeErrorsRuntime = typeof import("../acp/runtime/errors.js");
-type AcpSessionIdentifiersRuntime = typeof import("../acp/runtime/session-identifiers.js");
+type AcpSessionIdentifiersRuntime = typeof import("@openclaw/acp-core/runtime/session-identifiers");
 type DeliveryRuntime = typeof import("./command/delivery.runtime.js");
 type SessionStoreRuntime = typeof import("./command/session-store.runtime.js");
 type CliCompactionRuntime = typeof import("./command/cli-compaction.js");
@@ -155,7 +245,7 @@ const acpRuntimeErrorsRuntimeLoader = createLazyImportLoader<AcpRuntimeErrorsRun
   () => import("../acp/runtime/errors.js"),
 );
 const acpSessionIdentifiersRuntimeLoader = createLazyImportLoader<AcpSessionIdentifiersRuntime>(
-  () => import("../acp/runtime/session-identifiers.js"),
+  () => import("@openclaw/acp-core/runtime/session-identifiers"),
 );
 const deliveryRuntimeLoader = createLazyImportLoader<DeliveryRuntime>(
   () => import("./command/delivery.runtime.js"),
@@ -610,18 +700,22 @@ async function prepareAgentCommandExecution(opts: AgentCommandOpts, runtime: Run
   const cwd =
     normalizeOptionalString(opts.cwd) ?? normalizeOptionalString(sessionEntryRaw?.spawnedCwd);
   const agentDir = resolveAgentDir(cfg, sessionAgentId);
-  const manifestMetadataSnapshot = loadManifestMetadataSnapshot({
-    config: cfg,
-    workspaceDir,
-    env: process.env,
-  });
+  const pluginsEnabled = normalizePluginsConfig(cfg.plugins).enabled;
+  const manifestMetadataSnapshot = pluginsEnabled
+    ? loadManifestMetadataSnapshot({
+        config: cfg,
+        workspaceDir,
+        env: process.env,
+      })
+    : undefined;
   const modelManifestContext = {
-    manifestPlugins: manifestMetadataSnapshot.plugins,
+    manifestPlugins: manifestMetadataSnapshot?.plugins ?? [],
   } satisfies ModelManifestNormalizationContext;
   const configuredModel = resolveConfiguredModelRef({
     cfg,
     defaultProvider: DEFAULT_PROVIDER,
     defaultModel: DEFAULT_MODEL,
+    allowPluginNormalization: pluginsEnabled,
     ...modelManifestContext,
   });
   const configuredThinkingCatalog = buildConfiguredModelCatalog({
@@ -688,6 +782,8 @@ async function prepareAgentCommandExecution(opts: AgentCommandOpts, runtime: Run
     workspaceDir,
     cwd: cwd ? resolveUserPath(cwd) : undefined,
     agentDir,
+    pluginsEnabled,
+    manifestMetadataSnapshot,
     modelManifestContext,
     runId,
     acpManager,
@@ -731,6 +827,8 @@ async function agentCommandInternal(
     runId,
     acpManager,
     acpResolution,
+    pluginsEnabled,
+    manifestMetadataSnapshot,
     modelManifestContext,
   } = prepared;
   const effectiveCwd = cwd ? resolveUserPath(cwd) : workspaceDir;
@@ -808,6 +906,7 @@ async function agentCommandInternal(
           ? { isControlUiVisible: false }
           : {
               sessionKey,
+              sessionId,
             },
       );
       attemptExecutionRuntime.emitAcpLifecycleStart({ runId, startedAt });
@@ -1002,7 +1101,7 @@ async function agentCommandInternal(
 
     if (sessionKey || suppressVisibleSessionEffects) {
       registerAgentRunContext(runId, {
-        ...(sessionKey && !suppressVisibleSessionEffects ? { sessionKey } : {}),
+        ...(sessionKey && !suppressVisibleSessionEffects ? { sessionKey, sessionId } : {}),
         verboseLevel: resolvedVerboseLevel,
         isControlUiVisible: !suppressVisibleSessionEffects,
       });
@@ -1101,9 +1200,11 @@ async function agentCommandInternal(
     const configuredDefaultRef = resolveDefaultModelForAgent({
       cfg,
       agentId: sessionAgentId,
+      allowPluginNormalization: pluginsEnabled,
       ...modelManifestContext,
     });
-    const { provider: defaultProvider, model: defaultModel } = normalizeModelRef(
+    const { provider: defaultProvider, model: defaultModel } = normalizeAgentCommandDefaultModelRef(
+      cfg,
       configuredDefaultRef.provider,
       configuredDefaultRef.model,
       modelManifestContext,
@@ -1119,6 +1220,8 @@ async function agentCommandInternal(
       : undefined;
     const hasStoredAutoFallbackProvenance =
       hasStoredOverride && hasSessionAutoModelFallbackProvenance(sessionEntry);
+    const hasLegacyAutoFallbackOverrideWithoutOrigin =
+      hasStoredOverride && hasLegacyAutoFallbackWithoutOrigin(sessionEntry);
     const explicitProviderOverride =
       typeof opts.provider === "string"
         ? normalizeExplicitOverrideInput(opts.provider, "provider")
@@ -1140,12 +1243,12 @@ async function agentCommandInternal(
       defaultProvider,
       defaultModel,
       allowManifestNormalization: true,
-      allowPluginNormalization: true,
+      allowPluginNormalization: pluginsEnabled,
       ...modelManifestContext,
     });
 
     if (needsModelCatalog) {
-      modelCatalog = loadManifestModelCatalog({ config: cfg, workspaceDir });
+      modelCatalog = pluginsEnabled ? loadManifestModelCatalog({ config: cfg, workspaceDir }) : [];
       visibilityPolicy = createModelVisibilityPolicy({
         cfg,
         catalog: modelCatalog,
@@ -1153,7 +1256,7 @@ async function agentCommandInternal(
         defaultModel,
         agentId: sessionAgentId,
         allowManifestNormalization: true,
-        allowPluginNormalization: true,
+        allowPluginNormalization: pluginsEnabled,
         ...modelManifestContext,
       });
       allowedModelCatalog = visibilityPolicy.allowedCatalog;
@@ -1167,6 +1270,21 @@ async function agentCommandInternal(
       !suppressVisibleSessionEffects
     ) {
       const entry = sessionEntry;
+      if (hasLegacyAutoFallbackOverrideWithoutOrigin) {
+        const { updated } = applyModelOverrideToSessionEntry({
+          entry,
+          selection: { provider: defaultProvider, model: defaultModel, isDefault: true },
+        });
+        if (updated) {
+          storedModelOverrideSource = undefined;
+          await persistSessionEntry({
+            sessionStore,
+            sessionKey,
+            storePath,
+            entry,
+          });
+        }
+      }
       const repaired = repairProviderWrappedModelOverride({
         entry,
         defaultProvider,
@@ -1183,7 +1301,8 @@ async function agentCommandInternal(
       const overrideProvider = sessionEntry.providerOverride?.trim() || defaultProvider;
       const overrideModel = sessionEntry.modelOverride?.trim();
       if (overrideModel) {
-        const normalizedOverride = normalizeModelRef(
+        const normalizedOverride = normalizeAgentCommandModelRef(
+          cfg,
           overrideProvider,
           overrideModel,
           modelManifestContext,
@@ -1206,11 +1325,16 @@ async function agentCommandInternal(
       }
     }
 
-    const storedProviderOverride = sessionEntry?.providerOverride?.trim();
-    let storedModelOverride = sessionEntry?.modelOverride?.trim();
+    const storedProviderOverride = hasLegacyAutoFallbackOverrideWithoutOrigin
+      ? undefined
+      : sessionEntry?.providerOverride?.trim();
+    let storedModelOverride = hasLegacyAutoFallbackOverrideWithoutOrigin
+      ? undefined
+      : sessionEntry?.modelOverride?.trim();
     if (storedModelOverride) {
       const candidateProvider = storedProviderOverride || defaultProvider;
-      const normalizedStored = normalizeModelRef(
+      const normalizedStored = normalizeAgentCommandModelRef(
+        cfg,
         candidateProvider,
         storedModelOverride,
         modelManifestContext,
@@ -1240,10 +1364,20 @@ async function agentCommandInternal(
     if (hasExplicitRunOverride) {
       const explicitRef = explicitModelOverride
         ? explicitProviderOverride
-          ? normalizeModelRef(explicitProviderOverride, explicitModelOverride, modelManifestContext)
-          : parseModelRef(explicitModelOverride, provider, modelManifestContext)
+          ? normalizeAgentCommandModelRef(
+              cfg,
+              explicitProviderOverride,
+              explicitModelOverride,
+              modelManifestContext,
+            )
+          : parseAgentCommandModelRef(cfg, explicitModelOverride, provider, modelManifestContext)
         : explicitProviderOverride
-          ? normalizeModelRef(explicitProviderOverride, model, modelManifestContext)
+          ? normalizeAgentCommandModelRef(
+              cfg,
+              explicitProviderOverride,
+              model,
+              modelManifestContext,
+            )
           : null;
       if (!explicitRef) {
         throw new Error("Invalid model override.");
@@ -1298,13 +1432,31 @@ async function agentCommandInternal(
           harnessRuntime: validationHarnessPolicy.runtime,
           config: cfg,
         }).map((candidateProvider) =>
-          resolveProviderIdForAuth(candidateProvider, { config: cfg, workspaceDir }),
+          pluginsEnabled
+            ? resolveProviderIdForAuth(candidateProvider, {
+                config: cfg,
+                workspaceDir,
+                ...(manifestMetadataSnapshot ? { metadataSnapshot: manifestMetadataSnapshot } : {}),
+              })
+            : candidateProvider,
         );
+        const authAliasLookupParams = pluginsEnabled
+          ? {
+              config: cfg,
+              workspaceDir,
+              ...(manifestMetadataSnapshot ? { metadataSnapshot: manifestMetadataSnapshot } : {}),
+            }
+          : {
+              config: cfg,
+              workspaceDir,
+              metadataSnapshot: { plugins: [] },
+            };
         const profileMatchesRuntime =
           profile &&
           acceptedAuthProviders.some((candidateProvider) =>
             isStoredCredentialCompatibleWithAuthProvider({
               cfg,
+              authAliasLookupParams,
               provider: candidateProvider,
               credential: profile,
             }),
@@ -1534,12 +1686,17 @@ async function agentCommandInternal(
           runId,
           agentDir,
           agentId: sessionAgentId,
+          sessionId,
           sessionKey: sessionKey ?? sessionId,
-          prepareAgentHarnessRuntime: async ({ provider, model, agentHarnessRuntimeOverride }) => {
+          prepareAgentHarnessRuntime: async ({
+            provider: providerValue,
+            model: modelValue,
+            agentHarnessRuntimeOverride,
+          }) => {
             await ensureSelectedAgentHarnessPlugin({
               config: cfg,
-              provider,
-              modelId: model,
+              provider: providerValue,
+              modelId: modelValue,
               agentId: sessionAgentId,
               sessionKey,
               agentHarnessRuntimeOverride,
@@ -1550,11 +1707,11 @@ async function agentCommandInternal(
           onFallbackStep: (step) => {
             fallbackTrajectoryRecorder?.recordEvent("model.fallback_step", step);
           },
-          classifyResult: ({ provider, model, result }) =>
+          classifyResult: ({ provider: providerLocal, model: modelLocal, result: resultLocal }) =>
             classifyEmbeddedAgentRunResultForModelFallback({
-              provider,
-              model,
-              result,
+              provider: providerLocal,
+              model: modelLocal,
+              result: resultLocal,
             }),
           abortSignal: opts.abortSignal,
           run: async (providerOverride, modelOverride, runOptions) => {
@@ -1615,6 +1772,8 @@ async function agentCommandInternal(
               authProfileProvider: providerForAuthProfileValidation,
               sessionStore: suppressVisibleSessionEffects ? undefined : sessionStore,
               storePath: suppressVisibleSessionEffects ? undefined : storePath,
+              pluginsEnabled,
+              ...(manifestMetadataSnapshot ? { metadataSnapshot: manifestMetadataSnapshot } : {}),
               allowTransientCooldownProbe: runOptions?.allowTransientCooldownProbe,
               sessionHasHistory:
                 !isNewSession ||
@@ -1715,7 +1874,12 @@ async function agentCommandInternal(
               { cause: err },
             );
           }
-          const switchRef = normalizeModelRef(err.provider, err.model, modelManifestContext);
+          const switchRef = normalizeAgentCommandModelRef(
+            cfg,
+            err.provider,
+            err.model,
+            modelManifestContext,
+          );
           const switchKey = modelKey(switchRef.provider, switchRef.model);
           if (!visibilityPolicy.allowsKey(switchKey)) {
             log.info(

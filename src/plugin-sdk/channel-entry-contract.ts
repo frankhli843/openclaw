@@ -75,15 +75,18 @@ type DefineBundledChannelSetupEntryOptions = {
   features?: BundledChannelSetupEntryFeatures;
 };
 
+/** Feature flags exposed by bundled setup entries for optional migration/session surfaces. */
 export type BundledChannelSetupEntryFeatures = {
   legacyStateMigrations?: boolean;
   legacySessionSurfaces?: boolean;
 };
 
+/** Feature flags exposed by full bundled channel entries. */
 export type BundledChannelEntryFeatures = {
   accountInspect?: boolean;
 };
 
+/** Legacy session helpers used while bundled channels migrate old session key formats. */
 export type BundledChannelLegacySessionSurface = {
   isLegacyGroupSessionKey?: (key: string) => boolean;
   canonicalizeLegacySessionKey?: (params: {
@@ -92,6 +95,7 @@ export type BundledChannelLegacySessionSurface = {
   }) => string | null | undefined;
 };
 
+/** Detects channel-owned state migrations needed before a bundled channel starts. */
 export type BundledChannelLegacyStateMigrationDetector = (params: {
   cfg: OpenClawConfig;
   env: NodeJS.ProcessEnv;
@@ -103,6 +107,7 @@ export type BundledChannelLegacyStateMigrationDetector = (params: {
   | null
   | undefined;
 
+/** Runtime contract returned by a bundled channel's main entrypoint definition. */
 export type BundledChannelEntryContract<TPlugin = ChannelPlugin> = {
   kind: "bundled-channel-entry";
   id: string;
@@ -124,6 +129,7 @@ export type BundledChannelEntryContract<TPlugin = ChannelPlugin> = {
   setChannelRuntime?: (runtime: PluginRuntime) => void;
 };
 
+/** Runtime contract returned by a bundled channel's setup-only entrypoint definition. */
 export type BundledChannelSetupEntryContract<TPlugin = ChannelPlugin> = {
   kind: "bundled-channel-setup-entry";
   loadSetupPlugin: (options?: BundledEntryModuleLoadOptions) => TPlugin;
@@ -141,6 +147,7 @@ export type BundledChannelSetupEntryContract<TPlugin = ChannelPlugin> = {
   features?: BundledChannelSetupEntryFeatures;
 };
 
+/** Test hook for swapping the source-module loader used by bundled entry imports. */
 export type BundledEntryModuleLoadOptions = {
   createLoaderForTest?: PluginModuleLoaderFactory;
 };
@@ -264,6 +271,8 @@ function resolveBundledEntryModuleCandidates(
     return candidates;
   }
 
+  // Published bundles resolve from dist first, then fall back to source so local dev checkouts
+  // can exercise bundled entries without requiring a fresh package build.
   addBundledEntryCandidates(
     candidates,
     path.resolve(sourcePluginRoot, specifier),
@@ -461,6 +470,7 @@ function loadBundledEntryModuleSync(
   return loaded;
 }
 
+/** Loads one export from a bundled channel sidecar module through the guarded entry boundary. */
 // oxlint-disable-next-line typescript/no-unnecessary-type-parameters -- Dynamic entry export loaders use caller-supplied export types.
 export function loadBundledEntryExportSync<T>(
   importMetaUrl: string,
@@ -510,6 +520,7 @@ export function loadBundledEntryExportSync<T>(
   }
 }
 
+/** Defines the full bundled channel entry contract used by core plugin registration. */
 export function defineBundledChannelEntry<TPlugin = ChannelPlugin>({
   id,
   name,
@@ -608,6 +619,7 @@ export function defineBundledChannelEntry<TPlugin = ChannelPlugin>({
   };
 }
 
+/** Defines the setup-only bundled channel entry contract for onboarding and migration surfaces. */
 export function defineBundledChannelSetupEntry<TPlugin = ChannelPlugin>({
   importMetaUrl,
   plugin,

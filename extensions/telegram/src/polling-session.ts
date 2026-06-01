@@ -41,6 +41,7 @@ import {
   recoverStaleTelegramSpooledUpdateClaims,
   releaseTelegramSpooledUpdateClaim,
   resolveTelegramIngressSpoolDir,
+  writeTelegramSpooledUpdate,
   type ClaimedTelegramSpooledUpdate,
   type TelegramSpooledUpdate,
 } from "./telegram-ingress-spool.js";
@@ -413,7 +414,7 @@ export class TelegramPollingSession {
         bypassBackoff: false,
       }),
     })
-      .catch((err) => {
+      .catch((err: unknown) => {
         this.opts.log(`[telegram] reconnect delivery drain failed: ${formatErrorMessage(err)}`);
       })
       .finally(() => {
@@ -813,6 +814,23 @@ export class TelegramPollingSession {
     });
     const stalledBacklogKeys = new Set<string>();
     const unsubscribe = worker.onMessage((message) => {
+      const ackSpooledUpdate = (
+        requestId: string,
+        result:
+          | { ok: true; updateId: number }
+          | {
+              ok: false;
+              message: string;
+            },
+      ): void => {
+        try {
+          worker.ackSpooledUpdate?.(requestId, result);
+        } catch (err) {
+          this.opts.log(
+            `[telegram][diag] isolated polling worker ack failed: ${formatErrorMessage(err)}`,
+          );
+        }
+      };
       if (message.type === "poll-start") {
         liveness.noteGetUpdatesStarted({ offset: message.offset }, message.startedAt);
         pollState.startedAt = message.startedAt;
@@ -836,6 +854,23 @@ export class TelegramPollingSession {
         liveness.noteGetUpdatesFinished();
         pollState.outcome = "error";
         pollState.error = message.message;
+        return;
+      }
+      if (message.type === "update") {
+        void writeTelegramSpooledUpdate({
+          spoolDir,
+          update: message.update,
+        }).then(
+          (updateId) => {
+            ackSpooledUpdate(message.requestId, { ok: true, updateId });
+          },
+          (err: unknown) => {
+            ackSpooledUpdate(message.requestId, {
+              ok: false,
+              message: formatErrorMessage(err),
+            });
+          },
+        );
         return;
       }
       if (message.type === "spooled") {

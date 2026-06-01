@@ -166,13 +166,8 @@ async function recoverStuckSession(
 ): Promise<StuckSessionRecoveryOutcome> {
   stuckSessionRecoveryRuntimePromise ??= import("./diagnostic-stuck-session-recovery.runtime.js");
   return stuckSessionRecoveryRuntimePromise
-    .then(({ recoverStuckDiagnosticSession }) =>
-      recoverStuckDiagnosticSession({
-        ...params,
-        allowActiveAbort: params.ageMs > STUCK_SESSION_FORCE_ABORT_MS,
-      }),
-    )
-    .catch((err) => {
+    .then(({ recoverStuckDiagnosticSession }) => recoverStuckDiagnosticSession(params))
+    .catch((err: unknown) => {
       diag.warn(`stuck session recovery unavailable: ${String(err)}`);
       return {
         status: "failed",
@@ -1246,7 +1241,7 @@ export function startDiagnosticHeartbeat(
           pruneStaleCommandPolls(state);
         }
       })
-      .catch((err) => {
+      .catch((err: unknown) => {
         diag.debug(`command-poll-backoff prune failed: ${String(err)}`);
       });
 

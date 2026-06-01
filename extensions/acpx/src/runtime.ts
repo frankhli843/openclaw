@@ -54,12 +54,28 @@ type ResetAwareSessionStore = AcpSessionStore & {
   markFresh: (sessionKey: string) => void;
 };
 
+type OpenClawLeaseSessionMetadata = {
+  openclawLeaseId: string;
+  openclawGatewayInstanceId: string;
+};
+
 function withOpenClawManagedTurnTimeout<T extends object>(input: T): T & { timeoutMs: 0 } {
   // OpenClaw owns ACP turn deadlines. acpx treats timeout after partial agent
   // output as a completed turn, which can mark background work done early.
   return {
     ...input,
     timeoutMs: 0,
+  };
+}
+
+function withOpenClawLeaseSessionMetadata<T extends object>(
+  record: T,
+  metadata: OpenClawLeaseSessionMetadata,
+): T & OpenClawLeaseSessionMetadata {
+  return {
+    ...record,
+    openclawLeaseId: metadata.openclawLeaseId,
+    openclawGatewayInstanceId: metadata.openclawGatewayInstanceId,
   };
 }
 
@@ -234,11 +250,10 @@ function createResetAwareSessionStore(
       if (!lease) {
         return record;
       }
-      return {
-        ...(record as Record<string, unknown>),
+      return withOpenClawLeaseSessionMetadata(record, {
         openclawLeaseId: lease.leaseId,
         openclawGatewayInstanceId: lease.gatewayInstanceId,
-      } as AcpLoadedSessionRecord;
+      });
     },
     async save(record: AcpSessionRecord): Promise<void> {
       let recordToSave = record;
@@ -266,14 +281,18 @@ function createResetAwareSessionStore(
           state: "open",
         };
         await params.leaseStore.save(lease);
-        recordToSave = {
-          ...(record as Record<string, unknown>),
-          // ACPX uses agentCommand as reuse identity. Lease metadata belongs to
-          // our sidecar record, so keep the persisted command stable.
-          agentCommand: stableAgentCommand,
-          openclawLeaseId: launch.leaseId,
-          openclawGatewayInstanceId: launch.gatewayInstanceId,
-        } as AcpSessionRecord;
+        recordToSave = withOpenClawLeaseSessionMetadata(
+          {
+            ...record,
+            // ACPX uses agentCommand as reuse identity. Lease metadata belongs to
+            // our sidecar record, so keep the persisted command stable.
+            agentCommand: stableAgentCommand,
+          },
+          {
+            openclawLeaseId: launch.leaseId,
+            openclawGatewayInstanceId: launch.gatewayInstanceId,
+          },
+        );
       }
       await baseStore.save(recordToSave);
       if (sessionName) {
@@ -576,7 +595,6 @@ function createModelScopedAgentRegistry(params: {
       if (
         !override ||
         normalizeAgentName(agentName) !== CODEX_ACP_AGENT_ID ||
-        typeof command !== "string" ||
         !isCodexAcpCommand(command)
       ) {
         return params.leaseCommand(command);
@@ -722,9 +740,9 @@ export class AcpxRuntime implements AcpRuntime {
     });
   }
 
-  private commandWithLaunchLease(command: string | undefined): string | undefined {
+  private commandWithLaunchLease(command: string): string {
     const launch = this.launchLeaseScope.getStore();
-    if (!command || !launch) {
+    if (!launch) {
       return command;
     }
     launch.stableCommand = command;
@@ -1206,7 +1224,7 @@ export class AcpxRuntime implements AcpRuntime {
     const record = await this.sessionStore.load(
       input.handle.acpxRecordId ?? input.handle.sessionKey,
     );
-    let closeSucceeded = false;
+    let closeSucceeded;
     try {
       await this.resolveDelegateForLoadedRecord(input.handle, record).close({
         handle: input.handle,

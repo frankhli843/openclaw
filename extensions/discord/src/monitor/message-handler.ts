@@ -127,7 +127,7 @@ function startAcceptedTypingFeedback(params: {
   };
   activeFeedback.set(dedupeKey, { channelId, feedback: replyTypingFeedback });
   ctx.replyTypingFeedback = replyTypingFeedback;
-  void replyTypingFeedback.onReplyStart().catch((err) => {
+  void replyTypingFeedback.onReplyStart().catch((err: unknown) => {
     logVerbose(`discord accepted typing feedback failed: ${String(err)}`);
   });
   return replyTypingFeedback;

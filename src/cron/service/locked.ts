@@ -14,6 +14,7 @@ const resolveChain = (promise: Promise<unknown>) =>
     () => undefined,
   );
 
+/** Serializes cron operations per store path while preserving state-local operation ordering. */
 export async function locked<T>(
   state: CronServiceState,
   fn: () => Promise<T>,
@@ -42,7 +43,8 @@ export async function locked<T>(
     }
   });
 
-  // Keep the chain alive even when the operation fails.
+  // Store locks are process-local; keep the chain alive after failures so the
+  // next operation for this store still waits for the failed one to settle.
   const keepAlive = resolveChain(next);
   state.op = keepAlive;
   storeLocks.set(storePath, keepAlive);

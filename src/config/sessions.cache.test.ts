@@ -311,7 +311,10 @@ describe("Session Store Cache", () => {
     const entry = cached?.["session:1"] as (SessionEntry & { polluted?: boolean }) | undefined;
 
     expect(entry).toBeDefined();
-    expect(entry?.polluted).toBeUndefined();
+    if (!entry) {
+      throw new Error("Expected cached entry");
+    }
+    expect(entry.polluted).toBeUndefined();
     expect(Object.hasOwn(entry, "__proto__")).toBe(true);
     expect(Object.prototype).not.toHaveProperty("polluted");
   });
