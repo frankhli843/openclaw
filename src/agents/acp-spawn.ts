@@ -1289,7 +1289,7 @@ export async function spawnAcpDirect(
     });
   }
 
-  const requestThreadBinding = params.thread === true;
+  let requestThreadBinding = params.thread === true; // frankclaw: let because acp-spawn-to-logs may flip it
   const runtimePolicyError = resolveAcpSpawnRuntimePolicyError({
     cfg,
     requesterSessionKey: ctx.agentSessionKey,

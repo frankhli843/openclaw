@@ -64,7 +64,6 @@ export * from "../infra/outbound/discord-dnr.js";
 export {
   ackDelivery,
   enqueueDelivery,
-  ensureQueueDir,
   failDelivery,
   loadPendingDelivery,
   loadPendingDeliveries,
