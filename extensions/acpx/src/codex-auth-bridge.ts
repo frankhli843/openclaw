@@ -544,7 +544,35 @@ function buildClaudeAcpWrapperScript(installedBinPath?: string): string {
     installedBinPath,
     envSetup: `const env = {
   ...process.env,
-};`,
+};
+// frankclaw: inject default CLAUDE_CONFIG_DIR from keepalive state when not set.
+// Without this, sessions_spawn runtime=acp calls that omit runtimeOptions.env.CLAUDE_CONFIG_DIR
+// cause the ACP worker to inherit the gateway process env (no CLAUDE_CONFIG_DIR set),
+// falling back to ~/.claude/ which may have an expired .credentials.json → 401.
+// Driver-spawned workers always pass an explicit CLAUDE_CONFIG_DIR, which takes precedence
+// over this default via the runtimeOptions.env overlay in the ACP session init.
+if (!env.CLAUDE_CONFIG_DIR) {
+  const ws = process.env.OPENCLAW_WORKSPACE || '/home/frank/.openclaw/workspace';
+  try {
+    const state = JSON.parse(readFileSync(ws + '/state/claude-keepalive-state.json', 'utf8'));
+    const profiles = state.profiles || {};
+    let selectedLabel = null;
+    for (const label of ['a', 'b', 'c']) {
+      if ((profiles[label] || {}).verdict === 'success') {
+        selectedLabel = label;
+        env.CLAUDE_CONFIG_DIR = ws + '/state/doramon-todo-loop/auth/claude/' + label;
+        break;
+      }
+    }
+    process.stderr.write(
+      selectedLabel
+        ? \`[openclaw/acpx] default CLAUDE_CONFIG_DIR injected from keepalive state: profile=\${selectedLabel} dir=\${env.CLAUDE_CONFIG_DIR}\\n\`
+        : \`[openclaw/acpx] WARN: no healthy profile in keepalive state; CLAUDE_CONFIG_DIR left unset\\n\`
+    );
+  } catch (_e) {
+    process.stderr.write(\`[openclaw/acpx] WARN: could not read keepalive state for default CLAUDE_CONFIG_DIR: \${(_e as Error)?.message || _e}\\n\`);
+  }
+}`,
   });
 }
 
