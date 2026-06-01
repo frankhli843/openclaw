@@ -810,17 +810,22 @@ describe("AcpSessionManager", () => {
       });
       expect(manager.getObservabilitySnapshot(cfg).runtimeCache.activeSessions).toBe(1);
 
-      // After session-a's turn timed out, its cache entry is idle (no active
-      // turn). A new session should succeed because the limit-eviction pass
-      // clears idle entries to prevent deadlock.
-      await manager.runTurn({
-        cfg,
-        sessionKey: "agent:codex:acp:session-b",
-        text: "second",
-        mode: "prompt",
-        requestId: "r2",
-      });
-      expect(runtimeState.ensureSession).toHaveBeenCalledTimes(2);
+      // After session-a's turn timed out, its runtime handle stays cached until
+      // cleanup finishes. A new session-b should be rejected at the limit.
+      await expectRejectedRecord(
+        manager.runTurn({
+          cfg,
+          sessionKey: "agent:codex:acp:session-b",
+          text: "second",
+          mode: "prompt",
+          requestId: "r2",
+        }),
+        {
+          code: "ACP_SESSION_INIT_FAILED",
+          message: "ACP max concurrent sessions reached (1/1).",
+        },
+      );
+      expect(runtimeState.ensureSession).toHaveBeenCalledTimes(1);
     } finally {
       vi.useRealTimers();
     }
@@ -982,15 +987,21 @@ describe("AcpSessionManager", () => {
       requestId: "r1",
     });
 
-    // session-b should succeed because session-a is idle and gets limit-evicted
-    await manager.runTurn({
-      cfg: limitedCfg,
-      sessionKey: "agent:codex:acp:session-b",
-      text: "second",
-      mode: "prompt",
-      requestId: "r2",
-    });
-    expect(runtimeState.ensureSession).toHaveBeenCalledTimes(2);
+    // session-b is rejected because session-a's handle is still cached
+    await expectRejectedRecord(
+      manager.runTurn({
+        cfg: limitedCfg,
+        sessionKey: "agent:codex:acp:session-b",
+        text: "second",
+        mode: "prompt",
+        requestId: "r2",
+      }),
+      {
+        code: "ACP_SESSION_INIT_FAILED",
+        message: "ACP max concurrent sessions reached (1/1).",
+      },
+    );
+    expect(runtimeState.ensureSession).toHaveBeenCalledTimes(1);
   });
 
   it("uses metadata backend when global acp.backend is unset", async () => {
