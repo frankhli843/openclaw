@@ -126,7 +126,6 @@ export function resolveGatewayScopedTools(params: {
     inheritedToolPolicy,
     defaultGatewayDeny.length > 0 ? { deny: defaultGatewayDeny } : undefined,
     Array.isArray(gatewayToolsCfg?.deny) ? { deny: gatewayToolsCfg.deny } : undefined,
-    excludedToolNames.length > 0 ? { deny: excludedToolNames } : undefined,
   ]);
   // Surface restrictions (HTTP deny list + excluded native tools) must not propagate
   // to child sessions via inheritedToolDenylist. They are surface-specific exclusions,

@@ -12,6 +12,7 @@ import {
   chunkMarkdown,
   hashText,
   remapChunkLines,
+  retryTransientMemoryRead,
   type MemoryChunk,
   type MemorySource,
 } from "openclaw/plugin-sdk/memory-core-host-engine-storage";
@@ -143,7 +144,6 @@ export async function runEmbeddingOperationWithTimeout<T>(params: {
       reject(error);
       controller.abort(error);
     }, timeoutMs);
-    timer.unref?.();
   });
   try {
     const operation = params.run(controller.signal);
@@ -756,7 +756,12 @@ export abstract class MemoryManagerEmbeddingOps extends MemoryManagerSyncOps {
       if ("kind" in entry && entry.kind === "multimodal") {
         return;
       }
-      const content = options.content ?? (await fs.readFile(entry.absPath, "utf-8"));
+      const content =
+        options.content ??
+        (await retryTransientMemoryRead(
+          () => fs.readFile(entry.absPath, "utf-8"),
+          `read memory markdown for indexing ${entry.absPath}`,
+        ));
       const chunks = filterNonEmptyMemoryChunks(chunkMarkdown(content, this.settings.chunking));
       // Prepend file path to each chunk's text for better search recall (FTS-only path)
       for (const chunk of chunks) {
@@ -790,7 +795,12 @@ export abstract class MemoryManagerEmbeddingOps extends MemoryManagerSyncOps {
       structuredInputBytes = multimodalChunk.structuredInputBytes;
       chunks = [multimodalChunk.chunk];
     } else {
-      const content = options.content ?? (await fs.readFile(entry.absPath, "utf-8"));
+      const content =
+        options.content ??
+        (await retryTransientMemoryRead(
+          () => fs.readFile(entry.absPath, "utf-8"),
+          `read memory markdown for indexing ${entry.absPath}`,
+        ));
       const baseChunks = filterNonEmptyMemoryChunks(chunkMarkdown(content, this.settings.chunking));
       // Prepend file path to each chunk's text for better search recall
       for (const chunk of baseChunks) {

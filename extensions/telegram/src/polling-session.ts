@@ -1209,6 +1209,9 @@ const isGetUpdatesConflict = (err: unknown) => {
 };
 
 export const testing = {
+  resetActiveSpooledUpdateHandlersForTests: (): void => {
+    activeSpooledUpdateHandlersByLane.clear();
+  },
   resolveSpooledUpdateHandlerAbortGraceMs: (valueMs: unknown): number =>
     resolvePositiveTimerTimeoutMs(valueMs, TELEGRAM_SPOOLED_HANDLER_ABORT_GRACE_MS),
 };
