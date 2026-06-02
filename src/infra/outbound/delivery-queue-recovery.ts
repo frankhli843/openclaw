@@ -1,5 +1,3 @@
-import fs from "node:fs";
-import path from "node:path";
 import {
   resolveDateTimestampMs,
   resolveExpiresAtMsFromDurationMs,
@@ -8,8 +6,8 @@ import type {
   ChannelMessageSendCommitContext,
   ChannelMessageUnknownSendReconciliationResult,
 } from "../../channels/message/types.js";
-import { resolveStateDir } from "../../config/paths.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
+import { updateDeliveryQueueEntry } from "../delivery-queue-sqlite.js";
 import { formatErrorMessage } from "../errors.js";
 import { resolveOutboundChannelMessageAdapter } from "./channel-resolution.js";
 import type { OutboundDeliveryResult } from "./deliver-types.js";
@@ -27,8 +25,6 @@ import {
   type QueuedDeliveryPayload,
 } from "./delivery-queue-storage.js";
 import { enforceDiscordDnrWindow, enforceWhatsAppDnrWindow } from "./discord-dnr.js";
-
-const QUEUE_DIRNAME = "delivery-queue";
 
 export type RecoverySummary = {
   recovered: number;
@@ -754,15 +750,7 @@ async function recoverPendingDeliveriesInner(opts: {
         frankcawEntry.holdReason = `${entry.channel}-dnr-window`;
         entry.lastAttemptAt = Date.now();
         entry.lastError = `${entry.channel}-dnr-window`;
-        const filePath = path.join(
-          opts.stateDir ?? resolveStateDir(),
-          QUEUE_DIRNAME,
-          `${entry.id}.json`,
-        );
-        await fs.promises.writeFile(filePath, JSON.stringify(entry, null, 2), {
-          encoding: "utf-8",
-          mode: 0o600,
-        });
+        updateDeliveryQueueEntry("outbound", entry.id, opts.stateDir, () => entry);
         summary.deferredBackoff += 1;
         opts.log.info(
           `Delivery ${entry.id} DNR-active — deferred until ${new Date(dnrResult.nextEligibleAtMs).toISOString()}`,

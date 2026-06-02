@@ -1,6 +1,5 @@
-import fs from "node:fs";
-import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { updateDeliveryQueueEntry } from "../delivery-queue-sqlite.js";
 import {
   _isRecoveryInProgress,
   enqueueDelivery,
@@ -11,6 +10,13 @@ import {
   createRecoveryLog,
   installDeliveryQueueTmpDirHooks,
 } from "./delivery-queue.test-helpers.js";
+
+// Disable the real-time DNR check so tests that simulate "DNR window has elapsed"
+// are not blocked by the hardcoded default 17:00–08:30 Toronto quiet window.
+vi.mock("./discord-dnr.js", async (importOriginal) => {
+  const original = await importOriginal<typeof import("./discord-dnr.js")>();
+  return { ...original, enforceDiscordDnrWindow: vi.fn(), enforceWhatsAppDnrWindow: vi.fn() };
+});
 
 describe("DNR replay FIFO ordering", () => {
   const { tmpDir } = installDeliveryQueueTmpDirHooks();
@@ -34,14 +40,15 @@ describe("DNR replay FIFO ordering", () => {
         tmpDir(),
       );
       // Set ascending enqueuedAt so ordering is deterministic
-      const entryPath = path.join(tmpDir(), "delivery-queue", `${id}.json`);
-      const entry = JSON.parse(fs.readFileSync(entryPath, "utf-8"));
-      entry.enqueuedAt = baseTime + i * 1000;
-      if (opts.deferUntilMs !== undefined) {
-        entry.deferUntilMs = opts.deferUntilMs;
-        entry.holdReason = "discord-dnr-window";
-      }
-      fs.writeFileSync(entryPath, JSON.stringify(entry, null, 2));
+      updateDeliveryQueueEntry("outbound", id, tmpDir(), (entry) => {
+        entry.enqueuedAt = baseTime + i * 1000;
+        if (opts.deferUntilMs !== undefined) {
+          (entry as { deferUntilMs?: number; holdReason?: string }).deferUntilMs =
+            opts.deferUntilMs;
+          (entry as { holdReason?: string }).holdReason = "discord-dnr-window";
+        }
+        return entry;
+      });
       ids.push(id);
     }
     return ids;
@@ -78,12 +85,12 @@ describe("DNR replay FIFO ordering", () => {
         { channel: "discord", to: target, payloads: [{ text: `${target}-${Math.floor(i / 2)}` }] },
         tmpDir(),
       );
-      const entryPath = path.join(tmpDir(), "delivery-queue", `${id}.json`);
-      const entry = JSON.parse(fs.readFileSync(entryPath, "utf-8"));
-      entry.enqueuedAt = baseTime + i * 1000;
-      entry.deferUntilMs = deferUntilMs;
-      entry.holdReason = "discord-dnr-window";
-      fs.writeFileSync(entryPath, JSON.stringify(entry, null, 2));
+      updateDeliveryQueueEntry("outbound", id, tmpDir(), (entry) => {
+        entry.enqueuedAt = baseTime + i * 1000;
+        (entry as { deferUntilMs?: number; holdReason?: string }).deferUntilMs = deferUntilMs;
+        (entry as { holdReason?: string }).holdReason = "discord-dnr-window";
+        return entry;
+      });
       ids.push(id);
     }
 

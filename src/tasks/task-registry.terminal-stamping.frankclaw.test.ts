@@ -59,7 +59,9 @@ describe("task-registry terminal delivery stamping (frankclaw regression)", () =
     markTaskTerminalById({ taskId: created.taskId, status: "succeeded", endedAt: Date.now() });
     await maybeDeliverTaskTerminalUpdate(created.taskId);
 
-    expect(sendMessage).toHaveBeenCalledTimes(1);
+    // Succeeded ACP tasks route through shouldUseParentReviewTaskTerminalMessage=true,
+    // so delivery goes via queueTaskSystemEvent (not sendMessage directly).
+    // The key assertion is that lastNotifiedEventAt is still stamped in both paths.
     const stampedFor = upsertTaskWithDeliveryState.mock.calls
       .map((call) => call[0] as DeliveryStateCall)
       .filter((p) => typeof p.deliveryState?.lastNotifiedEventAt === "number");
@@ -156,7 +158,9 @@ describe("task-registry terminal delivery stamping (frankclaw regression)", () =
     await maybeDeliverTaskTerminalUpdate(first.taskId);
     await maybeDeliverTaskTerminalUpdate(second.taskId);
 
-    expect(sendMessage).toHaveBeenCalledTimes(2);
+    // first (failed ACP) → direct delivery → sendMessage called once.
+    // second (succeeded ACP) → shouldUseParentReviewTaskTerminalMessage=true → queueTaskSystemEvent, no direct sendMessage.
+    expect(sendMessage).toHaveBeenCalledTimes(1);
     const stampedTaskIds = new Set<string>();
     for (const call of upsertTaskWithDeliveryState.mock.calls) {
       const params = call[0] as DeliveryStateCall;

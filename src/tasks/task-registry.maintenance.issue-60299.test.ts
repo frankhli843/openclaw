@@ -294,9 +294,20 @@ describe("task-registry maintenance issue #60299", () => {
       childSessionKey,
     });
 
+    const now = Date.now();
+    const gatewayBootTimeMs = now - 60_000; // gateway booted 60s ago
     const { currentTasks } = createTaskRegistryMaintenanceHarness({
       tasks: [task],
-      acpEntry: { sessionId: childSessionKey, updatedAt: Date.now() },
+      acpEntry: { sessionId: childSessionKey, updatedAt: now },
+      acpMeta: {
+        backend: "claude",
+        agent: "claude",
+        runtimeSessionName: "test",
+        mode: "oneshot",
+        state: "running",
+        lastActivityAt: gatewayBootTimeMs - 30_000, // activity 90s ago, before boot
+      },
+      gatewayBootTimeMs,
     });
 
     expectMaintenanceCounts(await runTaskRegistryMaintenance(), { reconciled: 1 });

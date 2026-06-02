@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   appendBackgroundTaskProgressSummary,
   resolveBackgroundTaskTerminalResult,
-} from "./manager.core.js";
+} from "./manager.background-task.js";
 
 describe("appendBackgroundTaskProgressSummary", () => {
   it("appends short chunks without truncation", () => {

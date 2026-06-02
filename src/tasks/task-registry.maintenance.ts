@@ -520,6 +520,22 @@ function hasBackingSession(task: TaskRecord, context?: BackingSessionLookupConte
     if (!taskRegistryMaintenanceRuntime.isRuntimeAuthoritative()) {
       return true;
     }
+    // [frankclaw] Check ACP session store entry liveness before consulting the live-turn map.
+    // A session entry with lastActivityAt at or after gateway boot proves the run survived the
+    // restart and may still be active. Conservative: no timestamp means keep alive.
+    // See: issue-60299 task-registry bloat fix (May 1 2026).
+    const acpEntry = taskRegistryMaintenanceRuntime.readAcpSessionEntry({
+      sessionKey: childSessionKey,
+    });
+    if (acpEntry?.entry) {
+      const lastActivity = acpEntry.acp?.lastActivityAt;
+      if (
+        typeof lastActivity !== "number" ||
+        lastActivity >= taskRegistryMaintenanceRuntime.getGatewayBootTimeMs()
+      ) {
+        return true;
+      }
+    }
     // The persisted entry survives a crash, so only a live in-process turn proves the ACP run is alive.
     return taskRegistryMaintenanceRuntime.hasActiveAcpTurn(childSessionKey);
   }
