@@ -599,7 +599,7 @@ if (!env.CLAUDE_CONFIG_DIR) {
         : \`[openclaw/acpx] WARN: no healthy profile in keepalive state; CLAUDE_CONFIG_DIR left unset\\n\`
     );
   } catch (_e) {
-    process.stderr.write(\`[openclaw/acpx] WARN: could not read keepalive state for default CLAUDE_CONFIG_DIR: \${(_e as Error)?.message || _e}\\n\`);
+    process.stderr.write(\`[openclaw/acpx] WARN: could not read keepalive state for default CLAUDE_CONFIG_DIR: \${_e instanceof Error ? _e.message : String(_e)}\\n\`);
   }
 }`,
   });
