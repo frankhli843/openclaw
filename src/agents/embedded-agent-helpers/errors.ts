@@ -33,6 +33,7 @@ import {
   isTimeoutErrorMessage,
   matchesFormatErrorPattern,
 } from "./failover-matches.js";
+import { resolveOAuthRefreshFailoverReason } from "./oauth-failover-override.frankclaw.js"; // frankclaw:
 import {
   classifyProviderPluginError,
   classifyProviderSpecificError,
@@ -964,7 +965,7 @@ function classifyFailoverClassificationFromMessage(
   // correctly classified as "auth" rather than "timeout".
   const oauthRefreshFailure = classifyOAuthRefreshFailure(raw);
   if (oauthRefreshFailure?.reason) {
-    return toReasonClassification("auth_permanent");
+    return toReasonClassification(resolveOAuthRefreshFailoverReason(oauthRefreshFailure.reason)); // frankclaw:
   }
   if (isAuthPermanentErrorMessage(raw)) {
     return toReasonClassification("auth_permanent");
