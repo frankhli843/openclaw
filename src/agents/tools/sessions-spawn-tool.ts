@@ -7,6 +7,7 @@ import {
 import { getRuntimeConfig } from "../../config/config.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { callGateway } from "../../gateway/call.js";
+import { resolveSnakeCaseParamKey } from "../../param-key.js";
 import { createLazyImportLoader } from "../../shared/lazy-promise.js";
 import { normalizeDeliveryContext } from "../../utils/delivery-context.shared.js";
 import type { GatewayMessageChannel } from "../../utils/message-channel.js";
@@ -36,7 +37,6 @@ import type { AnyAgentTool } from "./common.js";
 import {
   jsonResult,
   normalizeToolModelOverride,
-  readNonNegativeIntegerParam,
   readStringParam,
   ToolInputError,
 } from "./common.js";
@@ -54,6 +54,10 @@ const UNSUPPORTED_SESSIONS_SPAWN_PARAM_KEYS = [
   "thread_id",
   "replyTo",
   "reply_to",
+] as const;
+const UNSUPPORTED_SESSIONS_SPAWN_TIMEOUT_PARAM_KEYS = [
+  "runTimeoutSeconds",
+  "timeoutSeconds",
 ] as const;
 
 type AcpSpawnModule = typeof import("../acp-spawn.js");
@@ -177,9 +181,6 @@ function createSessionsSpawnToolSchema(params: {
           "ACP-only environment overrides for session creation. Values are persisted in session metadata; use for non-secret selectors such as CLAUDE_CONFIG_DIR.",
       }),
     ),
-    runTimeoutSeconds: Type.Optional(Type.Integer({ minimum: 0 })),
-    // Back-compat: older callers used timeoutSeconds for this tool.
-    timeoutSeconds: Type.Optional(Type.Integer({ minimum: 0 })),
     ...(params.threadAvailable
       ? {
           thread: Type.Optional(
@@ -289,6 +290,16 @@ export function createSessionsSpawnTool(
           `sessions_spawn does not support "${unsupportedParam}". Use "message" or "sessions_send" for channel delivery.`,
         );
       }
+      const unsupportedTimeoutParam = UNSUPPORTED_SESSIONS_SPAWN_TIMEOUT_PARAM_KEYS.find((key) =>
+        resolveSnakeCaseParamKey(params, key),
+      );
+      if (unsupportedTimeoutParam) {
+        const providedTimeoutParam =
+          resolveSnakeCaseParamKey(params, unsupportedTimeoutParam) ?? unsupportedTimeoutParam;
+        throw new ToolInputError(
+          `sessions_spawn does not support per-call "${providedTimeoutParam}". Configure agents.defaults.subagents.runTimeoutSeconds instead.`,
+        );
+      }
       const task = readStringParam(params, "task", { required: true });
       const taskNameResult = normalizeSubagentTaskName(params.taskName);
       if (taskNameResult.error) {
@@ -357,10 +368,6 @@ export function createSessionsSpawnTool(
       if (runtime !== "acp" && envOverride) {
         throw new Error("env is only supported for runtime='acp'.");
       }
-      const runTimeoutSeconds =
-        readNonNegativeIntegerParam(params, "runTimeoutSeconds") ??
-        // Back-compat: older callers used timeoutSeconds for this tool.
-        readNonNegativeIntegerParam(params, "timeoutSeconds");
       const thread = params.thread === true;
       const attachments = Array.isArray(params.attachments)
         ? (params.attachments as Array<{
@@ -392,7 +399,6 @@ export function createSessionsSpawnTool(
             resumeSessionId,
             model: modelOverride,
             thinking: thinkingOverrideRaw,
-            runTimeoutSeconds,
             cwd,
             env: envOverride,
             mode: mode === "run" || mode === "session" ? mode : undefined,
@@ -455,7 +461,7 @@ export function createSessionsSpawnTool(
               taskName,
               cleanup: trackedCleanup,
               label: label || undefined,
-              runTimeoutSeconds,
+              runTimeoutSeconds: result.runTimeoutSeconds,
               expectsCompletionMessage: shouldExpectCompletionMessage,
               spawnMode: trackedSpawnMode,
             });
@@ -484,7 +490,6 @@ export function createSessionsSpawnTool(
           model: modelOverride,
           thinking: thinkingOverrideRaw,
           cwd,
-          runTimeoutSeconds,
           thread,
           mode,
           cleanup,

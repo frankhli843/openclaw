@@ -766,6 +766,7 @@ type MessageToolOptions = {
   currentThreadTs?: string;
   agentThreadId?: string | number;
   currentMessageId?: string | number;
+  currentInboundAudio?: boolean;
   replyToMode?: "off" | "first" | "all" | "batched";
   hasRepliedRef?: { value: boolean };
   sameChannelThreadRequired?: boolean;
@@ -1373,6 +1374,7 @@ export function createMessageTool(options?: MessageToolOptions): AnyAgentTool {
           sandboxRoot: options?.sandboxRoot,
           sourceReplyDeliveryMode: options?.sourceReplyDeliveryMode,
           inboundEventKind: options?.inboundEventKind,
+          inboundAudio: options?.currentInboundAudio,
           abortSignal: signal,
         });
       const result = isDirectAction ? await runWithDirectAction(runAction) : await runAction();

@@ -769,7 +769,6 @@ const ASYNC_DIAGNOSTIC_EVENT_TYPES = new Set<DiagnosticEventPayload["type"]>([
   "model.call.completed",
   "model.call.error",
   "run.progress",
-  "harness.run.started",
   "harness.run.completed",
   "harness.run.error",
   "context.assembled",
