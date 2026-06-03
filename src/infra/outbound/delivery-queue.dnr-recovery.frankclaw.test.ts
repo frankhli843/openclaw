@@ -3,17 +3,18 @@
  * channels, deferring entries in active windows instead of attempting delivery.
  */
 
-import fs from "node:fs";
-import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { updateDeliveryQueueEntry } from "../delivery-queue-sqlite.js";
 import { enqueueDelivery, recoverPendingDeliveries } from "./delivery-queue.js";
 import {
   asDeliverFn,
   createRecoveryLog,
   installDeliveryQueueTmpDirHooks,
+  readQueuedEntry,
+  setQueuedEntryState,
 } from "./delivery-queue.test-helpers.js";
 
-// Mock the DNR module used by checkRecoveryDnr via require()
+// Mock the DNR module used by checkRecoveryDnr.
 const dnrMocks = vi.hoisted(() => ({
   enforceDiscordDnrWindow: vi.fn(),
   enforceWhatsAppDnrWindow: vi.fn(),
@@ -44,16 +45,15 @@ describe("recovery DNR pre-check — WhatsApp and Telegram", () => {
       tmpDir(),
     );
     // Back-date enqueuedAt so MIN_ENTRY_AGE_MS is satisfied.
-    const entryPath = path.join(tmpDir(), "delivery-queue", `${id}.json`);
-    const entry = JSON.parse(fs.readFileSync(entryPath, "utf-8"));
-    entry.enqueuedAt = Date.now() - 120_000;
-    fs.writeFileSync(entryPath, JSON.stringify(entry, null, 2));
+    setQueuedEntryState(tmpDir(), id, {
+      retryCount: 0,
+      enqueuedAt: Date.now() - 120_000,
+    });
     return id;
   }
 
   function readEntry(id: string): Record<string, unknown> {
-    const entryPath = path.join(tmpDir(), "delivery-queue", `${id}.json`);
-    return JSON.parse(fs.readFileSync(entryPath, "utf-8"));
+    return readQueuedEntry(tmpDir(), id);
   }
 
   it("defers a WhatsApp entry when DNR window is active during recovery", async () => {
@@ -111,11 +111,15 @@ describe("recovery DNR pre-check — WhatsApp and Telegram", () => {
 
     const id = await enqueueEntry("whatsapp", "120363421390336301@g.us", "belated");
     // Set deferUntilMs in the past to simulate a held entry whose window passed.
-    const entryPath = path.join(tmpDir(), "delivery-queue", `${id}.json`);
-    const entry = JSON.parse(fs.readFileSync(entryPath, "utf-8"));
-    entry.deferUntilMs = Date.now() - 1_000;
-    entry.holdReason = "whatsapp-dnr-window";
-    fs.writeFileSync(entryPath, JSON.stringify(entry, null, 2));
+    setQueuedEntryState(tmpDir(), id, {
+      retryCount: 0,
+      enqueuedAt: Date.now() - 120_000,
+    });
+    updateDeliveryQueueEntry("outbound", id, tmpDir(), (entry) => ({
+      ...entry,
+      deferUntilMs: Date.now() - 1_000,
+      holdReason: "whatsapp-dnr-window",
+    }));
 
     const deliver = vi.fn(async () => {});
 
