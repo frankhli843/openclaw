@@ -1,3 +1,4 @@
+/** Agent-runner execution loop, fallback handling, and user-facing failure mapping. */
 import crypto from "node:crypto";
 import {
   hasNonEmptyString,
@@ -277,6 +278,7 @@ function readApprovalScopeValue(value: unknown): "turn" | "session" | undefined 
   return value === "turn" || value === "session" ? value : undefined;
 }
 
+/** One attempted runtime fallback candidate and its failure reason. */
 export type RuntimeFallbackAttempt = {
   provider: string;
   model: string;
@@ -286,6 +288,7 @@ export type RuntimeFallbackAttempt = {
   code?: string;
 };
 
+/** Result of running an agent turn through fallback/retry handling. */
 export type AgentRunLoopResult =
   | {
       kind: "success";
@@ -442,6 +445,7 @@ function resolveFallbackSelectionOrigin(params: { entry: SessionEntry; run: Foll
   return { provider: params.run.provider, model: params.run.model };
 }
 
+/** Persists the fallback candidate selection onto a session entry. */
 export function applyFallbackCandidateSelectionToEntry(params: {
   entry: SessionEntry;
   run: FollowupRun["run"];
@@ -657,17 +661,12 @@ function resolveExternalRunFailureTextForConversation(params: {
   text: string;
   sessionCtx: TemplateContext;
   isGenericRunnerFailure: boolean;
-  suppressInNonDirect?: boolean;
   cfg?: OpenClawConfig;
 }): string {
   if (!isNonDirectConversationContext(params.sessionCtx)) {
     return params.text;
   }
-  if (
-    !params.suppressInNonDirect &&
-    !params.isGenericRunnerFailure &&
-    !params.text.includes(AGENT_FAILED_BEFORE_REPLY_TEXT)
-  ) {
+  if (!params.isGenericRunnerFailure && !params.text.includes(AGENT_FAILED_BEFORE_REPLY_TEXT)) {
     return params.text;
   }
   // Match normal reply routing: default group/channel failures stay silent,
@@ -705,6 +704,7 @@ function buildCodexAppServerFailureText(message: string): string | null {
   return null;
 }
 
+/** Formats the reply shown when preflight compaction fails before a run. */
 export function buildPreflightCompactionFailureText(
   message: string,
   options?: { includeDetails?: boolean },
@@ -855,9 +855,14 @@ function buildExternalRunFailureReply(
 }
 
 function markAgentRunFailureReplyPayload<T extends ReplyPayload>(payload: T): T {
-  return markReplyPayloadForSourceSuppressionDelivery(payload);
+  const marked = markReplyPayloadForSourceSuppressionDelivery(payload);
+  if (!isSilentReplyText(marked.text, SILENT_REPLY_TOKEN)) {
+    marked.isError = true;
+  }
+  return marked;
 }
 
+/** Converts known agent-run failures into user-facing reply payloads. */
 export function buildKnownAgentRunFailureReplyPayload(params: {
   err: unknown;
   sessionCtx: TemplateContext;
@@ -909,7 +914,6 @@ export function buildKnownAgentRunFailureReplyPayload(params: {
         text: buildRateLimitCooldownMessage(params.err),
         sessionCtx: params.sessionCtx,
         isGenericRunnerFailure: false,
-        suppressInNonDirect: true,
         cfg: params.cfg,
       }),
     });
@@ -921,7 +925,6 @@ export function buildKnownAgentRunFailureReplyPayload(params: {
         text: rateLimitOrOverloadedCopy,
         sessionCtx: params.sessionCtx,
         isGenericRunnerFailure: false,
-        suppressInNonDirect: true,
         cfg: params.cfg,
       }),
     });
@@ -948,6 +951,7 @@ export function buildKnownAgentRunFailureReplyPayload(params: {
 
 const DEFAULT_RESERVE_TOKENS_FLOOR = 20_000;
 
+/** Computes a reserve-token floor scaled to the selected context window. */
 export function computeContextAwareReserveTokensFloor(contextWindow: number | undefined): number {
   if (typeof contextWindow !== "number" || contextWindow <= 0) {
     return DEFAULT_RESERVE_TOKENS_FLOOR;
@@ -1207,6 +1211,7 @@ function resolveHeartbeatBleedHint(params: {
   );
 }
 
+/** Builds recovery instructions for context-overflow failures. */
 export function buildContextOverflowRecoveryText(params: {
   duringCompaction?: boolean;
   preserveSessionMapping?: boolean;
@@ -1374,6 +1379,7 @@ function emitModelFallbackStepLifecycle(params: {
   });
 }
 
+/** Resolves runtime provider override stored on the session entry. */
 export function resolveSessionRuntimeOverrideForProvider(params: {
   provider: string;
   entry?: Pick<SessionEntry, "agentRuntimeOverride">;
@@ -1389,6 +1395,7 @@ export function resolveSessionRuntimeOverrideForProvider(params: {
   return undefined;
 }
 
+/** Decides whether to retry after rechecking auto-fallback primary probe state. */
 export function resolveRunAfterAutoFallbackPrimaryProbeRecheck(params: {
   run: FollowupRun["run"];
   entry?: SessionEntry;
@@ -1458,6 +1465,7 @@ export function resolveRunAfterAutoFallbackPrimaryProbeRecheck(params: {
   };
 }
 
+/** Runs the agent turn with provider/model fallback, retry, and failure mapping. */
 export async function runAgentTurnWithFallback(params: {
   commandBody: string;
   transcriptCommandBody?: string;
@@ -2937,7 +2945,6 @@ export async function runAgentTurnWithFallback(params: {
         text: fallbackText,
         sessionCtx: params.sessionCtx,
         isGenericRunnerFailure: externalRunFailureReply?.isGenericRunnerFailure ?? false,
-        suppressInNonDirect: Boolean(isRateLimit || rateLimitOrOverloadedCopy),
         cfg: params.followupRun.run.config,
       });
 
@@ -3020,7 +3027,6 @@ export async function runAgentTurnWithFallback(params: {
               text: formattedErrorCandidate,
               sessionCtx: params.sessionCtx,
               isGenericRunnerFailure: false,
-              suppressInNonDirect: true,
               cfg: params.followupRun.run.config,
             }),
             isError: true,

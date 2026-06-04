@@ -3,8 +3,10 @@ import type {
   ChannelConfigRuntimeSchema,
   ChannelConfigSchema,
 } from "../../../src/channels/plugins/types.plugin.js";
-import { listBundledPluginMetadata } from "../../../src/plugins/bundled-plugin-metadata.js";
 import { patchChannelConfigSchemasForFrankclaw } from "../../../src/config/bundled-channel-config-runtime.frankclaw.js";
+import { listBundledPluginMetadata } from "../../../src/plugins/bundled-plugin-metadata.js";
+
+// Shared bundled channel config runtime maps for config contract tests.
 
 type BundledChannelRuntimeMap = ReadonlyMap<string, ChannelConfigRuntimeSchema>;
 type BundledChannelConfigSchemaMap = ReadonlyMap<string, ChannelConfigSchema>;
@@ -19,6 +21,7 @@ type BundledChannelMaps = {
 
 let cachedBundledChannelMaps: BundledChannelMaps | undefined;
 
+/** Build runtime/config maps from public bundled channel plugin metadata. */
 function buildBundledChannelMaps(
   plugins: readonly BundledChannelPluginShape[],
 ): BundledChannelMaps {
@@ -65,6 +68,7 @@ function buildBundledChannelMaps(
   return { runtimeMap, configSchemaMap };
 }
 
+/** Read bundled channel plugin surfaces when available in this test process. */
 function readBundledChannelPlugins(): readonly BundledChannelPluginShape[] | undefined {
   try {
     if (typeof bundledChannelModule.listBundledChannelPlugins !== "function") {
@@ -80,6 +84,7 @@ function readBundledChannelPlugins(): readonly BundledChannelPluginShape[] | und
   }
 }
 
+/** Return cached maps when live bundled plugin surfaces were available. */
 function getBundledChannelMaps(): BundledChannelMaps {
   const plugins = readBundledChannelPlugins();
   if (plugins && cachedBundledChannelMaps) {
@@ -93,10 +98,12 @@ function getBundledChannelMaps(): BundledChannelMaps {
   return maps;
 }
 
+/** Return runtime config schemas keyed by bundled channel id. */
 export function getBundledChannelRuntimeMap(): BundledChannelRuntimeMap {
   return getBundledChannelMaps().runtimeMap;
 }
 
+/** Return channel config schemas keyed by bundled channel id. */
 export function getBundledChannelConfigSchemaMap(): BundledChannelConfigSchemaMap {
   return getBundledChannelMaps().configSchemaMap;
 }

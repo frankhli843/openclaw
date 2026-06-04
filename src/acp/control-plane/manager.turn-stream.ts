@@ -13,6 +13,7 @@ export type AcpTurnEventGate = {
   open: boolean;
 };
 
+/** Summary of whether a turn stream emitted user-visible output or terminal events. */
 export type AcpTurnStreamOutcome = {
   sawOutput: boolean;
   sawTerminalEvent: boolean;
@@ -163,6 +164,7 @@ export async function consumeAcpTurnStream(params: {
   ) => Promise<void> | void;
 }): Promise<AcpTurnStreamOutcome> {
   if (params.runtime.startTurn) {
+    // startTurn exposes result and event streams separately; coordinate both before reporting done.
     const turn = params.runtime.startTurn(params.turn);
     const eventsPromise = consumeAcpTurnEvents({
       events: turn.events,

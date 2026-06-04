@@ -1,3 +1,4 @@
+/** Builds prompt body and envelope metadata for reply runs. */
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import type { CurrentInboundPromptContext } from "../../agents/embedded-agent-runner/run/params.js";
 import type { InboundEventKind } from "../../channels/inbound-event/kind.js";
@@ -40,6 +41,7 @@ function hasInboundVisualMedia(ctx: MsgContext): boolean {
   });
 }
 
+/** Builds command/transcript/queued prompt bodies from inbound context. */
 export function buildReplyPromptBodies(params: {
   ctx: MsgContext;
   sessionCtx: TemplateContext;
@@ -108,8 +110,10 @@ export function buildReplyPromptBodies(params: {
   };
 }
 
+/** Startup action associated with a reply prompt envelope. */
 export type ReplyPromptEnvelopeStartupAction = "new" | "reset";
 
+/** Full prompt envelope passed into reply run preparation. */
 export type ReplyPromptEnvelope = ReturnType<typeof buildReplyPromptBodies> & {
   /** Model-visible body before media, thread context, and inter-session annotation are applied. */
   effectiveBaseBody: string;
@@ -119,6 +123,7 @@ export type ReplyPromptEnvelope = ReturnType<typeof buildReplyPromptBodies> & {
   currentInboundContext?: CurrentInboundPromptContext;
 };
 
+/** Base prompt envelope fields before body variants are added. */
 export type ReplyPromptEnvelopeBase = {
   /** Model-visible body before media, thread context, and inter-session annotation are applied. */
   effectiveBaseBody: string;
@@ -197,6 +202,7 @@ function buildResumableRoomContext(roomContext: string): string {
     .join("\n\n");
 }
 
+/** Builds prompt envelope metadata shared by all body variants. */
 export function buildReplyPromptEnvelopeBase(
   params: ReplyPromptEnvelopeBaseParams,
 ): ReplyPromptEnvelopeBase {
@@ -250,6 +256,7 @@ export function buildReplyPromptEnvelopeBase(
   };
 }
 
+/** Builds the full reply prompt envelope for a prepared run. */
 export function buildReplyPromptEnvelope(
   params: ReplyPromptEnvelopeBaseParams & {
     prefixedBody?: string;

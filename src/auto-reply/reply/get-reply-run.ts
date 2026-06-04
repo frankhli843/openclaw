@@ -1,3 +1,4 @@
+/** Prepares and runs auto-reply agent turns, including prompt context and session policy. */
 import crypto from "node:crypto";
 import { normalizeProviderId } from "@openclaw/model-catalog-core/provider-id";
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
@@ -167,6 +168,7 @@ function isSlackDirectRoutedThreadTurn(ctx: MsgContext): boolean {
   );
 }
 
+/** Resolves silent-reply conversation type for prompt instructions. */
 export function resolvePromptSilentReplyConversationType(params: {
   ctx: Pick<
     MsgContext,
@@ -213,6 +215,7 @@ function resolvePersistedPromptSurface(entry?: SessionEntry): string | undefined
   );
 }
 
+/** Rewrites system-event prompt context to the persisted session channel when available. */
 export function resolvePromptSessionContextForSystemEvent(params: {
   sessionCtx: TemplateContext;
   sessionEntry?: SessionEntry;
@@ -298,6 +301,7 @@ export function resolvePromptSessionContextForSystemEvent(params: {
   return changed ? next : sessionCtx;
 }
 
+/** Builds the prompt hint that explains one-shot exec override settings. */
 export function buildExecOverridePromptHint(params: {
   execOverrides?: ExecOverrides;
   elevatedLevel: ElevatedLevel;
@@ -436,6 +440,7 @@ type RunPreparedReplyParams = {
   autoFallbackPrimaryProbe?: AutoFallbackPrimaryProbe;
 };
 
+/** Runs a prepared reply turn after session, prompt, queue, and policy state are resolved. */
 export async function runPreparedReply(
   params: RunPreparedReplyParams,
 ): Promise<ReplyPayload | ReplyPayload[] | undefined> {
