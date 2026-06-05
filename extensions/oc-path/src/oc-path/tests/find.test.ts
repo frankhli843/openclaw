@@ -1,3 +1,4 @@
+// OC Path tests cover find plugin behavior.
 import { describe, expect, it } from "vitest";
 import { findOcPaths } from "../find.js";
 import { parseJsonc } from "../jsonc/parse.js";
@@ -226,7 +227,6 @@ describe("positional primitives — $first / $last", () => {
     const m = resolveOcPath(jsonc, parseOcPath("oc://config/items/$first"));
     expect(m?.kind === "leaf" && m.valueText).toBe("10");
   });
-
 
   it("$last picks last array element", () => {
     const jsonc = parseJsonc('{"items":[10,20,30]}').ast;

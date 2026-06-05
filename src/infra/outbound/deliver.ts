@@ -1,3 +1,5 @@
+// Outbound delivery core runs plugin hooks, queue durability, channel adapter
+// sends, commit hooks, diagnostics, transcript mirroring, and payload outcomes.
 import {
   hasInternalRuntimeContext,
   stripInternalRuntimeContext,
@@ -133,6 +135,8 @@ let transcriptRuntimePromise:
   | undefined;
 
 async function loadTranscriptRuntime() {
+  // Transcript writes are optional side effects; keep this lazy for import-only
+  // delivery policy checks and tests.
   transcriptRuntimePromise ??= import("../../config/sessions/transcript.runtime.js");
   return await transcriptRuntimePromise;
 }

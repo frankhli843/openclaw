@@ -1,3 +1,4 @@
+/** Normalizes ACP runtime turn event/result streams into manager-facing outcomes. */
 import type {
   AcpRuntime,
   AcpRuntimeEvent,
@@ -9,6 +10,7 @@ import { acpDiag } from "./acp-diag.frankclaw.js"; // frankclaw: ACP diagnostic 
 import { normalizeAcpErrorCode } from "./manager.utils.js";
 import { normalizeText } from "./runtime-options.js";
 
+/** Mutable gate used to suppress late events after timeout/cancel races. */
 export type AcpTurnEventGate = {
   open: boolean;
 };
@@ -154,6 +156,7 @@ async function notifyTerminalResult(params: {
   });
 }
 
+/** Consumes runtime turn APIs and emits normalized events while tracking output/terminal state. */
 export async function consumeAcpTurnStream(params: {
   runtime: AcpRuntime;
   turn: AcpRuntimeTurnInput;

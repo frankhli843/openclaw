@@ -1,3 +1,4 @@
+// Docker Build Helper tests cover docker build helper script behavior.
 import { execFileSync, spawn } from "node:child_process";
 import {
   chmodSync,
@@ -2049,6 +2050,14 @@ output="$(run_logged_print_heartbeat plugins-run 08 bash -c 'printf "captured co
     expect(wrapper).toContain("OPENCLAW_INSTALL_E2E_OPENAI_MODEL");
     expect(wrapper).toContain("OPENCLAW_INSTALL_E2E_OPENAI_PROVIDER_TIMEOUT_SECONDS");
     expect(wrapper).toContain("OPENCLAW_INSTALL_E2E_AGENT_TURN_TIMEOUT_SECONDS:-300");
+    expect(wrapper).toContain("OPENCLAW_INSTALL_E2E_PROFILE_FILE");
+    expect(wrapper).toContain("OPENCLAW_PROFILE_FILE");
+    expect(wrapper).toContain("OPENCLAW_TESTBOX_PROFILE_FILE");
+    expect(wrapper).toContain("read_profile_env_value");
+    expect(wrapper).toContain('source "$PROFILE_FILE"');
+    expect(wrapper).not.toContain("set -a");
+    expect(wrapper).toContain('export "$key"');
+    expect(wrapper).toContain("Profile file: $PROFILE_STATUS");
     expect(runner).toContain("OPENCLAW_INSTALL_E2E_OPENAI_MODEL");
     expect(runner).toContain("OPENCLAW_INSTALL_E2E_OPENAI_PROVIDER_TIMEOUT_SECONDS");
     expect(runner).toContain(

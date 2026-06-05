@@ -1,3 +1,4 @@
+/** Process-local cron operation serialization by store path. */
 import fs from "node:fs";
 import path from "node:path";
 import type { CronServiceState } from "./state.js";

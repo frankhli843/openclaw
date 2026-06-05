@@ -1,3 +1,5 @@
+// Gateway plugin runtime adapter.
+// Loads plugin registries and builds fallback request context for non-WS paths.
 import { randomUUID } from "node:crypto";
 import { performance } from "node:perf_hooks";
 import { uniqueStrings } from "@openclaw/normalization-core/string-normalization";
@@ -31,12 +33,6 @@ import type {
   GatewayRequestOptions,
 } from "./server-methods/types.js";
 
-// ── Fallback gateway context for non-WS paths (Telegram, WhatsApp, etc.) ──
-// The WS path sets a per-request scope via AsyncLocalStorage, but channel
-// adapters (Telegram polling, etc.) invoke the agent directly without going
-// through handleGatewayRequest. We store the gateway context at startup so
-// dispatchGatewayMethod can use it as a fallback.
-
 const FALLBACK_GATEWAY_CONTEXT_STATE_KEY: unique symbol = Symbol.for(
   "openclaw.fallbackGatewayContextState",
 );
@@ -52,6 +48,7 @@ const getFallbackGatewayContextState = () =>
     resolveContext: undefined,
   }));
 
+/** Set the process fallback gateway context for channel adapters outside WS requests. */
 export function setFallbackGatewayContext(ctx: GatewayRequestContext): () => void {
   const fallbackGatewayContextState = getFallbackGatewayContextState();
   fallbackGatewayContextState.context = ctx;
@@ -82,6 +79,7 @@ export function setFallbackGatewayContextResolver(
   };
 }
 
+/** Clear the fallback gateway context installed for non-WS dispatch paths. */
 export function clearFallbackGatewayContext(): void {
   const fallbackGatewayContextState = getFallbackGatewayContextState();
   fallbackGatewayContextState.context = undefined;

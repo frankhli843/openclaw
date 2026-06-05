@@ -1,3 +1,4 @@
+/** Main agent command orchestration for sessions, model selection, delivery, and attempts. */
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import { sanitizeForLog } from "../../packages/terminal-core/src/ansi.js";
 import { resolveInlineAgentImageAttachments } from "../auto-reply/reply/agent-turn-attachments.js";
@@ -2237,6 +2238,7 @@ async function agentCommandInternal(
   }
 }
 
+/** Runs an agent turn from CLI/runtime options against the resolved session and model policy. */
 export async function agentCommand(
   opts: AgentCommandOpts,
   runtime: RuntimeEnv = defaultRuntime,
@@ -2265,6 +2267,7 @@ export async function agentCommand(
   );
 }
 
+/** Runs an agent turn from an inbound channel/gateway ingress context. */
 export async function agentCommandFromIngress(
   opts: AgentCommandIngressOpts,
   runtime: RuntimeEnv = defaultRuntime,

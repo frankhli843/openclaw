@@ -1,3 +1,4 @@
+// Diagnostic session attention tests cover active work summaries for sessions.
 import { describe, expect, it } from "vitest";
 import {
   BLOCKED_TOOL_CALL_RECOVERY_THRESHOLD_MS,

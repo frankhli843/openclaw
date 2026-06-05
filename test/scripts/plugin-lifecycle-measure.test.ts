@@ -1,3 +1,4 @@
+// Plugin Lifecycle Measure tests cover plugin lifecycle measure script behavior.
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";

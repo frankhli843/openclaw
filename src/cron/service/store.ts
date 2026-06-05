@@ -1,3 +1,4 @@
+/** Loads, normalizes, quarantines, and persists cron service store state. */
 import fs from "node:fs";
 import { normalizeCronJobIdentityFields } from "../normalize-job-identity.js";
 import { normalizeCronJobInput } from "../normalize.js";
@@ -32,6 +33,8 @@ function invalidateStaleNextRunOnScheduleChange(params: {
   if (!previousJob || cronSchedulingInputsEqual(previousJob, params.hydrated)) {
     return;
   }
+  // Runtime nextRunAtMs belongs to the old schedule identity; clear it so the
+  // current normalized schedule recomputes from the active clock.
   params.hydrated.state ??= {};
   params.hydrated.state.nextRunAtMs = undefined;
 }

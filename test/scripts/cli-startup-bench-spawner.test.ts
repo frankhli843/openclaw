@@ -1,3 +1,4 @@
+// Cli Startup Bench Spawner tests cover cli startup bench spawner script behavior.
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";

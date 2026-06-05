@@ -1,3 +1,4 @@
+// Session file persistence resolves transcript paths and syncs store metadata.
 import path from "node:path";
 import { resolveSessionFilePath } from "./paths.js";
 import { materializeSessionTranscriptFile } from "./session-file.frankclaw.js";
@@ -24,6 +25,8 @@ export async function resolveAndPersistSessionFile(params: {
     sessionStore[sessionKey] ?? { sessionId, updatedAt: now, sessionStartedAt: now };
   const shouldReusePersistedSessionFile = baseEntry.sessionId === sessionId;
   const fallbackSessionFile = params.fallbackSessionFile?.trim();
+  // A reset/fork should not reuse the previous transcript path unless the fallback explicitly
+  // points at the intended file for the new session id.
   const entryForResolve = !shouldReusePersistedSessionFile
     ? fallbackSessionFile
       ? { ...baseEntry, sessionFile: fallbackSessionFile }

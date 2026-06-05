@@ -1,3 +1,4 @@
+/** Mirrors child ACP turns into detached-task status for requester-facing progress. */
 import { registerSubagentRun } from "../../agents/subagent-registry.js"; // frankclaw:
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { logVerbose } from "../../globals.js";
@@ -26,6 +27,7 @@ export type BackgroundTaskContext = {
   task: string;
 };
 
+/** Produces the bounded task label shown for a child ACP background run. */
 export function summarizeBackgroundTaskText(text: string): string {
   const normalized = normalizeText(text) ?? "ACP background task";
   if (normalized.length <= ACP_BACKGROUND_TASK_TEXT_MAX_LENGTH) {
@@ -34,6 +36,7 @@ export function summarizeBackgroundTaskText(text: string): string {
   return `${normalized.slice(0, ACP_BACKGROUND_TASK_TEXT_MAX_LENGTH - 1)}…`;
 }
 
+/** Appends bounded progress text while preserving a single-line task summary. */
 export function appendBackgroundTaskProgressSummary(current: string, chunk: string): string {
   const normalizedChunk = chunk.replace(/\s+/g, " ");
   if (!normalizedChunk) {
@@ -57,10 +60,12 @@ export function appendBackgroundTaskProgressSummary(current: string, chunk: stri
   return `…${combined.slice(combined.length - ACP_BACKGROUND_TASK_PROGRESS_MAX_LENGTH + 1)}`;
 }
 
+/** Maps ACP runtime failures to detached-task terminal states. */
 export function resolveBackgroundTaskFailureStatus(error: AcpRuntimeError): "failed" | "timed_out" {
   return /\btimed out\b/i.test(error.message) ? "timed_out" : "failed";
 }
 
+/** Infers blocked terminal outcomes from final progress text when the child turn reports one. */
 export function resolveBackgroundTaskTerminalResult(progressSummary: string): {
   terminalOutcome?: "blocked";
   terminalSummary?: string;
@@ -106,6 +111,7 @@ export function resolveBackgroundTaskTerminalResult(progressSummary: string): {
   return {};
 }
 
+/** Resolves the requester task context for a spawned child ACP session. */
 export function resolveBackgroundTaskContext(params: {
   deps: AcpSessionManagerDeps;
   cfg: OpenClawConfig;

@@ -1,3 +1,4 @@
+/** Implements ACP subagent/session spawning, binding, limits, and parent-stream setup. */
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import {
@@ -1622,6 +1623,7 @@ export async function spawnAcpDirect(
       logPath: streamLogPath,
       deliveryContext: parentDeliveryCtx,
       emitStartNotice: false,
+      cfg,
     });
   }
   // frankclaw: write early spawn marker so transcript is non-zero before async dispatch
@@ -1733,6 +1735,7 @@ export async function spawnAcpDirect(
         logPath: streamLogPath,
         deliveryContext: parentDeliveryCtx,
         emitStartNotice: false,
+        cfg,
       });
     }
     parentRelay?.notifyStarted();

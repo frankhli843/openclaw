@@ -1,3 +1,6 @@
+/**
+ * Installs context guards for oversized tool-result histories.
+ */
 import type { ContextEngine, ContextEngineRuntimeContext } from "../../context-engine/types.js";
 import type { AgentMessage } from "../runtime/index.js";
 import {
