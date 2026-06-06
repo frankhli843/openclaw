@@ -2217,6 +2217,7 @@ export async function runAgentTurnWithFallback(params: {
                     currentInboundAudio: hasInboundAudio(params.sessionCtx),
                     agentAccountId: params.followupRun.run.agentAccountId,
                     senderIsOwner: params.followupRun.run.senderIsOwner,
+                    toolsAllow: params.opts?.toolsAllow,
                     disableTools: params.opts?.disableTools,
                     abortSignal: runAbortSignal,
                     replyOperation: params.replyOperation,
@@ -2334,6 +2335,7 @@ export async function runAgentTurnWithFallback(params: {
                     suppressToolErrorWarnings:
                       params.opts?.shouldSuppressToolErrorWarnings ??
                       params.opts?.suppressToolErrorWarnings,
+                    toolsAllow: params.opts?.toolsAllow,
                     disableTools: params.opts?.disableTools,
                     enableHeartbeatTool: params.opts?.enableHeartbeatTool,
                     forceHeartbeatTool: params.opts?.forceHeartbeatTool,
