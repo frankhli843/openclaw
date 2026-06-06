@@ -278,4 +278,77 @@ describe("[frankclaw] delivery-queue recovery DNR pre-check", () => {
     const entries = await loadPendingDeliveries(tmpDir());
     expect((entries[0] as Record<string, unknown>).holdReason).toBe("discord-dnr-window");
   });
+
+  it("[discord] re-delivers a DNR-deferred entry whose platform send had started", async () => {
+    // Regression for the one-shot CLI path: deliver.ts marks the row
+    // recoveryState=send_attempt_started, THEN the adapter throws
+    // DiscordDnrSuppressedError (before any API call), THEN deferDelivery runs.
+    // If the in-flight marker is left set, recovery refuses a "blind replay
+    // without adapter reconciliation" after the window and marks the never-sent
+    // message FAILED. deferDelivery must clear it so recovery delivers cleanly.
+    vi.useFakeTimers();
+    vi.setSystemTime(IN_WINDOW_MS);
+
+    const id = await enqueueDelivery(
+      { channel: "discord", to: "channel:1479083833830801520", payloads: [{ text: "hi" }] },
+      tmpDir(),
+    );
+    setQueuedEntryState(tmpDir(), id, {
+      retryCount: 0,
+      enqueuedAt: IN_WINDOW_MS - 60_000,
+      recoveryState: "send_attempt_started",
+      platformSendStartedAt: IN_WINDOW_MS - 60_000,
+    });
+    const { deferDelivery } = await import("./delivery-queue.frankclaw.js");
+    await deferDelivery(id, IN_WINDOW_MS + 60_000, "discord-dnr-window", tmpDir());
+
+    // Window closed: recovery must DELIVER, not refuse a blind replay.
+    vi.setSystemTime(OUT_WINDOW_MS);
+    __resetDiscordDnrPolicyCacheForTests();
+    const deliver = vi.fn().mockResolvedValue([]);
+    const result = await runRecovery(deliver);
+
+    expect(deliver).toHaveBeenCalledTimes(1);
+    expect(result.recovered).toBe(1);
+    expect(result.failed).toBe(0);
+    expect(await loadPendingDeliveries(tmpDir())).toHaveLength(0);
+  });
+
+  it("[discord] recovery re-defer clears stale in-flight marker so a later sweep delivers", async () => {
+    // Regression for the recovery-loop DNR re-defer path: an entry that still
+    // carries recoveryState=send_attempt_started from a prior attempt and is
+    // re-deferred during recovery (because DNR is active) must have that marker
+    // cleared, so the next post-window sweep delivers instead of refusing replay.
+    vi.useFakeTimers();
+    vi.setSystemTime(IN_WINDOW_MS);
+
+    const id = await enqueueDelivery(
+      { channel: "discord", to: "channel:1479083833830801520", payloads: [{ text: "hi" }] },
+      tmpDir(),
+    );
+    setQueuedEntryState(tmpDir(), id, {
+      retryCount: 0,
+      enqueuedAt: IN_WINDOW_MS - 60_000,
+      recoveryState: "send_attempt_started",
+      platformSendStartedAt: IN_WINDOW_MS - 60_000,
+    });
+
+    // First sweep in-window: re-defers and must clear the in-flight marker.
+    const deliver1 = vi.fn().mockResolvedValue([]);
+    await runRecovery(deliver1);
+    expect(deliver1).not.toHaveBeenCalled();
+    const afterDefer = (await loadPendingDeliveries(tmpDir()))[0] as Record<string, unknown>;
+    expect(afterDefer.recoveryState).toBeUndefined();
+    expect(afterDefer.holdReason).toBe("discord-dnr-window");
+
+    // Second sweep out-of-window: must deliver.
+    vi.setSystemTime(OUT_WINDOW_MS);
+    __resetDiscordDnrPolicyCacheForTests();
+    const deliver2 = vi.fn().mockResolvedValue([]);
+    const result2 = await runRecovery(deliver2);
+    expect(deliver2).toHaveBeenCalledTimes(1);
+    expect(result2.recovered).toBe(1);
+    expect(result2.failed).toBe(0);
+    expect(await loadPendingDeliveries(tmpDir())).toHaveLength(0);
+  });
 });

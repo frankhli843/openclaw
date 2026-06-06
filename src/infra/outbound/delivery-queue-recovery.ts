@@ -754,6 +754,13 @@ async function recoverPendingDeliveriesInner(opts: {
         frankcawEntry.holdReason = `${entry.channel}-dnr-window`;
         entry.lastAttemptAt = Date.now();
         entry.lastError = `${entry.channel}-dnr-window`;
+        // frankclaw: a DNR deferral means we are NOT sending now (the deliver call
+        // is skipped entirely via the `continue` below), so any leftover in-flight
+        // markers from a prior attempt are stale. Clear them so a later recovery
+        // pass replays this never-sent entry cleanly instead of refusing a blind
+        // replay on a stale recoveryState=send_attempt_started.
+        entry.recoveryState = undefined;
+        entry.platformSendStartedAt = undefined;
         updateDeliveryQueueEntry("outbound", entry.id, opts.stateDir, () => entry);
         summary.deferredBackoff += 1;
         opts.log.info(
