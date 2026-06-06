@@ -26,7 +26,11 @@ export type OutboundPayloadDeliverySuppressionReason =
   | "empty_after_message_sending_hook"
   | "empty_after_reply_payload_sending_hook"
   | "no_visible_payload"
-  | "adapter_returned_no_identity";
+  | "adapter_returned_no_identity"
+  // frankclaw: deferred by a DNR (do-not-reply / quiet-hours) window. The message
+  // is NOT lost — it is held in the durable queue and re-delivered after the
+  // window closes. Callers must report this as DEFERRED, never as "sent".
+  | "deferred_by_dnr";
 
 /** Delivery phase where a failure occurred. */
 export type OutboundDeliveryFailureStage = "platform_send" | "queue" | "unknown";
@@ -46,6 +50,12 @@ export type OutboundPayloadDeliveryOutcome =
         cancelReason?: string;
         metadata?: Record<string, unknown>;
       };
+      /**
+       * frankclaw: epoch ms when a `deferred_by_dnr` message becomes eligible for
+       * delivery again (the end of the quiet-hours window). Used by CLI/tool
+       * summaries to tell the caller when the deferred message will be delivered.
+       */
+      deferUntilMs?: number;
     }
   | {
       index: number;

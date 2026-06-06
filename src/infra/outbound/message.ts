@@ -97,6 +97,16 @@ export type MessageSendResult = {
   mediaUrls?: string[];
   result?: OutboundDeliveryResult | { messageId: string };
   dryRun?: boolean;
+  /**
+   * frankclaw: true when the send was suppressed (not delivered now). The most
+   * important case is `deferred_by_dnr`: the message was held by a quiet-hours
+   * window and will be re-delivered automatically. Callers/CLI must NOT report a
+   * suppressed send as "sent".
+   */
+  suppressed?: boolean;
+  suppressedReason?: string;
+  /** frankclaw: epoch ms when a `deferred_by_dnr` message becomes eligible again. */
+  deferUntilMs?: number;
 };
 
 type MessagePollParams = {
@@ -394,6 +404,10 @@ export async function sendMessage(params: MessageSendParams): Promise<MessageSen
     }
     const results = send.status === "sent" || send.status === "partial_failed" ? send.results : [];
 
+    // frankclaw: a suppressed result means nothing was delivered now (most importantly
+    // a DNR quiet-hours deferral). Surface it so the CLI/tool reports DEFERRED rather
+    // than printing a false "Sent via Discord".
+    const suppressed = send.status === "suppressed";
     return {
       channel,
       to: params.to,
@@ -401,6 +415,8 @@ export async function sendMessage(params: MessageSendParams): Promise<MessageSen
       mediaUrl: primaryMediaUrl,
       mediaUrls: mirrorMediaUrls.length ? mirrorMediaUrls : undefined,
       result: results.at(-1),
+      ...(suppressed ? { suppressed: true, suppressedReason: send.reason } : {}),
+      ...(suppressed && send.deferUntilMs !== undefined ? { deferUntilMs: send.deferUntilMs } : {}),
     };
   }
 

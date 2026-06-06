@@ -63,6 +63,8 @@ export type DurableMessagePayloadDeliveryOutcome =
         cancelReason?: string;
         metadata?: Record<string, unknown>;
       };
+      /** frankclaw: epoch ms when a `deferred_by_dnr` message becomes eligible again. */
+      deferUntilMs?: number;
     }
   | {
       index: number;
@@ -86,6 +88,8 @@ export type DurableMessageBatchSendResult =
       receipt: MessageReceipt;
       deliveryIntent?: OutboundDeliveryIntent;
       reason: DurableMessageSuppressionReason;
+      /** frankclaw: epoch ms when a `deferred_by_dnr` message becomes eligible again. */
+      deferUntilMs?: number;
       payloadOutcomes?: DurableMessagePayloadDeliveryOutcome[];
     }
   | {
@@ -244,14 +248,18 @@ export async function withDurableMessageSendContext<T>(
           };
         }
         if (results.length === 0) {
+          const suppressedOutcome = payloadOutcomes.find(
+            (outcome) => outcome.status === "suppressed",
+          );
+          const deferUntilMs =
+            suppressedOutcome?.status === "suppressed" ? suppressedOutcome.deferUntilMs : undefined;
           return {
             status: "suppressed",
             results: [],
             receipt,
             ...(deliveryIntent ? { deliveryIntent } : {}),
-            reason:
-              payloadOutcomes.find((outcome) => outcome.status === "suppressed")?.reason ??
-              "no_visible_result",
+            reason: suppressedOutcome?.reason ?? "no_visible_result",
+            ...(deferUntilMs !== undefined ? { deferUntilMs } : {}),
             ...(payloadOutcomes.length > 0 ? { payloadOutcomes: durablePayloadOutcomes() } : {}),
           };
         }

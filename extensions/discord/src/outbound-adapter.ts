@@ -3,16 +3,10 @@ import type { OutboundIdentity } from "openclaw/plugin-sdk/channel-outbound";
 import { resolveOutboundSendDep } from "openclaw/plugin-sdk/channel-outbound";
 import {
   type ChannelOutboundAdapter,
-  createEmptyChannelResult,
   createAttachedChannelResultAdapter,
 } from "openclaw/plugin-sdk/channel-send-result";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
-import {
-  enforceDiscordDnrWindow,
-  DiscordDnrSuppressedError,
-  deferDelivery,
-} from "openclaw/plugin-sdk/infra-runtime";
-import { createSubsystemLogger } from "openclaw/plugin-sdk/runtime-env";
+import { enforceDiscordDnrWindow } from "openclaw/plugin-sdk/infra-runtime";
 import {
   normalizeOptionalString,
   normalizeOptionalStringifiedId,
@@ -34,24 +28,14 @@ import {
   type DiscordVoiceSendFn,
 } from "./outbound-send-context.js";
 
-const dnrLog = createSubsystemLogger("discord-outbound-dnr");
-
-async function checkDiscordOutboundDnr(target: string, label: string): Promise<boolean> {
-  const dnrCtx = { channel: "discord" as const, to: target };
-  try {
-    enforceDiscordDnrWindow(dnrCtx);
-    return false;
-  } catch (err) {
-    if (err instanceof DiscordDnrSuppressedError) {
-      dnrLog.info(
-        `[outbound-adapter/${label}] suppressed send to ${target} until ${new Date(err.nextEligibleAtMs).toISOString()}`,
-      );
-      const queueId = `discord-outbound:${target}:${Date.now()}`;
-      await deferDelivery(queueId, err.nextEligibleAtMs, "discord-dnr-window").catch(() => {});
-      return true;
-    }
-    throw err;
-  }
+// frankclaw: Enforce Discord DNR quiet hours by THROWING DiscordDnrSuppressedError
+// (mirrors the WhatsApp/Telegram adapters). The error propagates to deliver.ts,
+// which calls deferDelivery() on the real durable-queue row so the message is
+// re-delivered when the window closes — instead of being silently dropped. Do NOT
+// swallow it here and return an empty messageId: that made deliver.ts ack the row
+// as "sent" and lose the message, while the CLI printed a false "Sent via Discord".
+function enforceDiscordOutboundDnr(target: string): void {
+  enforceDiscordDnrWindow({ channel: "discord", to: target });
 }
 
 export const DISCORD_TEXT_CHUNK_LIMIT = 2000;
@@ -189,9 +173,9 @@ export const discordOutbound: ChannelOutboundAdapter = {
   resolveTarget: ({ to, allowFrom }) => normalizeDiscordOutboundTarget(to, allowFrom),
   sendPayload: async (ctx) => {
     const target = resolveDiscordOutboundTarget({ to: ctx.to, threadId: ctx.threadId });
-    if (await checkDiscordOutboundDnr(target, "sendPayload")) {
-      return createEmptyChannelResult("discord");
-    }
+    // frankclaw: throws DiscordDnrSuppressedError when in DNR window; propagates to
+    // deliver.ts which defers the durable queue row so the message is not lost.
+    enforceDiscordOutboundDnr(target);
     return await sendDiscordOutboundPayload({
       ctx,
       fallbackAdapter: discordOutbound,
@@ -212,9 +196,9 @@ export const discordOutbound: ChannelOutboundAdapter = {
       formatting,
     }) => {
       const resolvedTarget = resolveDiscordOutboundTarget({ to, threadId });
-      if (await checkDiscordOutboundDnr(resolvedTarget, "sendText")) {
-        return { messageId: "", channelId: resolvedTarget };
-      }
+      // frankclaw: throws DiscordDnrSuppressedError when in DNR window; propagates to
+      // deliver.ts which defers the durable queue row so the message is not lost.
+      enforceDiscordOutboundDnr(resolvedTarget);
       if (!silent) {
         const webhookResult = await maybeSendDiscordWebhookText({
           cfg,
@@ -265,9 +249,9 @@ export const discordOutbound: ChannelOutboundAdapter = {
         resolveOutboundSendDep<DiscordSendFn>(deps, "discord") ??
         (await loadDiscordSendRuntime()).sendMessageDiscord;
       const target = resolveDiscordOutboundTarget({ to, threadId });
-      if (await checkDiscordOutboundDnr(target, "sendMedia")) {
-        return { messageId: "", channelId: target };
-      }
+      // frankclaw: throws DiscordDnrSuppressedError when in DNR window; propagates to
+      // deliver.ts which defers the durable queue row so the message is not lost.
+      enforceDiscordOutboundDnr(target);
       const formattingOptions = resolveDiscordFormattingOptions({ formatting });
       if (audioAsVoice && mediaUrl) {
         const sendVoice =

@@ -38,6 +38,28 @@ type FormatOpts = {
   width: number;
 };
 
+/**
+ * frankclaw: human-readable summary for a suppressed (not-delivered-now) send.
+ * The DNR deferral case is the important one: the message is durably held and will
+ * be re-delivered automatically when the quiet-hours window closes.
+ */
+function formatSuppressedSendSummary(send: {
+  channel: string;
+  suppressedReason?: string;
+  deferUntilMs?: number;
+}): string {
+  const label = resolveChannelLabel(send.channel as ChannelId);
+  if (send.suppressedReason === "deferred_by_dnr") {
+    const until =
+      typeof send.deferUntilMs === "number" && Number.isFinite(send.deferUntilMs)
+        ? ` Will deliver after ${new Date(send.deferUntilMs).toLocaleString()}.`
+        : "";
+    return `⏸️ Deferred by quiet hours — not sent to ${label} yet. Held in the durable queue.${until}`;
+  }
+  const reason = send.suppressedReason ? ` (${send.suppressedReason})` : "";
+  return `⏸️ Not delivered to ${label}: send was suppressed${reason}.`;
+}
+
 function renderObjectSummary(payload: unknown, opts: FormatOpts): string[] {
   if (!payload || typeof payload !== "object") {
     return [String(payload)];
@@ -243,6 +265,7 @@ export function formatMessageCliText(result: MessageActionRunResult): string[] {
   const ok = (text: string) => (rich ? theme.success(text) : text);
   const muted = (text: string) => (rich ? theme.muted(text) : text);
   const heading = (text: string) => (rich ? theme.heading(text) : text);
+  const warn = (text: string) => (rich ? theme.warn(text) : text);
 
   const width = getTerminalTableWidth();
   const opts: FormatOpts = { width };
@@ -282,6 +305,12 @@ export function formatMessageCliText(result: MessageActionRunResult): string[] {
   if (result.kind === "send") {
     if (result.handledBy === "core" && result.sendResult) {
       const send = result.sendResult;
+      // frankclaw: a suppressed send was NOT delivered now — most importantly a DNR
+      // quiet-hours deferral. Never print a green "Sent" line for it; show a clearly
+      // distinguishable deferred/blocked status so callers don't treat it as delivered.
+      if (send.suppressed) {
+        return [warn(formatSuppressedSendSummary(send))];
+      }
       if (send.via === "direct") {
         const directResult = send.result as OutboundDeliveryResult | undefined;
         return [ok(formatOutboundDeliverySummary(send.channel, directResult))];

@@ -1244,13 +1244,30 @@ function suppressedPayloadOutcome(params: {
     cancelReason?: string;
     metadata?: Record<string, unknown>;
   };
+  deferUntilMs?: number;
 }): OutboundPayloadDeliveryOutcome {
   return {
     index: params.index,
     status: "suppressed",
     reason: params.reason,
     ...(params.hookEffect ? { hookEffect: params.hookEffect } : {}),
+    ...(params.deferUntilMs !== undefined ? { deferUntilMs: params.deferUntilMs } : {}),
   };
+}
+
+/**
+ * frankclaw: surface a DNR deferral to the payload-outcome callback so the durable
+ * message result (and the CLI/tool summary built from it) reports the send as
+ * DEFERRED rather than a false "sent". The message itself is held in the durable
+ * queue and re-delivered after the quiet-hours window closes.
+ */
+function emitDnrDeferredOutcome(
+  params: { onPayloadDeliveryOutcome?: (outcome: OutboundPayloadDeliveryOutcome) => void },
+  deferUntilMs: number,
+): void {
+  params.onPayloadDeliveryOutcome?.(
+    suppressedPayloadOutcome({ index: 0, reason: "deferred_by_dnr", deferUntilMs }),
+  );
 }
 
 /**
@@ -1430,12 +1447,14 @@ async function deliverOutboundPayloadsWithQueueCleanup(
           await deferDelivery(queueId, dnrCause.nextEligibleAtMs, "telegram-dnr-window").catch(
             () => {},
           );
+          emitDnrDeferredOutcome(params, dnrCause.nextEligibleAtMs);
           return [];
         } else if (dnrCause instanceof DiscordDnrSuppressedError) {
           // frankclaw: Discord outbound DNR (non-Telegram). Defer without incrementing retry count.
           await deferDelivery(queueId, dnrCause.nextEligibleAtMs, "discord-dnr-window").catch(
             () => {},
           );
+          emitDnrDeferredOutcome(params, dnrCause.nextEligibleAtMs);
           return [];
         } else if (dnrCause instanceof WhatsAppDnrSuppressedError) {
           // frankclaw: WhatsApp DNR. Send bed reaction, then defer.
@@ -1450,6 +1469,7 @@ async function deliverOutboundPayloadsWithQueueCleanup(
           await deferDelivery(queueId, dnrCause.nextEligibleAtMs, "whatsapp-dnr-window").catch(
             () => {},
           );
+          emitDnrDeferredOutcome(params, dnrCause.nextEligibleAtMs);
           return [];
         } else if (!platformResultsReturned) {
           await failDelivery(queueId, formatErrorMessage(err)).catch((failErr: unknown) => {
