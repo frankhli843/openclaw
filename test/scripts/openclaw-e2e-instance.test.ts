@@ -149,6 +149,110 @@ describe("scripts/lib/openclaw-e2e-instance.sh", () => {
     expect(result.stderr).toContain("decoded to an empty script");
   });
 
+  it("requires /readyz after the gateway ready log", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-e2e-readyz-required-"));
+    try {
+      const logPath = path.join(tempDir, "gateway.log");
+      const result = spawnSync(
+        "/bin/bash",
+        [
+          "-c",
+          [
+            "set -euo pipefail",
+            `source ${shellQuote(helperPath)}`,
+            "openclaw_e2e_probe_http() { return 1; }",
+            "sleep 30 &",
+            'gateway_pid="$!"',
+            "trap 'kill \"$gateway_pid\" >/dev/null 2>&1 || true' EXIT",
+            `printf '[gateway] ready ws://127.0.0.1:23456\\n' >${shellQuote(logPath)}`,
+            `if openclaw_e2e_wait_gateway_ready "$gateway_pid" ${shellQuote(logPath)} 2; then`,
+            '  echo "gateway readiness passed without /readyz" >&2',
+            "  exit 1",
+            "fi",
+          ].join("\n"),
+        ],
+        {
+          encoding: "utf8",
+          env: shellTestEnv({}),
+          timeout: 5_000,
+        },
+      );
+
+      expectShellSuccess(result);
+      expect(result.stdout).toContain(
+        "Gateway log reported ready, but /readyz probe never succeeded",
+      );
+    } finally {
+      fs.rmSync(tempDir, { force: true, recursive: true });
+    }
+  });
+
+  it("probes /readyz on the explicit gateway port", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-e2e-readyz-port-"));
+    try {
+      const logPath = path.join(tempDir, "gateway.log");
+      const probePath = path.join(tempDir, "probe-url.txt");
+      const result = spawnSync(
+        "/bin/bash",
+        [
+          "-c",
+          [
+            "set -euo pipefail",
+            `source ${shellQuote(helperPath)}`,
+            `openclaw_e2e_probe_http() { printf "%s\\n" "$1" >${shellQuote(probePath)}; return 0; }`,
+            "sleep 30 &",
+            'gateway_pid="$!"',
+            "trap 'kill \"$gateway_pid\" >/dev/null 2>&1 || true' EXIT",
+            `printf '[gateway] ready\\n' >${shellQuote(logPath)}`,
+            `openclaw_e2e_wait_gateway_ready "$gateway_pid" ${shellQuote(logPath)} 2 23456`,
+          ].join("\n"),
+        ],
+        {
+          encoding: "utf8",
+          env: shellTestEnv({}),
+          timeout: 5_000,
+        },
+      );
+
+      expectShellSuccess(result);
+      expect(fs.readFileSync(probePath, "utf8").trim()).toBe("http://127.0.0.1:23456/readyz");
+    } finally {
+      fs.rmSync(tempDir, { force: true, recursive: true });
+    }
+  });
+
+  it("allows explicit legacy ready-log mode without /readyz", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-e2e-readyz-legacy-"));
+    try {
+      const logPath = path.join(tempDir, "gateway.log");
+      const result = spawnSync(
+        "/bin/bash",
+        [
+          "-c",
+          [
+            "set -euo pipefail",
+            `source ${shellQuote(helperPath)}`,
+            "openclaw_e2e_probe_http() { return 1; }",
+            "sleep 30 &",
+            'gateway_pid="$!"',
+            "trap 'kill \"$gateway_pid\" >/dev/null 2>&1 || true' EXIT",
+            `printf '[gateway] ready\\n' >${shellQuote(logPath)}`,
+            `openclaw_e2e_wait_gateway_ready "$gateway_pid" ${shellQuote(logPath)} 2 23456 legacy-ready-log-ok`,
+          ].join("\n"),
+        ],
+        {
+          encoding: "utf8",
+          env: shellTestEnv({}),
+          timeout: 5_000,
+        },
+      );
+
+      expectShellSuccess(result);
+    } finally {
+      fs.rmSync(tempDir, { force: true, recursive: true });
+    }
+  });
+
   it("wraps package installs with the configured timeout", () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-e2e-instance-"));
     try {
@@ -618,6 +722,118 @@ exit 1
       expect(result.error).toBeUndefined();
       expect(result.status).not.toBe(0);
       expect(elapsedMs).toBeLessThan(2_500);
+    } finally {
+      fs.rmSync(tempDir, { force: true, recursive: true });
+    }
+  });
+
+  it("does not repeatedly grep the full gateway log while waiting for readiness", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-e2e-readyz-incremental-"));
+    try {
+      const logPath = path.join(tempDir, "gateway.log");
+      const grepArgsPath = path.join(tempDir, "grep-args.txt");
+      const result = spawnSync(
+        "/bin/bash",
+        [
+          "-c",
+          [
+            "set -euo pipefail",
+            `source ${shellQuote(helperPath)}`,
+            "openclaw_e2e_probe_http() { return 0; }",
+            "grep() {",
+            `  printf '%s\\n' "$*" >>${shellQuote(grepArgsPath)}`,
+            '  for arg in "$@"; do',
+            `    if [ "$arg" = ${shellQuote(logPath)} ]; then return 77; fi`,
+            "  done",
+            '  command grep "$@"',
+            "}",
+            "sleep 30 &",
+            'gateway_pid="$!"',
+            "trap 'kill \"$gateway_pid\" >/dev/null 2>&1 || true' EXIT",
+            `printf 'old log line\\n' >${shellQuote(logPath)}`,
+            `printf '[gateway] ready ws://127.0.0.1:23456\\n' >>${shellQuote(logPath)}`,
+            `openclaw_e2e_wait_gateway_ready "$gateway_pid" ${shellQuote(logPath)} 2`,
+          ].join("\n"),
+        ],
+        {
+          encoding: "utf8",
+          env: shellTestEnv({}),
+          timeout: 5_000,
+        },
+      );
+
+      expect(result.error).toBeUndefined();
+      expect(result.status).toBe(0);
+      expect(fs.readFileSync(grepArgsPath, "utf8")).not.toContain(logPath);
+    } finally {
+      fs.rmSync(tempDir, { force: true, recursive: true });
+    }
+  });
+
+  it("detects gateway ready markers split across incremental log reads", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-e2e-readyz-split-marker-"));
+    try {
+      const logPath = path.join(tempDir, "gateway.log");
+      const result = spawnSync(
+        "/bin/bash",
+        [
+          "-c",
+          [
+            "set -euo pipefail",
+            `source ${shellQuote(helperPath)}`,
+            "openclaw_e2e_probe_http() { return 0; }",
+            "sleep 30 &",
+            'gateway_pid="$!"',
+            "trap 'kill \"$gateway_pid\" >/dev/null 2>&1 || true' EXIT",
+            `printf '[gateway] rea' >${shellQuote(logPath)}`,
+            `(sleep 0.35; printf 'dy ws://127.0.0.1:23456\\n' >>${shellQuote(logPath)}) &`,
+            `openclaw_e2e_wait_gateway_ready "$gateway_pid" ${shellQuote(logPath)} 8`,
+          ].join("\n"),
+        ],
+        {
+          encoding: "utf8",
+          env: shellTestEnv({}),
+          timeout: 5_000,
+        },
+      );
+
+      expect(result.error).toBeUndefined();
+      expect(result.status).toBe(0);
+    } finally {
+      fs.rmSync(tempDir, { force: true, recursive: true });
+    }
+  });
+
+  it("derives the readiness port only from gateway ready log lines", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-e2e-readyz-port-"));
+    try {
+      const logPath = path.join(tempDir, "gateway.log");
+      const probePath = path.join(tempDir, "probe-url.txt");
+      const result = spawnSync(
+        "/bin/bash",
+        [
+          "-c",
+          [
+            "set -euo pipefail",
+            `source ${shellQuote(helperPath)}`,
+            `openclaw_e2e_probe_http() { printf '%s' "$1" >${shellQuote(probePath)}; [[ "$1" = "http://127.0.0.1:23456/readyz" ]]; }`,
+            "sleep 30 &",
+            'gateway_pid="$!"',
+            "trap 'kill \"$gateway_pid\" >/dev/null 2>&1 || true' EXIT",
+            `printf '[gateway] ready ws://127.0.0.1:23456\\nunrelated localhost:9999\\n' >${shellQuote(logPath)}`,
+            `openclaw_e2e_wait_gateway_ready "$gateway_pid" ${shellQuote(logPath)} 2`,
+          ].join("\n"),
+        ],
+        {
+          encoding: "utf8",
+          env: shellTestEnv({}),
+          timeout: 5_000,
+        },
+      );
+
+      expect(result.error).toBeUndefined();
+      expect(result.status).toBe(0);
+      expect(fs.readFileSync(probePath, "utf8")).toBe("http://127.0.0.1:23456/readyz");
     } finally {
       fs.rmSync(tempDir, { force: true, recursive: true });
     }
