@@ -32,7 +32,7 @@
         },
         {
           "file": "extensions/discord/src/outbound-adapter.ts",
-          "pattern": "checkDiscordOutboundDnr",
+          "pattern": "enforceDiscordOutboundDnr",
           "minCount": 1
         }
       ],
