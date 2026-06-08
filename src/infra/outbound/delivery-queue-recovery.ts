@@ -722,12 +722,12 @@ async function recoverPendingDeliveriesInner(opts: {
   const deadline = resolveRecoveryDeadlineMs(opts.maxRecoveryMs);
   const summary = createEmptyRecoverySummary();
 
-  for (let i = 0; i < pending.length; i++) {
-    const entry = pending[i];
+  for (const entry of pending) {
     const now = Date.now();
     if (now >= deadline) {
       opts.log.warn(`Recovery time budget exceeded — remaining entries deferred to next startup`);
-      await deferRemainingEntriesForBudget(pending.slice(i), opts.stateDir);
+      // Budget deferral is not a delivery attempt. Keep entries pending without
+      // consuming retry budget; attempted failures still flow through failDelivery.
       break;
     }
 

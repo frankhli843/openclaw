@@ -666,7 +666,7 @@ describe("delivery-queue recovery", () => {
     });
   });
 
-  it("respects maxRecoveryMs time budget and bumps deferred retries", async () => {
+  it("respects maxRecoveryMs time budget without bumping deferred retries", async () => {
     await enqueueCrashRecoveryEntries();
     await enqueueDelivery(
       { channel: "demo-channel-c", to: "#c", payloads: [{ text: "c" }] },
@@ -692,8 +692,8 @@ describe("delivery-queue recovery", () => {
     // [frankclaw] Budget-exceeded deferrals no longer increment retryCount —
     // entries are left untouched for the next sweep to avoid killing entries
     // that were never actually attempted.
-    expect(remaining.every((entry) => entry.retryCount === 0)).toBe(true);
-    expect(log.warn).toHaveBeenCalledWith(expect.stringContaining("deferred to next startup"));
+    expect(remaining.map((entry) => entry.retryCount)).toStrictEqual([0, 0, 0]);
+    expectMockMessageContaining(log.warn, "deferred to next startup");
   });
 
   it("defers recovery when the recovery deadline would exceed the Date timestamp range", async () => {
