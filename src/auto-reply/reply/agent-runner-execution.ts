@@ -111,6 +111,12 @@ import {
   resolveModelFallbackOptions,
 } from "./agent-runner-utils.js";
 import type { BlockReplyPipeline } from "./block-reply-pipeline.js";
+import {
+  createCompactionHookNoticePayload,
+  createCompactionNoticePayload,
+  readCompactionHookMessages,
+  shouldNotifyUserAboutCompaction,
+} from "./compaction-notice.js";
 import { resolveCurrentTurnImages } from "./current-turn-images.js";
 import { hasInboundAudio } from "./inbound-media.js";
 import { resolveOriginMessageProvider } from "./origin-routing.js";
@@ -806,7 +812,7 @@ function buildExternalRunFailureReply(
   if (authProfileFailoverFailure) {
     return { text: authProfileFailoverFailure, isGenericRunnerFailure: false };
   }
-  const providerRequestError = classifyProviderRequestError(normalizedMessage);
+  const providerRequestError = classifyProviderRequestError(error ?? normalizedMessage);
   if (providerRequestError) {
     return {
       text: providerRequestError.userMessage,
@@ -1498,6 +1504,7 @@ export async function runAgentTurnWithFallback(params: {
   resolvedVerboseLevel: VerboseLevel;
   toolProgressDetail?: "explain" | "raw";
   replyMediaContext?: ReplyMediaContext;
+  onCompactionNoticePayload?: (payload: ReplyPayload) => Promise<void> | void;
 }): Promise<AgentRunLoopResult> {
   const TRANSIENT_HTTP_RETRY_DELAY_MS = 2_500;
   let didLogHeartbeatStrip = false;
@@ -1610,56 +1617,40 @@ export async function runAgentTurnWithFallback(params: {
     params.opts?.onAgentRunStart?.(runId);
   };
   const currentMessageId = params.sessionCtx.MessageSidFull ?? params.sessionCtx.MessageSid;
-  const shouldNotifyUserAboutCompaction =
-    runtimeConfig?.agents?.defaults?.compaction?.notifyUser === true;
-  const sendCompactionNotice = async (phase: "start" | "end" | "incomplete") => {
-    if (!params.opts?.onBlockReply) {
-      return;
-    }
-    const text =
-      phase === "start"
-        ? "🧹 Compacting context..."
-        : phase === "end"
-          ? "🧹 Compaction complete"
-          : "🧹 Compaction incomplete";
-    const noticePayload = params.applyReplyToMode({
-      text,
-      replyToId: currentMessageId,
-      replyToCurrent: true,
-      isCompactionNotice: true,
-    });
+  const notifyUserAboutCompaction = shouldNotifyUserAboutCompaction(runtimeConfig);
+  const deliverCompactionNoticePayload = async (noticePayload: ReplyPayload, label: string) => {
     try {
-      await params.opts.onBlockReply(noticePayload);
+      if (params.opts?.onBlockReply) {
+        await params.opts.onBlockReply(noticePayload);
+        return;
+      }
+      await params.onCompactionNoticePayload?.(noticePayload);
     } catch (err) {
       // Non-critical notice delivery failure should not bubble out of the
       // fire-and-forget event handler.
-      logVerbose(`compaction ${phase} notice delivery failed (non-fatal): ${String(err)}`);
+      logVerbose(`compaction ${label} notice delivery failed (non-fatal): ${String(err)}`);
     }
   };
-  const readCompactionHookMessages = (value: unknown): string[] => {
-    if (!Array.isArray(value)) {
-      return [];
-    }
-    return value
-      .filter((entry): entry is string => typeof entry === "string")
-      .map((entry) => entry.trim())
-      .filter((entry) => entry.length > 0);
+  const sendCompactionNotice = async (phase: "start" | "end" | "incomplete") => {
+    await deliverCompactionNoticePayload(
+      createCompactionNoticePayload({
+        phase,
+        currentMessageId,
+        applyReplyToMode: params.applyReplyToMode,
+      }),
+      phase,
+    );
   };
   const sendCompactionHookMessages = async (messages: string[]) => {
-    if (!params.opts?.onBlockReply || messages.length === 0) {
+    const noticePayload = createCompactionHookNoticePayload({
+      messages,
+      currentMessageId,
+      applyReplyToMode: params.applyReplyToMode,
+    });
+    if (!noticePayload) {
       return;
     }
-    const noticePayload = params.applyReplyToMode({
-      text: messages.join("\n\n"),
-      replyToId: currentMessageId,
-      replyToCurrent: true,
-      isCompactionNotice: true,
-    });
-    try {
-      await params.opts.onBlockReply(noticePayload);
-    } catch (err) {
-      logVerbose(`compaction hook notice delivery failed (non-fatal): ${String(err)}`);
-    }
+    await deliverCompactionNoticePayload(noticePayload, "hook");
   };
   const shouldSurfaceToControlUi = isInternalMessageChannel(
     params.followupRun.run.messageProvider ??
@@ -2142,6 +2133,16 @@ export async function runAgentTurnWithFallback(params: {
                       }),
                     ]);
                   },
+                  onCommentaryText:
+                    params.opts?.commentaryProgressEnabled === true && params.opts.onItemEvent
+                      ? async ({ text, itemId }) => {
+                          await params.opts?.onItemEvent?.({
+                            kind: "preamble",
+                            progressText: text,
+                            itemId,
+                          });
+                        }
+                      : undefined,
                   onErrorBeforeLifecycle: async () => {
                     if (!rollbackFallbackCandidateSelection) {
                       return;
@@ -2185,6 +2186,7 @@ export async function runAgentTurnWithFallback(params: {
                     inputProvenance: params.followupRun.run.inputProvenance,
                     provider: cliExecutionProvider,
                     model,
+                    classifyCommentaryText: params.opts?.commentaryProgressEnabled !== undefined,
                     thinkLevel: params.followupRun.run.thinkLevel,
                     timeoutMs: params.followupRun.run.timeoutMs,
                     runId,
@@ -2192,6 +2194,8 @@ export async function runAgentTurnWithFallback(params: {
                     extraSystemPrompt: params.followupRun.run.extraSystemPrompt,
                     sourceReplyDeliveryMode: params.followupRun.run.sourceReplyDeliveryMode,
                     silentReplyPromptMode: params.followupRun.run.silentReplyPromptMode,
+                    allowEmptyAssistantReplyAsSilent:
+                      params.followupRun.run.allowEmptyAssistantReplyAsSilent,
                     extraSystemPromptStatic: params.followupRun.run.extraSystemPromptStatic,
                     ownerNumbers: params.followupRun.run.ownerNumbers,
                     cliSessionId: cliSessionBinding?.sessionId,
@@ -2567,7 +2571,7 @@ export async function runAgentTurnWithFallback(params: {
                           }
                           if (hookMessages.length > 0) {
                             await sendCompactionHookMessages(hookMessages);
-                          } else if (shouldNotifyUserAboutCompaction) {
+                          } else if (notifyUserAboutCompaction) {
                             // Send directly via opts.onBlockReply (bypassing the
                             // pipeline) so the notice does not cause final payloads
                             // to be discarded on non-streaming model paths.
@@ -2583,12 +2587,12 @@ export async function runAgentTurnWithFallback(params: {
                             }
                             if (hookMessages.length > 0) {
                               await sendCompactionHookMessages(hookMessages);
-                            } else if (shouldNotifyUserAboutCompaction) {
+                            } else if (notifyUserAboutCompaction) {
                               await sendCompactionNotice("end");
                             }
                           } else if (hookMessages.length > 0) {
                             await sendCompactionHookMessages(hookMessages);
-                          } else if (shouldNotifyUserAboutCompaction) {
+                          } else if (notifyUserAboutCompaction) {
                             await sendCompactionNotice("incomplete");
                           }
                         }

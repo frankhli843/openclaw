@@ -1075,6 +1075,9 @@ async function processDiscordMessageInner(
         suppressDefaultToolProgressMessages: draftPreview.suppressDefaultToolProgressMessages
           ? true
           : undefined,
+        commentaryProgressEnabled: draftPreview.isProgressMode
+          ? draftPreview.commentaryProgressEnabled
+          : undefined,
         onReasoningStream: async (payload) => {
           await statusReactions.setThinking();
           await draftPreview.pushReasoningProgress(payload?.text, {

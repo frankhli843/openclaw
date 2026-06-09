@@ -154,10 +154,12 @@ export function createCronPromptExecutor(params: {
     to?: string;
     threadId?: string | number;
   };
+  deliveryRequested?: boolean;
   sourceDelivery: SourceDeliveryPlan;
   skillsSnapshot: SkillSnapshot;
   agentPayload: AgentTurnPayload;
   useSubagentFallbacks: boolean;
+  inheritDefaultFallbacksForAgentStringModel?: boolean;
   modelFallbacksOverride?: string[];
   liveSelection: CronLiveSelection;
   cronSession: MutableCronSession;
@@ -183,6 +185,7 @@ export function createCronPromptExecutor(params: {
       job: params.job,
       agentId: params.agentId,
       useSubagentFallbacks: params.useSubagentFallbacks,
+      inheritDefaultFallbacksForAgentStringModel: params.inheritDefaultFallbacksForAgentStringModel,
     });
   let runResult: CronPromptRunResult | undefined;
   let fallbackProvider = params.liveSelection.provider;
@@ -389,10 +392,12 @@ export async function executeCronRun(params: {
     to?: string;
     threadId?: string | number;
   };
+  deliveryRequested?: boolean;
   sourceDelivery: SourceDeliveryPlan;
   skillsSnapshot: SkillSnapshot;
   agentPayload: AgentTurnPayload;
   useSubagentFallbacks: boolean;
+  inheritDefaultFallbacksForAgentStringModel?: boolean;
   modelFallbacksOverride?: string[];
   agentVerboseDefault: AgentDefaultsConfig["verboseDefault"];
   liveSelection: CronLiveSelection;
@@ -439,10 +444,12 @@ export async function executeCronRun(params: {
     runTimeoutOverrideMs: params.runTimeoutOverrideMs,
     suppressExecNotifyOnExit: params.suppressExecNotifyOnExit,
     resolvedDelivery: params.resolvedDelivery,
+    deliveryRequested: params.deliveryRequested,
     sourceDelivery: params.sourceDelivery,
     skillsSnapshot: params.skillsSnapshot,
     agentPayload: params.agentPayload,
     useSubagentFallbacks: params.useSubagentFallbacks,
+    inheritDefaultFallbacksForAgentStringModel: params.inheritDefaultFallbacksForAgentStringModel,
     modelFallbacksOverride: params.modelFallbacksOverride,
     liveSelection: params.liveSelection,
     cronSession: params.cronSession,
@@ -508,6 +515,7 @@ export async function executeCronRun(params: {
     // Cache the channel output policy once for use in the checkInterim closure.
     const channelOutputPolicy = await resolveCronChannelOutputPolicy(
       params.resolvedDelivery.channel,
+      { deliveryRequested: params.deliveryRequested },
     );
 
     // checkInterim: evaluates whether a given run result is an interim
