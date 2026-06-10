@@ -1249,6 +1249,7 @@
                   "plugins/admin-http-rpc",
                   "plugins/voice-call",
                   "plugins/memory-wiki",
+                  "plugins/llama-cpp",
                   "plugins/memory-lancedb",
                   "plugins/oc-path",
                   "plugins/zalouser"
@@ -1373,6 +1374,7 @@
                 "pages": [
                   "clawhub/cli",
                   "clawhub/publishing",
+                  "clawhub/plugin-validation-fixes",
                   "clawhub/skill-format",
                   "clawhub/soul-format",
                   "clawhub/auth",
