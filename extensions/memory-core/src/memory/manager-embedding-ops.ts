@@ -956,7 +956,7 @@ export abstract class MemoryManagerEmbeddingOps extends MemoryManagerSyncOps {
         return;
       }
       const prepared = await this.prepareIndexEntry(entry, options);
-      // frankclaw: prepend file path to each chunk for better search recall
+      // Prepend file path to each chunk's text for better search recall (FTS-only path) // frankclaw:
       if (prepared?.chunks) {
         for (const chunk of prepared.chunks) {
           chunk.text = `[${entry.path}]\n${chunk.text}`;
@@ -970,7 +970,7 @@ export abstract class MemoryManagerEmbeddingOps extends MemoryManagerSyncOps {
     if (!prepared) {
       return;
     }
-    // frankclaw: prepend file path to each chunk for better search recall
+    // Prepend file path to each chunk's text for better search recall // frankclaw:
     for (const chunk of prepared.chunks) {
       chunk.text = `[${entry.path}]\n${chunk.text}`;
     }
