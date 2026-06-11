@@ -383,6 +383,7 @@ function mergeManifestContracts(
   for (const key of [
     "embeddedExtensionFactories",
     "agentToolResultMiddleware",
+    "trustedToolPolicies",
     "externalAuthProviders",
     "embeddingProviders",
     "memoryEmbeddingProviders",
@@ -1209,3 +1210,8 @@ export function loadPluginManifestRegistry(
   const registry = { plugins: records, diagnostics: dedupePluginDiagnostics(diagnostics) };
   return registry;
 }
+
+export const testing = {
+  mergeManifestContracts,
+};
+export { testing as __testing };
