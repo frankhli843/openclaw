@@ -52,6 +52,23 @@ describe("isTransientCronInfraError", () => {
     expect(isTransientCronInfraError("ETIMEDOUT 10.0.0.1:443", cfg)).toBe(true);
   });
 
+  it("matches pre-execution watchdog stall errors", () => {
+    const cfg = resolveCronSelfHealConfig(undefined);
+    // Plain form (no phase context)
+    expect(
+      isTransientCronInfraError("cron: isolated agent run stalled before execution start", cfg),
+    ).toBe(true);
+    // Form with phase context emitted by preExecutionTimeoutErrorMessage
+    expect(
+      isTransientCronInfraError(
+        "cron: isolated agent run stalled before execution start (last phase: runtime-plugins)",
+        cfg,
+      ),
+    ).toBe(true);
+    // Non-matching errors stay non-matching
+    expect(isTransientCronInfraError("cron: job execution timed out", cfg)).toBe(false);
+  });
+
   it("returns false for empty error", () => {
     const cfg = resolveCronSelfHealConfig(undefined);
     expect(isTransientCronInfraError("", cfg)).toBe(false);

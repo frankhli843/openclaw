@@ -5,6 +5,7 @@ import type {
   CronAgentExecutionStarted,
   CronJob,
 } from "../types.js";
+import { FRANKCLAW_CRON_AGENT_PRE_EXECUTION_WATCHDOG_MS } from "./agent-watchdog-override.frankclaw.js"; // frankclaw:
 import {
   preExecutionTimeoutErrorMessage,
   setupTimeoutErrorMessage,
@@ -14,7 +15,10 @@ import type { CronServiceState } from "./state.js";
 
 const CRON_TIMEOUT_CLEANUP_GUARD_MS = 20_000;
 const CRON_AGENT_SETUP_WATCHDOG_MS = 60_000;
-const CRON_AGENT_PRE_EXECUTION_WATCHDOG_MS = 60_000;
+// frankclaw: upstream caps at 60 s; override file raises to 180 s so loaded
+// systems (llama.cpp inference) have margin across the full runtime_plugins →
+// attempt_dispatch async pipeline before the watchdog fires.
+const CRON_AGENT_PRE_EXECUTION_WATCHDOG_MS = FRANKCLAW_CRON_AGENT_PRE_EXECUTION_WATCHDOG_MS;
 const CRON_AGENT_PRE_EXECUTION_MIN_WATCHDOG_MS = 1_000;
 
 type CronAgentWatchdogState =

@@ -37,6 +37,12 @@ const DEFAULT_SELF_HEAL_MATCHERS = [
   "socket",
   "etimedout",
   "failovererror",
+  // Pre-execution watchdog fire: isolated agent stalled in the async pipeline
+  // between runtime_plugins and attempt_dispatch (plugin hooks, harness init,
+  // model resolution, auth, context engine). Intermittent under system load
+  // (llama.cpp inference). The 180 s watchdog is usually sufficient; this
+  // matcher auto-retries on the rare cases that still exceed the window.
+  "stalled before execution start",
 ];
 
 // ── Types ──────────────────────────────────────────────────────────────────
