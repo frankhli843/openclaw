@@ -189,4 +189,49 @@ describe("extractMessagingToolSend", () => {
     expect(nullThread?.threadSuppressed).toBe(true);
     expect(nullThread?.threadImplicit).toBeUndefined();
   });
+
+  // frankclaw: raw_send bypasses the message-tool plugin routing; its target must
+  // be extracted so messagingToolSentTargets carries delivery evidence after success.
+  describe("raw_send target extraction", () => {
+    it("extracts target and channel from raw_send args", () => {
+      const result = extractMessagingToolSend("raw_send", {
+        channel: "whatsapp",
+        target: "120363405743307729@g.us",
+        message: "Hello group",
+      });
+      expect(result).toEqual({
+        tool: "raw_send",
+        provider: "whatsapp",
+        accountId: undefined,
+        to: "120363405743307729@g.us",
+      });
+    });
+
+    it("returns undefined when target is missing from raw_send args", () => {
+      const result = extractMessagingToolSend("raw_send", {
+        channel: "whatsapp",
+        message: "Hello group",
+      });
+      expect(result).toBeUndefined();
+    });
+
+    it("defaults provider to whatsapp when channel is missing", () => {
+      const result = extractMessagingToolSend("raw_send", {
+        target: "120363405743307729@g.us",
+        message: "Hello group",
+      });
+      expect(result?.provider).toBe("whatsapp");
+    });
+
+    it("preserves accountId when provided in raw_send args", () => {
+      const result = extractMessagingToolSend("raw_send", {
+        channel: "discord",
+        target: "channel:1234567890",
+        message: "ping",
+        accountId: "bot-account",
+      });
+      expect(result?.provider).toBe("discord");
+      expect(result?.accountId).toBe("bot-account");
+    });
+  });
 });

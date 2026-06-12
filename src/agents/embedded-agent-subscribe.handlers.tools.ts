@@ -39,7 +39,10 @@ import type { ApplyPatchSummary } from "./apply-patch.js";
 import type { ExecToolDetails } from "./bash-tools.exec-types.js";
 import { sanitizeForConsole } from "./console-sanitize.js";
 import { normalizeTextForComparison } from "./embedded-agent-helpers.js";
-import { isMessagingTool, isMessagingToolSendAction } from "./embedded-agent-messaging.js";
+import {
+  isMessagingTool,
+  isMessagingToolSendAction,
+} from "./embedded-agent-messaging.frankclaw.js"; // frankclaw: raw_send tracking
 import type { MessagingToolSourceReplyPayload } from "./embedded-agent-messaging.types.js";
 import { mergeEmbeddedRunReplayState } from "./embedded-agent-runner/replay-state.js";
 import type {

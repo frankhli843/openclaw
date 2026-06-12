@@ -657,6 +657,13 @@ export function extractMessagingToolSend(
   // Provider docking: new provider tools must implement plugin.actions.extractToolSend.
   const action = normalizeOptionalString(args.action) ?? "";
   const accountId = normalizeOptionalString(args.accountId);
+  // frankclaw: raw_send uses channel/target/message args instead of message-tool action routing.
+  // Extract the target so messagingToolSentTargets carries delivery evidence after success.
+  if (toolName === "raw_send") {
+    const to = normalizeOptionalString(args.target);
+    const channel = normalizeOptionalString(args.channel) ?? "whatsapp";
+    return to ? { tool: toolName, provider: channel, accountId, to } : undefined;
+  }
   if (toolName === "message") {
     if (!isMessageToolSendActionName(action)) {
       return undefined;
