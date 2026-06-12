@@ -1,6 +1,7 @@
 // Whatsapp plugin module implements group gating behavior.
 import type { BuildMentionRegexesOptions } from "openclaw/plugin-sdk/channel-mention-gating";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
+import { resolveChannelGroupGateMode } from "../../../../../src/config/group-policy.js";
 import { resolveWhatsAppGroupsConfigPath } from "../../group-config-path.js";
 import {
   getPrimaryIdentityId,
@@ -111,6 +112,12 @@ function recordPendingGroupHistoryEntry(params: {
         senderIdentity.e164 ??
         getPrimaryIdentityId(senderIdentity) ??
         "Unknown");
+  // frankclaw addition: propagate media context through gated history so a later
+  // mention/reply can attach the original media — but ONLY when the stored body is the
+  // message's own body. When the body has been overridden (e.g. an audio voice note
+  // whose placeholder is replaced by its transcript text), the entry is plain text and
+  // must not carry the now-stale audio media path/type.
+  const bodyOverridden = params.body !== undefined;
   createChannelHistoryWindow({ historyMap: params.groupHistories }).record({
     historyKey: params.groupHistoryKey,
     limit: params.groupHistoryLimit,
@@ -120,9 +127,9 @@ function recordPendingGroupHistoryEntry(params: {
       timestamp: params.msg.event.timestamp,
       id: params.msg.event.id,
       senderJid: senderIdentity.jid ?? params.msg.platform.senderJid,
-      // frankclaw addition: propagate media path through gated history
-      mediaPath: params.msg.mediaPath,
-      mediaType: params.msg.mediaType,
+      ...(bodyOverridden
+        ? {}
+        : { mediaPath: params.msg.mediaPath, mediaType: params.msg.mediaType }),
     },
   });
 }
@@ -182,35 +189,51 @@ export async function applyGroupGating(params: ApplyGroupGatingParams) {
     "group mention debug",
   );
 
-  // [frankclaw] gateMode check (takes priority over legacy requireMention when configured)
-  const gateModeCheck = resolveWebGroupGateModeCheck({
+  // [frankclaw] gateMode check (takes priority over legacy requireMention WHEN CONFIGURED).
+  // Only short-circuit through gate-control when a gateMode is actually configured for this
+  // group (either per-group or via the "*" wildcard default). When no gateMode is configured
+  // `resolveChannelGroupGateMode` returns undefined; in that case we fall through to the legacy
+  // mention/activation gating below, which supports audio-preflight deferral (deferMissingMention
+  // / mentionText transcript re-evaluation). Deployments that set a "*" gateMode default (the
+  // common case) always resolve a gateMode, so this is a no-op for them.
+  const configuredGateMode = resolveChannelGroupGateMode({
     cfg: params.cfg,
-    channel: params.channel ?? "whatsapp",
-    conversationId: params.conversationId,
-    msg: params.msg,
-    groupHistoryKey: params.groupHistoryKey,
-    groupMemberNames: params.groupMemberNames,
-    logVerbose: params.logVerbose,
-    verbose: params.verbose ?? false,
+    channel: (params.channel ?? "whatsapp") as Parameters<
+      typeof resolveChannelGroupGateMode
+    >[0]["channel"],
+    groupId: params.conversationId,
     accountId: params.accountId,
-    recordHistory: () =>
-      recordPendingGroupHistoryEntry({
-        msg: params.msg,
-        groupHistories: params.groupHistories,
-        groupHistoryKey: params.groupHistoryKey,
-        groupHistoryLimit: params.groupHistoryLimit,
-      }),
-  });
-  params.replyLogger.debug(
-    { conversationId: params.conversationId, gateModeCheck },
-    "gateModeCheck result",
-  );
-  if (gateModeCheck.shouldDrop) {
-    return { shouldProcess: false };
-  }
-  if (gateModeCheck.approved) {
-    params.msg.wasMentioned = gateModeCheck.effectiveMention;
-    return { shouldProcess: true };
+  }).gateMode;
+  if (configuredGateMode !== undefined) {
+    const gateModeCheck = resolveWebGroupGateModeCheck({
+      cfg: params.cfg,
+      channel: params.channel ?? "whatsapp",
+      conversationId: params.conversationId,
+      msg: params.msg,
+      groupHistoryKey: params.groupHistoryKey,
+      groupMemberNames: params.groupMemberNames,
+      logVerbose: params.logVerbose,
+      verbose: params.verbose ?? false,
+      accountId: params.accountId,
+      recordHistory: () =>
+        recordPendingGroupHistoryEntry({
+          msg: params.msg,
+          groupHistories: params.groupHistories,
+          groupHistoryKey: params.groupHistoryKey,
+          groupHistoryLimit: params.groupHistoryLimit,
+        }),
+    });
+    params.replyLogger.debug(
+      { conversationId: params.conversationId, gateModeCheck },
+      "gateModeCheck result",
+    );
+    if (gateModeCheck.shouldDrop) {
+      return { shouldProcess: false };
+    }
+    if (gateModeCheck.approved) {
+      params.msg.wasMentioned = gateModeCheck.effectiveMention;
+      return { shouldProcess: true };
+    }
   }
 
   noteGroupMember(
@@ -232,6 +255,15 @@ export async function applyGroupGating(params: ApplyGroupGatingParams) {
     params.mentionText !== undefined
       ? { ...params.msg, payload: { ...params.msg.payload, body: params.mentionText } }
       : params.msg;
+  // [frankclaw audio-preflight] When a transcript override is supplied (voice note whose
+  // original body was the "<media:audio>" placeholder), re-run mention detection against the
+  // transcript text. The initial debugMention above ran on the placeholder body and can never
+  // see a spoken mention, so without this an audio message that says the bot's name would
+  // never satisfy mention gating.
+  const mentionDebugForGating =
+    params.mentionText !== undefined
+      ? debugMention(mentionMsg, mentionConfig, params.authDir)
+      : mentionDebug;
   const commandBody = stripMentionsForCommand(
     mentionMsg.payload.body,
     mentionConfig.mentionRegexes,
@@ -248,7 +280,7 @@ export async function applyGroupGating(params: ApplyGroupGatingParams) {
     );
   }
 
-  const wasMentioned = mentionDebug.wasMentioned;
+  const wasMentioned = mentionDebugForGating.wasMentioned;
   const activation = await resolveGroupActivationFor({
     cfg: params.cfg,
     accountId: inboundPolicy.account.accountId,
