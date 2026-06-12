@@ -397,8 +397,12 @@ describe("whatsapp inbound dispatch", () => {
         senderE164: "+15550002222",
         groupSubject: "Test Group",
         groupParticipants: [],
-        mediaPath: "/media/inbound/own-photo.jpg",
-        mediaType: "image/jpeg",
+        payload: {
+          media: {
+            path: "/media/inbound/own-photo.jpg",
+            type: "image/jpeg",
+          },
+        },
       }),
       route: makeRoute({ sessionKey: "agent:main:whatsapp:group:123@g.us" }),
       sender: { name: "Alice", e164: "+15550002222" },
