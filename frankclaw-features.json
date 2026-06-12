@@ -234,7 +234,10 @@
       ],
       "tests": [
         "extensions/whatsapp/src/auto-reply/monitor/inbound-worker.durable.frankclaw.test.ts",
-        "src/inbound/inbound-durable-queue.frankclaw.test.ts"
+        "src/inbound/inbound-durable-queue.frankclaw.test.ts",
+        "extensions/whatsapp/src/auto-reply/monitor/coalesce-queue.test.ts",
+        "extensions/whatsapp/src/auto-reply.web-auto-reply.compresses-common-formats-jpeg-cap.test.ts",
+        "extensions/whatsapp/src/auto-reply.broadcast-groups.combined.test.ts"
       ],
       "runtime": [
         {

@@ -416,6 +416,10 @@ export async function sendWebGroupInboundMessage(params: {
         : undefined,
     }),
   );
+  // The durable inbound worker processes messages asynchronously (fire-and-forget drain).
+  // Wait long enough for file I/O + processing to complete before returning. Some group
+  // messages (non-mention) complete without calling any spy, so a fixed wait is used.
+  await new Promise((resolve) => setTimeout(resolve, 500));
 }
 
 export async function sendWebDirectInboundMessage(params: {
@@ -451,4 +455,7 @@ export async function sendWebDirectInboundMessage(params: {
       chatType: "direct",
     }),
   );
+  // The durable inbound worker processes messages asynchronously (fire-and-forget drain).
+  // Wait long enough for file I/O + processing to complete before returning.
+  await new Promise((resolve) => setTimeout(resolve, 500));
 }

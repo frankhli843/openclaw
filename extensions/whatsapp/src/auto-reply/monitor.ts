@@ -280,6 +280,10 @@ export async function monitorWebChannel(
   // frankclaw: durable inbound worker. The mutable currentOnMessage ref is
   // updated each time the listener is rebuilt (reconnect) so the worker always
   // calls the freshest handler bound to the current socket.
+  // When keepAlive=false the function returns early (test/setup mode) and the
+  // caller may still enqueue messages after it returns — do NOT stop the worker
+  // in the finally block in that case.
+  let durableWorkerOwnedByCallerAfterReturn = false; // frankclaw:
   let currentOnMessage: ((msg: WebInboundMsg) => Promise<void>) | null = null;
   const durableInboundWorker = createDurableWhatsAppInboundWorker({
     accountId: account.accountId,
@@ -648,6 +652,8 @@ export async function monitorWebChannel(
       if (!keepAlive) {
         clearInterval(periodicDrainInterval);
         approvalContextLease?.dispose();
+        // frankclaw: caller drives messages after this return; let the worker live.
+        durableWorkerOwnedByCallerAfterReturn = true;
         await controller.shutdown();
         return;
       }
@@ -785,10 +791,13 @@ export async function monitorWebChannel(
     await controller.shutdown();
     // frankclaw: stop the durable inbound worker so the periodic recovery
     // timer is cleared and any in-flight jobs settle cleanly.
-    try {
-      await durableInboundWorker.stop();
-    } catch (err) {
-      whatsappLog.warn(`whatsapp durable worker stop failed: ${String(err)}`);
+    // Skip when keepAlive=false (caller still owns the worker after return).
+    if (!durableWorkerOwnedByCallerAfterReturn) {
+      try {
+        await durableInboundWorker.stop();
+      } catch (err) {
+        whatsappLog.warn(`whatsapp durable worker stop failed: ${String(err)}`);
+      }
     }
   }
 }

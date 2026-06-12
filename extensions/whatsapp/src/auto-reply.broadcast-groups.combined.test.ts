@@ -247,6 +247,9 @@ describe("broadcast groups", () => {
         chatType: "direct",
       }),
     );
+    // The durable inbound worker processes messages asynchronously (fire-and-forget drain).
+    // Wait for the event loop to flush the processing chain before asserting.
+    await new Promise((resolve) => setTimeout(resolve, 500));
 
     expect(resolver).toHaveBeenCalledTimes(2);
     resetLoadConfigMock();

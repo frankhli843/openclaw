@@ -73,6 +73,9 @@ describe("web auto-reply", () => {
         const from = overrides?.from ?? "+1";
         const conversationId = overrides?.conversationId ?? from;
         const chatJid = overrides?.chatJid ?? from;
+        // Capture spy counts before dispatch so we can detect when processing completes.
+        const prevSendMedia = sendMedia.mock.calls.length;
+        const prevReply = reply.mock.calls.length;
         await onMessage(
           createTestWebInboundMessage({
             event: {
@@ -93,6 +96,20 @@ describe("web auto-reply", () => {
             accountId: overrides?.accountId ?? "default",
             chatType: "direct",
           }),
+        );
+        // The durable inbound worker processes messages asynchronously (fire-and-forget
+        // drain). Wait until the response spy is called before returning — auto-reply
+        // always ends with either sendMedia or reply (even on error paths).
+        await vi.waitFor(
+          () => {
+            if (
+              sendMedia.mock.calls.length + reply.mock.calls.length <=
+              prevSendMedia + prevReply
+            ) {
+              throw new Error("waiting for response");
+            }
+          },
+          { timeout: 10000, interval: 50 },
         );
       },
     };

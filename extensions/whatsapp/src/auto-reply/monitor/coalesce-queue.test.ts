@@ -13,11 +13,11 @@ const mocks = vi.hoisted(() => ({
     >(),
 }));
 
-vi.mock("../../../auto-reply/command-detection.js", () => ({
+vi.mock("../../../../../src/auto-reply/command-detection.js", () => ({
   hasControlCommand: mocks.hasControlCommand,
 }));
 
-vi.mock("../../../utils/queue-helpers.js", () => ({
+vi.mock("../../../../../src/utils/queue-helpers.js", () => ({
   buildCollectPrompt: mocks.buildCollectPrompt,
 }));
 
