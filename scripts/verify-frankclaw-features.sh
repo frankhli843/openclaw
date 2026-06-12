@@ -297,6 +297,48 @@ run_e2e() {
 }
 
 # ---------------------------------------------------------------------------
+# Phase: WHATSAPP-SHARD (run ALL WhatsApp extension tests via dedicated shard config)
+# ---------------------------------------------------------------------------
+#
+# This phase runs the complete WhatsApp extension test shard using the dedicated
+# vitest config. Unlike the 'test' phase (which only runs files registered in
+# frankclaw-features.json), this runs ALL test files discovered by the shard
+# config — currently 91 files under extensions/whatsapp/. It is the systemic
+# safety gate that catches regressions in unregistered test files that would
+# otherwise silently rot between nightly merge cycles.
+#
+# Usage: bash scripts/verify-frankclaw-features.sh whatsapp-shard
+# Run time: ~3-5 min on shared machine with OPENCLAW_VITEST_MAX_WORKERS=2.
+
+run_whatsapp_shard() {
+  echo -e "${BOLD}=== WhatsApp Extension Shard (full coverage gate) ===${RESET}"
+  echo ""
+  echo "  Runs ALL WhatsApp test files via the dedicated shard vitest config."
+  echo "  Config: test/vitest/vitest.extension-whatsapp.config.ts"
+  echo "  Max workers: 2 (shared-machine resource limit)"
+  echo "  Unlike the 'test' phase, this is not limited to frankclaw-features.json registrations."
+  echo ""
+
+  cd "$REPO_DIR"
+  local exit_code=0
+  OPENCLAW_VITEST_MAX_WORKERS=2 pnpm -s exec vitest run \
+    --config test/vitest/vitest.extension-whatsapp.config.ts \
+    --no-coverage 2>&1 || exit_code=$?
+
+  echo ""
+  if [[ "$exit_code" -eq 0 ]]; then
+    echo -e "${GREEN}${BOLD}RESULT: WhatsApp extension shard passed ✅${RESET}"
+    return 0
+  else
+    echo -e "${RED}${BOLD}RESULT: WhatsApp extension shard FAILED (exit code $exit_code)${RESET}"
+    echo -e "${RED}  One or more WhatsApp test files failed.${RESET}"
+    echo -e "${RED}  This gate catches regressions in unregistered files missed by the 'test' phase.${RESET}"
+    echo -e "${RED}  Fix the failing tests before proceeding.${RESET}"
+    return 1
+  fi
+}
+
+# ---------------------------------------------------------------------------
 # Phase: RUNTIME (check today's log for expected patterns after last gateway start)
 # ---------------------------------------------------------------------------
 
@@ -680,6 +722,8 @@ run_all() {
   echo ""
   run_e2e || { echo -e "\n${RED}E2E phase failed. Stopping.${RESET}"; return 1; }
   echo ""
+  run_whatsapp_shard || { echo -e "\n${RED}WhatsApp shard failed. Stopping.${RESET}"; return 1; }
+  echo ""
   run_channels || { echo -e "\n${RED}Channel health check failed. Stopping.${RESET}"; return 1; }
   echo ""
   run_runtime || { echo -e "\n${RED}Runtime phase failed. Stopping.${RESET}"; return 1; }
@@ -704,8 +748,9 @@ case "$PHASE" in
   static)    run_static ;;
   test)      run_test ;;
   e2e)       run_e2e ;;
-  channels)  run_channels ;;
-  runtime)   run_runtime ;;
-  all)       run_all ;;
-  *)         die "Unknown phase: $PHASE. Use: registry, prebuild, workspace, static, test, e2e, channels, runtime, or all" ;;
+  channels)       run_channels ;;
+  runtime)        run_runtime ;;
+  whatsapp-shard) run_whatsapp_shard ;;
+  all)            run_all ;;
+  *)         die "Unknown phase: $PHASE. Use: registry, prebuild, workspace, static, test, e2e, whatsapp-shard, channels, runtime, or all" ;;
 esac
