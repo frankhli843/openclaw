@@ -586,6 +586,17 @@ export function isToolResultError(result: unknown): boolean {
   return normalized === "error" || normalized === "timeout";
 }
 
+/**
+ * A "preflight" tool result is a non-delivering dry-run (e.g. the frankclaw
+ * `raw_send` scoped-prompt preflight returns `{status: "preflight", ...}`). It
+ * is NOT a tool error, but it also did NOT deliver anything, so callers that
+ * track delivery evidence must not treat it as a completed send. Detected via
+ * `details.status === "preflight"`.
+ */
+export function isToolResultPreflight(result: unknown): boolean {
+  return readToolResultStatus(result) === "preflight";
+}
+
 export function extractToolErrorCode(result: unknown): string | undefined {
   if (!result || typeof result !== "object") {
     return undefined;

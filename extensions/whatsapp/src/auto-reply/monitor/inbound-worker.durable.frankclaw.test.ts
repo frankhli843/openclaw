@@ -92,6 +92,99 @@ describe("WhatsApp durable inbound worker", () => {
     }
   });
 
+  // Regression for the 2026-06-12 Yiting Day-6 "duplicate acknowledgement" cluster.
+  // Two DIFFERENT same-sender health messages ("No swelling or numbness" then
+  // "Touching it would be painful") arrived 66s apart and each produced its own
+  // acknowledgement. Trace confirmed this is acceptable cumulative follow-up
+  // (two distinct inbound msgIds, two distinct cumulative acks), NOT a true
+  // duplicate. The hard guarantee we lock here: BOTH health facts must reach
+  // processOne — no incoming health data may be silently dropped or coalesced
+  // away. The intended ack count for two genuinely distinct messages is two.
+  it("processes two distinct same-sender health messages without dropping either", async () => {
+    const log = makeLog();
+    const processed: WebInboundMsg[] = [];
+    const worker = createDurableWhatsAppInboundWorker({
+      accountId: "health",
+      log,
+      processOne: async (msg) => {
+        processed.push(msg);
+      },
+      timeoutMs: 500,
+      stateDir: tmpDir,
+    });
+    await worker.start();
+    try {
+      const sender = "+14168871618";
+      const conv = "16478023321-1636054296@g.us";
+      const a = await worker.enqueue(
+        makeMsg({
+          id: "wamid.fact-1",
+          from: sender,
+          conversationId: conv,
+          chatType: "group",
+          body: "No swelling or numbness",
+        }),
+      );
+      const b = await worker.enqueue(
+        makeMsg({
+          id: "wamid.fact-2",
+          from: sender,
+          conversationId: conv,
+          chatType: "group",
+          body: "Touching it would be painful",
+        }),
+      );
+      expect(a.enqueued).toBe(true);
+      expect(b.enqueued).toBe(true);
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      // Both distinct health facts must be processed — neither dropped.
+      const bodies = processed.map((m) => m.body).sort();
+      expect(bodies).toEqual(["No swelling or numbness", "Touching it would be painful"]);
+    } finally {
+      await worker.stop();
+    }
+  });
+
+  // The flip side: a true duplicate REPLAY of the SAME message (identical msgId)
+  // must be deduped by the durable queue so it is processed at most once. This
+  // is the existing idempotency guarantee that protects against socket
+  // reconnect / queue-recovery replay of an already-handled inbound message.
+  it("dedupes an identical inbound replay (same msgId) to a single processing", async () => {
+    const log = makeLog();
+    const processed: WebInboundMsg[] = [];
+    const worker = createDurableWhatsAppInboundWorker({
+      accountId: "replay",
+      log,
+      processOne: async (msg) => {
+        // Hold briefly so the duplicate enqueue races the in-flight processing.
+        await new Promise((resolve) => setTimeout(resolve, 40));
+        processed.push(msg);
+      },
+      timeoutMs: 500,
+      stateDir: tmpDir,
+    });
+    await worker.start();
+    try {
+      const base = {
+        id: "wamid.same",
+        from: "+14168871618",
+        conversationId: "16478023321-1636054296@g.us",
+        chatType: "group" as const,
+        body: "No swelling or numbness",
+      };
+      const first = await worker.enqueue(makeMsg(base));
+      const second = await worker.enqueue(makeMsg(base));
+      expect(first.enqueued).toBe(true);
+      // The identical replay is recognized as a duplicate, not re-enqueued.
+      expect(second.enqueued).toBe(false);
+      expect(second.dedupeKey).toBe(first.dedupeKey);
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      expect(processed).toHaveLength(1);
+    } finally {
+      await worker.stop();
+    }
+  });
+
   it("retries on timeout and dead-letters after maxAttempts", async () => {
     const log = makeLog();
     let attempts = 0;

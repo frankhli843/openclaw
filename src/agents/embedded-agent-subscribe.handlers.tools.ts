@@ -58,6 +58,7 @@ import {
   extractToolResultText,
   filterToolResultMediaUrls,
   isToolResultError,
+  isToolResultPreflight,
   isToolResultTimedOut,
   sanitizeToolArgs,
   sanitizeToolResult,
@@ -1238,6 +1239,15 @@ export async function handleToolExecutionEnd(
   }
 
   // Commit messaging tool evidence on success, discard on error.
+  // A "preflight" result (e.g. raw_send scoped-prompt dry-run) is NOT an error
+  // but also did NOT deliver — so it must not commit delivery evidence. Counting
+  // a preflight as a send would mask a non-delivery: if the agent reads the
+  // scoped prompt then chooses not to send and replies NO_REPLY, false delivery
+  // evidence would suppress the orchestration loop's re-prompt and the message
+  // (e.g. a health check-in) would silently never go out. Only a real delivery
+  // (the subsequent non-preflight raw_send) commits evidence.
+  const isPreflightResult = isToolResultPreflight(result);
+  const committedDelivery = !isToolError && !isPreflightResult;
   const pendingText = ctx.state.pendingMessagingTexts.get(toolCallId);
   const pendingTarget = ctx.state.pendingMessagingTargets.get(toolCallId);
   const pendingMediaUrls = ctx.state.pendingMessagingMediaUrls.get(toolCallId) ?? [];
@@ -1249,12 +1259,12 @@ export async function handleToolExecutionEnd(
     pendingMediaUrls.length > 0 ||
     (isMessagingTool(toolName) && isMessagingToolSendAction(toolName, startArgs));
   const committedMediaUrls =
-    !isToolError && isMessagingSend
+    committedDelivery && isMessagingSend
       ? [...pendingMediaUrls, ...collectMessagingMediaUrlsFromToolResult(result)]
       : [];
   if (pendingText) {
     ctx.state.pendingMessagingTexts.delete(toolCallId);
-    if (!isToolError) {
+    if (committedDelivery) {
       ctx.state.messagingToolSentTexts.push(pendingText);
       ctx.state.messagingToolSentTextsNormalized.push(normalizeTextForComparison(pendingText));
       ctx.log.debug(`Committed messaging text: tool=${toolName} len=${pendingText.length}`);
@@ -1263,7 +1273,7 @@ export async function handleToolExecutionEnd(
   }
   if (pendingTarget) {
     ctx.state.pendingMessagingTargets.delete(toolCallId);
-    if (!isToolError) {
+    if (committedDelivery) {
       ctx.state.messagingToolSentTargets.push({
         ...pendingTarget,
         ...(pendingText ? { text: pendingText } : {}),
@@ -1273,7 +1283,7 @@ export async function handleToolExecutionEnd(
     }
   }
   ctx.state.pendingMessagingMediaUrls.delete(toolCallId);
-  if (!isToolError && isMessagingSend) {
+  if (committedDelivery && isMessagingSend) {
     if (committedMediaUrls.length > 0) {
       ctx.state.messagingToolSentMediaUrls.push(...committedMediaUrls);
       ctx.trimMessagingToolSent();

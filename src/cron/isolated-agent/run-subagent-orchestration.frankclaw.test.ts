@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { hasCommittedMessagingToolDeliveryEvidence } from "../../agents/embedded-agent-runner/delivery-evidence.js";
 import {
   MAX_ORCHESTRATION_FOLLOWUPS,
   runOrchestrationLoop,
@@ -512,5 +513,63 @@ describe("runOrchestrationLoop", () => {
     const prompt = (ctx.runPrompt as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
     expect(prompt).toContain("Your spawned background worker completed. Here is its output:");
     expect(prompt).not.toContain("WARNING");
+  });
+
+  // Regression for the 2026-06-12 Yiting Day-6 duplicate prompt. The cron agent
+  // sent via raw_send then replied NO_REPLY. Before the fix, raw_send produced
+  // no delivery evidence, so checkInterim treated NO_REPLY as interim and the
+  // loop re-fired "Complete the original task now", causing a second send.
+  // These tests exercise the FULL orchestration-loop suppression path using the
+  // production delivery-evidence predicate (not a stubbed boolean).
+  describe("raw_send delivery evidence suppresses the orchestration loop", () => {
+    // Mirrors the decisive clause of the production checkInterim closure in
+    // run-executor.ts: a run is interim only when nothing was delivered via a
+    // messaging tool AND the visible text is empty / NO_REPLY.
+    const makeCheckInterim =
+      (deliveryEvidence: {
+        messagingToolSentTexts: string[];
+        messagingToolSentMediaUrls: string[];
+        messagingToolSentTargets: Array<Record<string, unknown>>;
+      }) =>
+      (result: unknown): boolean => {
+        const r = result as { payloads?: Array<{ text?: string }> };
+        const text = (r.payloads?.[0]?.text ?? "").trim();
+        const isEmptyOrInterim = !text || text === "NO_REPLY";
+        const didSendViaMessagingTool = hasCommittedMessagingToolDeliveryEvidence(deliveryEvidence);
+        return !didSendViaMessagingTool && isEmptyOrInterim;
+      };
+
+    it("does NOT re-fire when raw_send committed delivery evidence and reply is NO_REPLY", async () => {
+      const ctx = makeCtx({
+        getRunResult: () => ({ runResult: { payloads: [{ text: "NO_REPLY" }], meta: {} } }),
+      });
+      // raw_send delivered → one committed target (as handleToolExecutionEnd does).
+      const checkInterim = makeCheckInterim({
+        messagingToolSentTexts: [],
+        messagingToolSentMediaUrls: [],
+        messagingToolSentTargets: [{ channel: "whatsapp", target: "16478023321-1636054296@g.us" }],
+      });
+      const turns = await runOrchestrationLoop(ctx, checkInterim);
+      expect(turns).toBe(0);
+      expect(ctx.runPrompt).not.toHaveBeenCalled();
+    });
+
+    it("DOES re-fire when there is no delivery evidence and reply is NO_REPLY (pre-fix behavior)", async () => {
+      const ctx = makeCtx({
+        getRunResult: () => ({ runResult: { payloads: [{ text: "NO_REPLY" }], meta: {} } }),
+      });
+      // No committed evidence — e.g. raw_send preflight only, nothing delivered.
+      const checkInterim = makeCheckInterim({
+        messagingToolSentTexts: [],
+        messagingToolSentMediaUrls: [],
+        messagingToolSentTargets: [],
+      });
+      const turns = await runOrchestrationLoop(ctx, checkInterim);
+      expect(turns).toBe(1);
+      expect(ctx.runPrompt).toHaveBeenCalledTimes(1);
+      expect((ctx.runPrompt as ReturnType<typeof vi.fn>).mock.calls[0][0]).toContain(
+        "previous response was only an acknowledgement",
+      );
+    });
   });
 });
