@@ -67,6 +67,18 @@ export function classifyOAuthRefreshFailureReason(
   if (lower.includes("invalid_grant")) {
     return "invalid_grant";
   }
+  // frankclaw: OpenAI rotates refresh tokens on each use. The error message
+  // "refresh token has already been used" / "already been used to generate a
+  // new access token" means another process won the race and holds the fresh
+  // token — this is recoverable with a short retry, not a permanent auth
+  // failure. Must check BEFORE sign_in_again because the provider message also
+  // contains "sign in again", which would otherwise misclassify it as permanent.
+  if (
+    lower.includes("refresh token has already been used") ||
+    lower.includes("already been used to generate")
+  ) {
+    return "refresh_token_reused"; // frankclaw:
+  }
   if (lower.includes("signing in again") || lower.includes("sign in again")) {
     return "sign_in_again";
   }
