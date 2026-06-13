@@ -7,6 +7,7 @@ import { normalizeProviderId } from "@openclaw/model-catalog-core/provider-id";
 import {
   readClaudeCliCredentialsCached,
   readCodexCliCredentialsCached,
+  readGeminiCliCredentialsCached,
   readMiniMaxCliCredentialsCached,
 } from "../cli-credentials.js";
 import {
@@ -48,6 +49,9 @@ export type ExternalCliAuthProfileOptions = {
 type ExternalCliSyncProvider = {
   profileId: string;
   profileAliases?: readonly string[];
+  // frankclaw: match any profileId that starts with this prefix followed by ":"
+  // e.g. "google-gemini-cli" matches "google-gemini-cli:user@example.com"
+  profilePrefix?: string;
   provider: string;
   aliases?: readonly string[];
   readCredentials: (
@@ -135,6 +139,16 @@ const EXTERNAL_CLI_SYNC_PROVIDERS: ExternalCliSyncProvider[] = [
     aliases: ["minimax", "minimax-cli"],
     readCredentials: () => readMiniMaxCliCredentialsCached({ ttlMs: EXTERNAL_CLI_SYNC_TTL_MS }),
   },
+  // frankclaw: bootstrap google-gemini-cli profiles from ~/.gemini/oauth_creds.json
+  // Eliminates the ~5-14 min failure window between token expiry and keepalive refresh.
+  // profilePrefix matches google-gemini-cli, google-gemini-cli:default, google-gemini-cli:email, etc.
+  {
+    profileId: "google-gemini-cli",
+    profilePrefix: "google-gemini-cli",
+    provider: "google-gemini-cli",
+    aliases: ["google-gemini-cli"],
+    readCredentials: () => readGeminiCliCredentialsCached({ ttlMs: EXTERNAL_CLI_SYNC_TTL_MS }),
+  },
 ];
 
 function resolveExternalCliSyncProvider(params: {
@@ -181,6 +195,15 @@ function externalCliProfileIdMatches(
   options?: { allowLegacyNamespace?: boolean },
 ): boolean {
   if (listExternalCliProfileIds(providerConfig).includes(profileId)) {
+    return true;
+  }
+  // frankclaw: prefix matching for providers that use "provider:email" profile IDs
+  // (e.g. google-gemini-cli matches google-gemini-cli:user@example.com)
+  if (
+    providerConfig.profilePrefix &&
+    (profileId === providerConfig.profilePrefix ||
+      profileId.startsWith(providerConfig.profilePrefix + ":"))
+  ) {
     return true;
   }
   if (
