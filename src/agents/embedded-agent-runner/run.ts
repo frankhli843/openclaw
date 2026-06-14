@@ -14,7 +14,16 @@ import {
   resolveContextEngine,
   resolveContextEngineOwnerPluginId,
 } from "../../context-engine/registry.js";
-import { emitAgentPlanEvent, registerAgentRunContext } from "../../infra/agent-events.js";
+import {
+  assertAgentRunLifecycleGenerationCurrent,
+  captureAgentRunLifecycleGeneration,
+  claimAgentRunContext,
+  emitAgentPlanEvent,
+  getAgentEventLifecycleGeneration,
+  getAgentRunContext,
+  registerAgentRunContext,
+  withAgentRunLifecycleGeneration,
+} from "../../infra/agent-events.js";
 import { sleepWithAbort } from "../../infra/backoff.js";
 import { freezeDiagnosticTraceContext } from "../../infra/diagnostic-trace-context.js";
 import { formatErrorMessage } from "../../infra/errors.js";
@@ -128,7 +137,10 @@ import {
   type PostCompactionGuardObservation,
 } from "./post-compaction-loop-guard.js";
 import { createEmbeddedRunReplayState, observeReplayMetadata } from "./replay-state.js";
-import { handleAssistantFailover } from "./run/assistant-failover.js";
+import {
+  handleAssistantFailover,
+  isShortWindowRateLimitMessage,
+} from "./run/assistant-failover.js";
 import {
   createEmbeddedRunStageTracker,
   EMBEDDED_RUN_ATTEMPT_DISPATCH_STAGE,
@@ -498,10 +510,25 @@ function buildHandledReplyPayloads(reply?: ReplyPayload) {
   ];
 }
 
-export async function runEmbeddedAgent(
+export function runEmbeddedAgent(
+  paramsInput: RunEmbeddedAgentParams,
+): Promise<EmbeddedAgentRunResult> {
+  const lifecycleGeneration =
+    paramsInput.lifecycleGeneration ?? captureAgentRunLifecycleGeneration(paramsInput.runId);
+  return withAgentRunLifecycleGeneration(lifecycleGeneration, () =>
+    runEmbeddedAgentInternal({
+      ...paramsInput,
+      lifecycleGeneration,
+    }),
+  );
+}
+
+async function runEmbeddedAgentInternal(
   paramsInput: RunEmbeddedAgentParams,
 ): Promise<EmbeddedAgentRunResult> {
   let params = paramsInput;
+  let lifecycleGeneration = params.lifecycleGeneration!;
+  const queuedLifecycleGeneration = getAgentEventLifecycleGeneration();
   // Resolve sessionKey early so all downstream consumers (hooks, LCM, compaction)
   // receive a non-null key even when callers omit it. See #60552.
   const effectiveSessionKey = backfillSessionKey({
@@ -521,6 +548,21 @@ export async function runEmbeddedAgent(
   const noteLaneTaskProgress = () => {
     laneTaskProgressAtMs = Date.now();
   };
+  const throwIfAborted = () => {
+    if (!params.abortSignal?.aborted) {
+      return;
+    }
+    const reason = params.abortSignal.reason;
+    if (reason instanceof Error) {
+      throw reason;
+    }
+    const abortErr =
+      reason !== undefined
+        ? new Error("Operation aborted", { cause: reason })
+        : new Error("Operation aborted");
+    abortErr.name = "AbortError";
+    throw abortErr;
+  };
   const withLaneTimeout = (opts?: CommandQueueEnqueueOptions) =>
     withEmbeddedRunLaneTimeout(
       {
@@ -534,9 +576,36 @@ export async function runEmbeddedAgent(
       ...opts,
       priority: sessionQueuePriority,
     };
+    const taskWithCurrentLifecycle = () => {
+      throwIfAborted();
+      const currentLifecycleGeneration = getAgentEventLifecycleGeneration();
+      const existingContext = getAgentRunContext(params.runId);
+      if (lifecycleGeneration !== currentLifecycleGeneration) {
+        const wasQueuedBeforeRotation = queuedLifecycleGeneration === lifecycleGeneration;
+        const canResumeAcrossRotation = sessionQueuePriority === "foreground";
+        const newerSameIdExecutionOwnsContext =
+          existingContext?.lifecycleGeneration === currentLifecycleGeneration;
+        if (
+          !wasQueuedBeforeRotation ||
+          !canResumeAcrossRotation ||
+          newerSameIdExecutionOwnsContext
+        ) {
+          assertAgentRunLifecycleGenerationCurrent(lifecycleGeneration);
+        }
+        lifecycleGeneration = currentLifecycleGeneration;
+        params = { ...params, lifecycleGeneration };
+      }
+      claimAgentRunContext(params.runId, {
+        ...existingContext,
+        sessionKey: params.sessionKey ?? existingContext?.sessionKey,
+        sessionId: params.sessionId ?? existingContext?.sessionId,
+        lifecycleGeneration,
+      });
+      return withAgentRunLifecycleGeneration(lifecycleGeneration, task);
+    };
     return params.enqueue
-      ? params.enqueue(task, withLaneTimeout(globalOpts))
-      : enqueueCommandInLane(globalLane, task, withLaneTimeout(globalOpts));
+      ? params.enqueue(taskWithCurrentLifecycle, withLaneTimeout(globalOpts))
+      : enqueueCommandInLane(globalLane, taskWithCurrentLifecycle, withLaneTimeout(globalOpts));
   };
   const enqueueSession = <T>(task: () => Promise<T>, opts?: CommandQueueEnqueueOptions) => {
     const sessionOpts: CommandQueueEnqueueOptions = { ...opts, priority: sessionQueuePriority };
@@ -553,22 +622,6 @@ export async function runEmbeddedAgent(
         : "plain"
       : "markdown");
   const isProbeSession = params.sessionId?.startsWith("probe-") ?? false;
-
-  const throwIfAborted = () => {
-    if (!params.abortSignal?.aborted) {
-      return;
-    }
-    const reason = params.abortSignal.reason;
-    if (reason instanceof Error) {
-      throw reason;
-    }
-    const abortErr =
-      reason !== undefined
-        ? new Error("Operation aborted", { cause: reason })
-        : new Error("Operation aborted");
-    abortErr.name = "AbortError";
-    throw abortErr;
-  };
 
   throwIfAborted();
 
@@ -611,7 +664,7 @@ export async function runEmbeddedAgent(
           log.trace(message);
         }
       };
-      params.onExecutionStarted?.();
+      params.onExecutionStarted?.({ lifecycleGeneration });
       notifyExecutionPhase("runner_entered");
       const workspaceResolution = resolveRunWorkspaceDir({
         workspaceDir: params.workspaceDir,
@@ -1283,6 +1336,20 @@ export async function runEmbeddedAgent(
       const rateLimitProfileRotationLimit = resolveRateLimitProfileRotationLimit(params.config);
       let activeSessionId = params.sessionId;
       let activeSessionFile = params.sessionFile;
+      const adoptActiveSessionId = (nextSessionId: string | undefined) => {
+        if (!nextSessionId || nextSessionId === activeSessionId) {
+          return;
+        }
+        activeSessionId = nextSessionId;
+        // Keep every active-run owner on the rotated identity. Restart recovery
+        // uses the reply registry while lifecycle persistence uses run context.
+        params.replyOperation?.updateSessionId(activeSessionId);
+        params.onSessionIdChanged?.(activeSessionId);
+        registerAgentRunContext(params.runId, {
+          sessionId: activeSessionId,
+          lifecycleGeneration,
+        });
+      };
       let suppressNextUserMessagePersistence = params.suppressNextUserMessagePersistence ?? false;
       // The embedded agent owns JSONL persistence; this marker lets the outer retry avoid
       // replaying the same inbound channel message after overflow compaction.
@@ -1355,11 +1422,12 @@ export async function runEmbeddedAgent(
       };
       const resolveRunAuthProfileFailureReason = (
         failoverReason: FailoverReason | null,
-        opts?: { providerStarted?: boolean },
+        opts?: { providerStarted?: boolean; transientRateLimit?: boolean },
       ) =>
         resolveAuthProfileFailureReason({
           failoverReason,
           providerStarted: opts?.providerStarted,
+          transientRateLimit: opts?.transientRateLimit,
           policy: params.authProfileFailurePolicy,
         });
       const maybeBackoffBeforeOverloadFailover = async (reason: FailoverReason | null) => {
@@ -1429,13 +1497,7 @@ export async function runEmbeddedAgent(
         ) => {
           const nextSessionId = compactResult.result?.sessionId;
           const nextSessionFile = compactResult.result?.sessionFile;
-          if (nextSessionId && nextSessionId !== activeSessionId) {
-            activeSessionId = nextSessionId;
-            // Keep the run context's sessionId tracking the live session so
-            // lifecycle persistence isn't treated as stale after a legitimate
-            // mid-run compaction rotation (#88538).
-            registerAgentRunContext(params.runId, { sessionId: activeSessionId });
-          }
+          adoptActiveSessionId(nextSessionId);
           if (nextSessionFile && nextSessionFile !== activeSessionFile) {
             activeSessionFile = nextSessionFile;
           }
@@ -1720,6 +1782,7 @@ export async function runEmbeddedAgent(
             timeoutMs: params.timeoutMs,
             runTimeoutOverrideMs: params.runTimeoutOverrideMs,
             runId: params.runId,
+            lifecycleGeneration,
             abortSignal: attemptAbortController.signal,
             replyOperation: params.replyOperation,
             shouldEmitToolResult: params.shouldEmitToolResult,
@@ -1800,11 +1863,7 @@ export async function runEmbeddedAgent(
             attempt.setTerminalLifecycleMeta?.({ ...meta, aborted });
           };
           const timedOutDuringToolExecution = attempt.timedOutDuringToolExecution ?? false;
-          if (sessionIdUsed && sessionIdUsed !== activeSessionId) {
-            activeSessionId = sessionIdUsed;
-            // Track the live session for lifecycle persistence identity (#88538).
-            registerAgentRunContext(params.runId, { sessionId: activeSessionId });
-          }
+          adoptActiveSessionId(sessionIdUsed);
           if (sessionFileUsed && sessionFileUsed !== activeSessionFile) {
             activeSessionFile = sessionFileUsed;
           }
@@ -2641,6 +2700,8 @@ export async function runEmbeddedAgent(
               promptFailoverReason,
               {
                 providerStarted: promptErrorSource === "prompt",
+                transientRateLimit:
+                  promptFailoverReason === "rate_limit" && isShortWindowRateLimitMessage(errorText),
               },
             );
             const promptFailoverFailure =
@@ -2811,6 +2872,9 @@ export async function runEmbeddedAgent(
             assistantProfileFailoverReason,
             {
               providerStarted: assistantProviderStarted,
+              transientRateLimit:
+                assistantProfileFailoverReason === "rate_limit" &&
+                isShortWindowRateLimitMessage(assistantForFailover?.errorMessage),
             },
           );
           const cloudCodeAssistFormatError = attempt.cloudCodeAssistFormatError;

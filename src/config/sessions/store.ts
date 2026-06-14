@@ -171,6 +171,8 @@ type SaveSessionStoreOptions = {
   maintenanceConfig?: ResolvedSessionMaintenanceConfig;
   /** Changed top-level entry when a hot path only updated one existing session. */
   singleEntryPersistence?: SingleEntryPersistencePatch;
+  /** Throw when best-effort store recovery cannot confirm the requested write. */
+  requireWriteSuccess?: boolean;
 };
 
 type UpdateSessionStoreOptions<T> = SaveSessionStoreOptions & {
@@ -726,6 +728,7 @@ async function saveSessionStoreUnlocked(
 
   // Windows: keep retry semantics because rename can fail while readers hold locks.
   if (process.platform === "win32") {
+    let finalError: unknown;
     for (let i = 0; i < 5; i++) {
       try {
         await writeSessionStoreAtomic({
@@ -739,8 +742,12 @@ async function saveSessionStoreUnlocked(
         });
         return;
       } catch (err) {
+        finalError = err;
         const code = getErrorCode(err);
         if (code === "ENOENT") {
+          if (opts?.requireWriteSuccess) {
+            throw err;
+          }
           return;
         }
         if (i < 4) {
@@ -753,6 +760,9 @@ async function saveSessionStoreUnlocked(
         // the next save will retry with fresh data. Log for diagnostics.
         log.warn(`atomic write failed after 5 attempts: ${storePath}`);
       }
+    }
+    if (opts?.requireWriteSuccess) {
+      throw finalError;
     }
     return;
   }
@@ -786,6 +796,9 @@ async function saveSessionStoreUnlocked(
       } catch (err2) {
         const code2 = getErrorCode(err2);
         if (code2 === "ENOENT") {
+          if (opts?.requireWriteSuccess) {
+            throw err2;
+          }
           return;
         }
         throw err2;
@@ -933,6 +946,7 @@ async function persistResolvedSessionEntry(params: {
   skipMaintenance?: boolean;
   takeCacheOwnership?: boolean;
   returnDetached?: boolean;
+  requireWriteSuccess?: boolean;
 }): Promise<SessionEntry> {
   const entryUnchanged =
     params.resolved.legacyKeys.length === 0 &&
@@ -951,6 +965,7 @@ async function persistResolvedSessionEntry(params: {
         ? { sessionKey: params.resolved.normalizedKey, entry: next }
         : undefined,
     takeCacheOwnership: params.takeCacheOwnership,
+    requireWriteSuccess: params.requireWriteSuccess,
   });
   return entryUnchanged || params.returnDetached ? cloneSessionEntry(next) : next;
 }
@@ -963,6 +978,7 @@ export async function updateSessionStoreEntry(params: {
   ) => Promise<Partial<SessionEntry> | null> | Partial<SessionEntry> | null;
   skipMaintenance?: boolean;
   takeCacheOwnership?: boolean;
+  requireWriteSuccess?: boolean;
 }): Promise<SessionEntry | null> {
   const { storePath, sessionKey, update } = params;
   return await runExclusiveSessionStoreWrite(storePath, async () => {
@@ -984,6 +1000,7 @@ export async function updateSessionStoreEntry(params: {
       next,
       skipMaintenance: params.skipMaintenance,
       takeCacheOwnership: params.takeCacheOwnership ?? true,
+      requireWriteSuccess: params.requireWriteSuccess,
       returnDetached: params.takeCacheOwnership !== true,
     });
   });

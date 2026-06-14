@@ -81,6 +81,7 @@ import {
   recordProviderSuccess,
   recordProviderTimeoutFailure,
 } from "./provider-circuit-breaker.frankclaw.js";
+import { isAgentRunRestartAbortReason } from "./run-termination.js";
 import { resolveSessionSuspensionReason, suspendSession } from "./session-suspension.js";
 
 const log = createSubsystemLogger("model-fallback");
@@ -213,6 +214,9 @@ function isTerminalAbort(signal: AbortSignal | undefined): boolean {
   const reason = signal.reason;
   if (!(reason instanceof Error)) {
     return false;
+  }
+  if (isAgentRunRestartAbortReason(reason)) {
+    return true;
   }
   if (reason.name === "TimeoutError") {
     return true;
