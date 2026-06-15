@@ -14,7 +14,7 @@ import {
 import type { CronServiceState } from "./state.js";
 
 const CRON_TIMEOUT_CLEANUP_GUARD_MS = 20_000;
-const CRON_AGENT_SETUP_WATCHDOG_MS = 60_000;
+export const CRON_AGENT_SETUP_WATCHDOG_MS = 60_000;
 // frankclaw: upstream caps at 60 s; override file raises to 180 s so loaded
 // systems (llama.cpp inference) have margin across the full runtime_plugins →
 // attempt_dispatch async pipeline before the watchdog fires.
@@ -52,9 +52,12 @@ const CRON_AGENT_PHASE_WATCHDOG_STAGE = {
 /** Handle for feeding isolated-agent progress into cron timeout watchdogs. */
 export type CronAgentWatchdog = {
   start: () => void;
+  noteLaneWait: () => void;
+  noteLaneAdmitted: () => void;
   noteRunnerStarted: (info?: CronAgentExecutionStarted) => void;
   notePhase: (info: CronAgentExecutionPhaseUpdate) => void;
   activeExecution: () => CronAgentExecutionStarted | undefined;
+  observedLaneWait: () => boolean;
   dispose: () => void;
 };
 
@@ -69,6 +72,7 @@ export function createCronAgentWatchdog(params: {
   let setupTimeoutId: NodeJS.Timeout | undefined;
   let preExecutionTimeoutId: NodeJS.Timeout | undefined;
   let activeExecution: CronAgentExecutionStarted | undefined;
+  let observedLaneWait = false;
 
   const setTimedOut = (reason: string) => {
     if (state === "timed_out" || state === "disposed") {
@@ -147,6 +151,16 @@ export function createCronAgentWatchdog(params: {
       }
       startTimeout();
     },
+    noteLaneWait: () => {
+      if (state === "waiting_for_runner") {
+        observedLaneWait = true;
+      }
+    },
+    noteLaneAdmitted: () => {
+      if (state === "waiting_for_runner") {
+        observedLaneWait = false;
+      }
+    },
     noteRunnerStarted: (info?: CronAgentExecutionStarted) => {
       if (state === "disposed" || state === "timed_out") {
         return;
@@ -166,6 +180,7 @@ export function createCronAgentWatchdog(params: {
       noteExecutionProgress(info);
     },
     activeExecution: () => activeExecution,
+    observedLaneWait: () => observedLaneWait,
     dispose: () => {
       state = "disposed";
       if (timeoutId) {

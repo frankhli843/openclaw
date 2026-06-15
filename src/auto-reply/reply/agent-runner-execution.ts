@@ -2321,6 +2321,7 @@ export async function runAgentTurnWithFallback(params: {
             const { embeddedContext, senderContext, runBaseParams } =
               buildEmbeddedRunExecutionParams({
                 run: candidateRun,
+                replyRoute: params.followupRun,
                 sessionCtx: params.sessionCtx,
                 hasRepliedRef: params.opts?.hasRepliedRef,
                 provider,
