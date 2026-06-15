@@ -346,6 +346,7 @@ function resolveCronSourceDeliveryPlan(params: {
     target,
     messageToolEnabled: true,
     messageToolForced: false,
+    requireExplicitMessageTargetEvidence: true,
     directFallback: true,
     skipFallbackWhenMessageToolSentToTarget: params.resolvedDelivery.ok,
   });
@@ -463,6 +464,7 @@ type RunCronAgentTurnParams = {
   signal?: AbortSignal;
   onExecutionStarted?: (info?: CronAgentExecutionStarted) => void;
   onExecutionPhase?: (info: CronAgentExecutionPhaseUpdate) => void;
+  onLaneWait?: (info?: { waiting?: boolean }) => void;
   sessionKey: string;
   agentId?: string;
   lane?: string;
@@ -1282,6 +1284,7 @@ export async function runCronIsolatedAgentTurn(params: {
   signal?: AbortSignal;
   onExecutionStarted?: (info?: CronAgentExecutionStarted) => void;
   onExecutionPhase?: (info: CronAgentExecutionPhaseUpdate) => void;
+  onLaneWait?: (info?: { waiting?: boolean }) => void;
   sessionKey: string;
   agentId?: string;
   lane?: string;
@@ -1410,6 +1413,7 @@ export async function runCronIsolatedAgentTurn(params: {
       abortSignal,
       onExecutionStarted: notifyExecutionStarted,
       onExecutionPhase: notifyExecutionPhase,
+      onLaneWait: params.onLaneWait,
       abortReason,
       isAborted,
       thinkLevel: prepared.context.thinkLevel,

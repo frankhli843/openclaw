@@ -10,6 +10,7 @@ import {
 } from "../../../test/helpers/cron/service-regression-fixtures.js";
 import {
   clearCommandLane,
+  enqueueCommandInLane,
   setCommandLaneConcurrency,
   waitForActiveTasks,
 } from "../../process/command-queue.js";
@@ -560,6 +561,56 @@ describe("cron service ops regressions", () => {
     // silently enqueued-then-dropped.
     const manualResult = await enqueueRun(state, job.id, "force");
     expect(manualResult).toMatchObject({ ok: true, ran: false, reason: "already-running" });
+
+    clearCommandLane(CommandLane.Cron);
+  });
+
+  it("skips queued manual runs when the old cron service stops before lane admission", async () => {
+    vi.useRealTimers();
+    clearCommandLane(CommandLane.Cron);
+    setCommandLaneConcurrency(CommandLane.Cron, 1);
+
+    const store = opsRegressionFixtures.makeStorePath();
+    const dueAt = Date.parse("2026-02-06T10:05:03.000Z");
+    const job = createDueIsolatedJob({
+      id: "queued-stopped-manual",
+      nowMs: dueAt,
+      nextRunAtMs: dueAt,
+    });
+    await saveCronStore(store.storePath, { version: 1, jobs: [job] });
+
+    const blockerStarted = createDeferred<void>();
+    const releaseBlocker = createDeferred<void>();
+    const blocker = enqueueCommandInLane(CommandLane.Cron, async () => {
+      blockerStarted.resolve();
+      return await releaseBlocker.promise;
+    });
+
+    await blockerStarted.promise;
+
+    const runIsolatedAgentJob = vi.fn(async () => ({ status: "ok" as const }));
+    const state = createCronServiceState({
+      cronEnabled: true,
+      storePath: store.storePath,
+      log: noopLogger,
+      nowMs: () => dueAt,
+      enqueueSystemEvent: vi.fn(),
+      requestHeartbeat: vi.fn(),
+      runIsolatedAgentJob,
+    });
+
+    const ack = await enqueueRun(state, job.id, "force");
+    expectQueuedRunAck(ack);
+
+    state.stopped = true;
+    releaseBlocker.resolve();
+    await blocker;
+    await waitForActiveTasks(5_000);
+
+    expect(runIsolatedAgentJob).not.toHaveBeenCalled();
+    expect(
+      state.store?.jobs.find((entry) => entry.id === job.id)?.state.runningAtMs,
+    ).toBeUndefined();
 
     clearCommandLane(CommandLane.Cron);
   });
