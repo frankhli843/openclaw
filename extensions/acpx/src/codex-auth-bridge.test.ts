@@ -313,6 +313,67 @@ describe("prepareAcpxCodexAuthConfig", () => {
     expect(path.resolve(String(launched.codexHome))).toBe(expectedCodexHome);
   });
 
+  it("lets a runtime CODEX_HOME select a named Codex ACP account", async () => {
+    const root = await makeTempDir();
+    const stateDir = path.join(root, "state");
+    const generated = generatedCodexPaths(stateDir);
+    const namedCodexHome = path.join(root, "codex-home-wsfccorp");
+    const installedBinPath = path.join(root, "codex-acp-bin.js");
+    await fs.mkdir(namedCodexHome, { recursive: true });
+    await fs.writeFile(
+      installedBinPath,
+      "console.log(JSON.stringify({ codexHome: process.env.CODEX_HOME }));\n",
+      "utf8",
+    );
+    const pluginConfig = resolveAcpxPluginConfig({
+      rawConfig: {},
+      workspaceDir: root,
+    });
+
+    await prepareAcpxCodexAuthConfig({
+      pluginConfig,
+      stateDir,
+      resolveInstalledCodexAcpBinPath: async () => installedBinPath,
+    });
+
+    const { stdout } = await execFileAsync(process.execPath, [generated.wrapperPath], {
+      cwd: root,
+      env: { ...process.env, CODEX_HOME: namedCodexHome },
+    });
+    const launched = JSON.parse(stdout.trim()) as { codexHome?: unknown };
+    expect(path.resolve(String(launched.codexHome))).toBe(await fs.realpath(namedCodexHome));
+  });
+
+  it("fails loudly when CODEX_HOME is set to a non-existent directory", async () => {
+    const root = await makeTempDir();
+    const stateDir = path.join(root, "state");
+    const generated = generatedCodexPaths(stateDir);
+    const installedBinPath = path.join(root, "codex-acp-bin.js");
+    await fs.writeFile(
+      installedBinPath,
+      "console.log(JSON.stringify({ codexHome: process.env.CODEX_HOME }));\n",
+      "utf8",
+    );
+    const pluginConfig = resolveAcpxPluginConfig({
+      rawConfig: {},
+      workspaceDir: root,
+    });
+
+    await prepareAcpxCodexAuthConfig({
+      pluginConfig,
+      stateDir,
+      resolveInstalledCodexAcpBinPath: async () => installedBinPath,
+    });
+
+    const nonExistentPath = path.join(root, "codex-home-does-not-exist");
+    await expect(
+      execFileAsync(process.execPath, [generated.wrapperPath], {
+        cwd: root,
+        env: { ...process.env, CODEX_HOME: nonExistentPath },
+      }),
+    ).rejects.toMatchObject({ code: 1 });
+  });
+
   it("writes API-key auth into the isolated Codex ACP home when env auth is present", async () => {
     const root = await makeTempDir();
     const stateDir = path.join(root, "state");
