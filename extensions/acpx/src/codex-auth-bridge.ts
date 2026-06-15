@@ -531,8 +531,14 @@ function buildCodexAcpWrapperScript(installedBinPath?: string): string {
     binName: CODEX_ACP_BIN,
     installedBinPath,
     stderrLogFileNamePrefix: "codex-acp-wrapper.stderr",
-    envSetup: `const codexHome = fileURLToPath(new URL("./codex-home/", import.meta.url));
-const codexAuthPath = fileURLToPath(new URL("./codex-home/auth.json", import.meta.url));
+    envSetup: `const defaultCodexHome = fileURLToPath(new URL("./codex-home/", import.meta.url));
+const configuredCodexHome = (process.env.CODEX_HOME || "").trim();
+const codexHome = configuredCodexHome || defaultCodexHome;
+if (configuredCodexHome && !existsSync(codexHome)) {
+  console.error(\`[openclaw] CODEX_HOME directory does not exist: \${codexHome}\`);
+  process.exit(1);
+}
+const codexAuthPath = path.join(codexHome, "auth.json");
 const codexApiKey = (process.env.CODEX_API_KEY || process.env.OPENAI_API_KEY || "").trim();
 let shouldWriteCodexApiKeyAuth = false;
 if (codexApiKey) {
