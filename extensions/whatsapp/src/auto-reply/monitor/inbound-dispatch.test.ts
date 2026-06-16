@@ -159,6 +159,15 @@ function makeRoute(overrides: Partial<TestRoute> = {}): TestRoute {
 
 function makeMsg(overrides: TestMsgOverrides = {}): TestMsg {
   const { event, payload, platform, ...messageOverrides } = overrides;
+  // frankclaw: upstream a355825060 (deprecate admission top-level fields) made
+  // both `from` and `conversationId` resolve via a getter from
+  // `admission?.conversation.id ?? (conversationId || from)`. When a test
+  // overrides only `from` (e.g. a group JID), the default `conversationId:
+  // "+1000"` would win the `||` and the getter would wrongly return "+1000".
+  // Derive conversationId from the overridden `from` unless conversationId is
+  // explicitly overridden, so a single `from` override behaves as pre-merge.
+  const resolvedFrom = messageOverrides.from ?? "+1000";
+  const resolvedConversationId = messageOverrides.conversationId ?? resolvedFrom;
   return createTestWebInboundMessage({
     event: {
       id: "msg1",
@@ -173,11 +182,11 @@ function makeMsg(overrides: TestMsgOverrides = {}): TestMsg {
       recipientJid: "+2000",
       ...platform,
     },
-    from: "+1000",
-    conversationId: "+1000",
     accountId: "default",
     chatType: "direct",
     ...messageOverrides,
+    from: resolvedFrom,
+    conversationId: resolvedConversationId,
   });
 }
 
