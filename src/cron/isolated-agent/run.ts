@@ -51,6 +51,7 @@ import {
   createCronRunDiagnosticsFromError,
   mergeCronRunDiagnostics,
 } from "../run-diagnostics.js";
+import { resolveCronAbortReasonText } from "../service/execution-errors.js";
 import type {
   CronAgentExecutionPhaseUpdate,
   CronAgentExecutionStarted,
@@ -346,6 +347,7 @@ function resolveCronSourceDeliveryPlan(params: {
     target,
     messageToolEnabled: true,
     messageToolForced: false,
+    requireExplicitMessageTarget: true,
     requireExplicitMessageTargetEvidence: true,
     directFallback: true,
     skipFallbackWhenMessageToolSentToTarget: params.resolvedDelivery.ok,
@@ -430,14 +432,16 @@ function appendCronDeliveryInstruction(params: {
   deliveryRequested: boolean;
   messageToolEnabled: boolean;
   resolvedDeliveryOk: boolean;
+  requireExplicitMessageTarget: boolean;
 }) {
   if (!params.deliveryRequested) {
     return params.commandBody;
   }
   if (params.messageToolEnabled) {
-    const targetHint = params.resolvedDeliveryOk
-      ? "for the current chat"
-      : "with an explicit target";
+    const targetHint =
+      params.requireExplicitMessageTarget || !params.resolvedDeliveryOk
+        ? "with an explicit target"
+        : "for the current chat";
     return `${params.commandBody}\n\nUse the message tool if you need to notify the user directly ${targetHint}. If you do not send directly, your final plain-text reply will be delivered automatically.`.trim();
   }
   return `${params.commandBody}\n\nReturn your response as plain text; it will be delivered automatically. If the task explicitly calls for messaging a specific external recipient, note who/where it should go instead of sending it yourself.`.trim();
@@ -501,6 +505,7 @@ type PreparedCronRunContext = {
   resolvedDelivery: ResolvedCronDeliveryTarget;
   deliveryRequested: boolean;
   sourceDelivery: SourceDeliveryPlan;
+  messageToolPromptEnabled: boolean;
   suppressExecNotifyOnExit: boolean;
   skillsSnapshot: SkillSnapshot;
   liveSelection: CronLiveSelection;
@@ -830,14 +835,16 @@ async function prepareCronRunContext(params: {
   } else {
     commandBody = `${base}\n${timeLine}`.trim();
   }
+  const messageToolPromptEnabled = canPromptForMessageTool({
+    sourceDelivery,
+    toolsAllow: agentPayload?.toolsAllow,
+  });
   commandBody = appendCronDeliveryInstruction({
     commandBody,
     deliveryRequested,
-    messageToolEnabled: canPromptForMessageTool({
-      sourceDelivery,
-      toolsAllow: agentPayload?.toolsAllow,
-    }),
+    messageToolEnabled: messageToolPromptEnabled,
     resolvedDeliveryOk: resolvedDelivery.ok,
+    requireExplicitMessageTarget: sourceDelivery.messageTool.requireExplicitTarget,
   });
 
   // frankclaw: prepend scoped prompts for the DESTINATION session key so
@@ -945,6 +952,7 @@ async function prepareCronRunContext(params: {
       resolvedDelivery,
       deliveryRequested,
       sourceDelivery,
+      messageToolPromptEnabled,
       suppressExecNotifyOnExit: deliveryPlan.mode === "none",
       skillsSnapshot,
       liveSelection,
@@ -1292,12 +1300,8 @@ export async function runCronIsolatedAgentTurn(params: {
   const admittedLifecycleGeneration = getAgentEventLifecycleGeneration();
   const abortSignal = params.abortSignal ?? params.signal;
   const isAborted = () => abortSignal?.aborted === true;
-  const abortReason = () => {
-    const reason = abortSignal?.reason;
-    return typeof reason === "string" && reason.trim()
-      ? reason.trim()
-      : "cron: job execution timed out";
-  };
+  const abortReason = () =>
+    resolveCronAbortReasonText(abortSignal?.reason) ?? "cron: job execution timed out";
   const isFastTestEnv = process.env.OPENCLAW_TEST_FAST === "1";
   const prepared = await prepareCronRunContext({ input: params, isFastTestEnv });
   if (!prepared.ok) {
@@ -1397,8 +1401,10 @@ export async function runCronIsolatedAgentTurn(params: {
         accountId: prepared.context.resolvedDelivery.accountId,
         threadId: prepared.context.resolvedDelivery.threadId,
       },
+      resolvedDeliveryOk: prepared.context.resolvedDelivery.ok,
       deliveryRequested: prepared.context.deliveryRequested,
       sourceDelivery: prepared.context.sourceDelivery,
+      messageToolPromptEnabled: prepared.context.messageToolPromptEnabled,
       skillsSnapshot: prepared.context.skillsSnapshot,
       agentPayload: prepared.context.agentPayload,
       useSubagentFallbacks: prepared.context.useSubagentFallbacks,

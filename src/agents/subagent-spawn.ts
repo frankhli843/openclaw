@@ -1698,6 +1698,8 @@ async function spawnSubagentDirectCore(
       requesterDisplayKey: ownership.completionRequesterDisplayKey,
       task,
       taskName,
+      agentId: targetAgentId,
+      requesterAgentId,
       cleanup,
       label: label || undefined,
       model: resolvedModel,

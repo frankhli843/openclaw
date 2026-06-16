@@ -1499,6 +1499,7 @@ describe("runWithModelFallback", () => {
       payloads: [],
       meta: {
         durationMs: 1,
+        replayInvalid: true,
         toolSummary: {
           calls: 1,
           tools: ["mcp_write"],
@@ -1581,6 +1582,11 @@ describe("runWithModelFallback", () => {
       ],
       meta: {
         durationMs: 1,
+        error: {
+          kind: "incomplete_turn",
+          message: "Agent couldn't generate a response.",
+          fallbackSafe: true,
+        },
       },
     };
 

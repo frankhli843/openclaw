@@ -18,7 +18,7 @@ import { formatErrorMessage } from "../infra/errors.js";
 import { requestHeartbeat } from "../infra/heartbeat-wake.js";
 import { enqueueSystemEvent } from "../infra/system-events.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
-import { parseAgentSessionKey } from "../routing/session-key.js";
+import { normalizeAgentId, parseAgentSessionKey } from "../routing/session-key.js";
 import { normalizeDeliveryContext } from "../utils/delivery-context.shared.js";
 import { isDeliverableMessageChannel } from "../utils/message-channel.js";
 import { isChildlessCodexNativeSubagentTask } from "./codex-native-subagent-task.js";
@@ -861,6 +861,7 @@ function mergeExistingTaskForCreate(
     parentFlowId?: string;
     parentTaskId?: string;
     agentId?: string;
+    requesterAgentId?: string;
     label?: string;
     task: string;
     preferMetadata?: boolean;
@@ -901,6 +902,9 @@ function mergeExistingTaskForCreate(
   if (params.agentId?.trim() && !existing.agentId?.trim()) {
     patch.agentId = params.agentId.trim();
   }
+  if (params.requesterAgentId?.trim() && !existing.requesterAgentId?.trim()) {
+    patch.requesterAgentId = params.requesterAgentId.trim();
+  }
   const nextLabel = params.label?.trim();
   if (params.preferMetadata) {
     if (nextLabel && (normalizeOptionalString(existing.label) ?? "") !== nextLabel) {
@@ -933,11 +937,26 @@ function mergeExistingTaskForCreate(
 
 function resolveTaskAgentId(params: {
   explicitAgentId?: string;
+  childSessionKey?: string;
   ownerKey: string;
   requesterSessionKey: string;
 }): string | undefined {
   return (
     normalizeOptionalString(params.explicitAgentId) ??
+    parseAgentSessionKey(params.childSessionKey)?.agentId ??
+    parseAgentSessionKey(params.ownerKey)?.agentId ??
+    parseAgentSessionKey(params.requesterSessionKey)?.agentId
+  );
+}
+
+function resolveTaskRequesterAgentId(params: {
+  explicitRequesterAgentId?: string;
+  ownerKey: string;
+  requesterSessionKey: string;
+}): string | undefined {
+  const explicitRequesterAgentId = normalizeOptionalString(params.explicitRequesterAgentId);
+  return (
+    (explicitRequesterAgentId ? normalizeAgentId(explicitRequesterAgentId) : undefined) ??
     parseAgentSessionKey(params.ownerKey)?.agentId ??
     parseAgentSessionKey(params.requesterSessionKey)?.agentId
   );
@@ -1705,6 +1724,7 @@ export function createTaskRecord(params: {
   parentFlowId?: string;
   parentTaskId?: string;
   agentId?: string;
+  requesterAgentId?: string;
   runId?: string;
   label?: string;
   task: string;
@@ -1731,6 +1751,12 @@ export function createTaskRecord(params: {
   });
   const agentId = resolveTaskAgentId({
     explicitAgentId: params.agentId,
+    childSessionKey: params.childSessionKey,
+    ownerKey,
+    requesterSessionKey,
+  });
+  const requesterAgentId = resolveTaskRequesterAgentId({
+    explicitRequesterAgentId: params.requesterAgentId,
     ownerKey,
     requesterSessionKey,
   });
@@ -1784,6 +1810,7 @@ export function createTaskRecord(params: {
     parentFlowId: normalizeOptionalString(params.parentFlowId),
     parentTaskId: normalizeOptionalString(params.parentTaskId),
     agentId,
+    requesterAgentId,
     runId: normalizeOptionalString(params.runId),
     label: normalizeOptionalString(params.label),
     task: params.task,

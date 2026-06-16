@@ -100,6 +100,7 @@ export type MessageSendResult = {
   mediaUrl: string | null;
   mediaUrls?: string[];
   result?: OutboundDeliveryResult | { messageId: string };
+  deliveryStatus?: "suppressed";
   dryRun?: boolean;
   /**
    * frankclaw: true when the send was suppressed (not delivered now). The most
@@ -427,8 +428,10 @@ export async function sendMessage(params: MessageSendParams): Promise<MessageSen
       mediaUrl: primaryMediaUrl,
       mediaUrls: mirrorMediaUrls.length ? mirrorMediaUrls : undefined,
       result: results.at(-1),
+      // frankclaw: surface suppression details so CLI/tool reports DEFERRED, not "Sent"
       ...(suppressed ? { suppressed: true, suppressedReason: send.reason } : {}),
       ...(suppressed && send.deferUntilMs !== undefined ? { deferUntilMs: send.deferUntilMs } : {}),
+      ...(send.status === "suppressed" ? { deliveryStatus: "suppressed" as const } : {}),
     };
   }
 

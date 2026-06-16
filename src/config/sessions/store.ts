@@ -199,6 +199,7 @@ type SessionEntryWorkflowOptions = {
   agentId?: string;
   env?: NodeJS.ProcessEnv;
   hydrateSkillPromptRefs?: boolean;
+  maintenanceConfig?: ResolvedSessionMaintenanceConfig;
   storePath?: string;
 };
 
@@ -718,18 +719,19 @@ async function saveSessionStoreUnlocked(
         const { cleanupArchivedSessionTranscripts } = await loadSessionArchiveRuntime();
         const targetDirs =
           archivedDirs.size > 0 ? [...archivedDirs] : [path.dirname(path.resolve(storePath))];
+        // Both retention reasons ride one cleanup call so each save enumerates
+        // the sessions dir at most once; reset retention defaults on, so a
+        // listing per reason would scan twice per save (costly on NFS).
         await cleanupArchivedSessionTranscripts({
           directories: targetDirs,
-          olderThanMs: maintenance.pruneAfterMs,
-          reason: "deleted",
+          rules:
+            maintenance.resetArchiveRetentionMs != null
+              ? [
+                  { reason: "deleted", olderThanMs: maintenance.pruneAfterMs },
+                  { reason: "reset", olderThanMs: maintenance.resetArchiveRetentionMs },
+                ]
+              : [{ reason: "deleted", olderThanMs: maintenance.pruneAfterMs }],
         });
-        if (maintenance.resetArchiveRetentionMs != null) {
-          await cleanupArchivedSessionTranscripts({
-            directories: targetDirs,
-            olderThanMs: maintenance.resetArchiveRetentionMs,
-            reason: "reset",
-          });
-        }
       }
 
       const diskBudget = await enforceSessionDiskBudget({
@@ -1192,6 +1194,7 @@ async function persistResolvedSessionEntry(params: {
   resolved: ReturnType<typeof resolveSessionStoreEntry>;
   next: SessionEntry;
   skipMaintenance?: boolean;
+  maintenanceConfig?: ResolvedSessionMaintenanceConfig;
   takeCacheOwnership?: boolean;
   returnDetached?: boolean;
   requireWriteSuccess?: boolean;
@@ -1207,6 +1210,7 @@ async function persistResolvedSessionEntry(params: {
   await saveSessionStoreUnlocked(params.storePath, params.store, {
     activeSessionKey: params.resolved.normalizedKey,
     skipMaintenance: params.skipMaintenance,
+    maintenanceConfig: params.maintenanceConfig,
     skipSerializeForUnchangedStore: entryUnchanged,
     singleEntryPersistence:
       params.resolved.legacyKeys.length === 0 && params.resolved.existing
@@ -1318,6 +1322,7 @@ export async function patchSessionEntry(
       store,
       resolved,
       next,
+      maintenanceConfig: params.maintenanceConfig,
       takeCacheOwnership: true,
       returnDetached: true,
     });
