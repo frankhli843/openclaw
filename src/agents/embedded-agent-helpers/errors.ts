@@ -1325,7 +1325,15 @@ export function classifyAssistantFailoverReason(
 
 export function formatAssistantErrorText(
   msg: AssistantMessage,
-  opts?: { cfg?: OpenClawConfig; sessionKey?: string; provider?: string; model?: string },
+  opts?: {
+    cfg?: OpenClawConfig;
+    sessionKey?: string;
+    provider?: string;
+    model?: string;
+    /** Credential auth mode (e.g. "oauth", "token", "api_key", "aws-sdk").
+     * When "oauth" or "token", billing copy omits API-key language (#80877). */
+    authMode?: string;
+  },
 ): string | undefined {
   // Also format errors if errorMessage is present, even if stopReason isn't "error"
   const raw = (msg.errorMessage ?? "").trim();
@@ -1482,10 +1490,10 @@ export function formatAssistantErrorText(
     isOpenRouterKeyLimitExceededError(raw, opts?.provider) ||
     isOpenRouterKeyBudgetLimitExceededError(raw, opts?.provider)
   ) {
-    return formatBillingErrorMessage(opts?.provider, opts?.model ?? msg.model);
+    return formatBillingErrorMessage(opts?.provider, opts?.model ?? msg.model, opts?.authMode);
   }
   if (isBilling429MessageForProvider(raw, opts?.provider)) {
-    return formatBillingErrorMessage(opts?.provider, opts?.model ?? msg.model);
+    return formatBillingErrorMessage(opts?.provider, opts?.model ?? msg.model, opts?.authMode);
   }
 
   const transientCopy = formatRateLimitOrOverloadedErrorCopy(raw);
@@ -1507,7 +1515,7 @@ export function formatAssistantErrorText(
   }
 
   if (isBillingErrorMessage(raw)) {
-    return formatBillingErrorMessage(opts?.provider, opts?.model ?? msg.model);
+    return formatBillingErrorMessage(opts?.provider, opts?.model ?? msg.model, opts?.authMode);
   }
 
   if (providerRuntimeFailureKind === "schema") {
@@ -1561,7 +1569,14 @@ export function isRawAssistantErrorPassthrough(params: {
 
 export function formatUserFacingAssistantErrorText(
   msg: AssistantMessage,
-  opts?: { cfg?: OpenClawConfig; sessionKey?: string; provider?: string; model?: string },
+  opts?: {
+    cfg?: OpenClawConfig;
+    sessionKey?: string;
+    provider?: string;
+    model?: string;
+    /** Credential auth mode for billing copy (#80877). */
+    authMode?: string;
+  },
 ): string {
   const friendlyError = formatAssistantErrorText(msg, opts);
   const rawError = msg.errorMessage?.trim();

@@ -241,10 +241,13 @@ describe("broadcast groups", () => {
           reply,
           sendMedia,
         },
-        from: "+1000",
-        conversationId: "+1000",
-        accountId: "default",
-        chatType: "direct",
+        admission: {
+          accountId: "default",
+          conversation: {
+            kind: "direct",
+            id: "+1000",
+          },
+        },
       }),
     );
     // The durable inbound worker processes messages asynchronously (fire-and-forget drain).

@@ -91,10 +91,16 @@ describe("web auto-reply", () => {
               reply,
               sendMedia,
             },
-            from,
-            conversationId,
-            accountId: overrides?.accountId ?? "default",
-            chatType: "direct",
+            admission: {
+              accountId: overrides?.accountId ?? "default",
+              conversation: {
+                kind: "direct",
+                id: conversationId,
+              },
+              sender: {
+                id: from,
+              },
+            },
           }),
         );
         // The durable inbound worker processes messages asynchronously (fire-and-forget

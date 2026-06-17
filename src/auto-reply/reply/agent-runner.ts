@@ -124,6 +124,7 @@ import {
   type QueueSettings,
 } from "./queue.js";
 import { createReplyMediaContext } from "./reply-media-paths.js";
+import { resolveReplyOperationRunState } from "./reply-operation-run-state.js";
 import {
   replyRunRegistry,
   runAfterReplyOperationClear,
@@ -1211,6 +1212,7 @@ export async function runReplyAgent(params: {
   await initDeferredRetryWorker();
 
   const isHeartbeat = opts?.isHeartbeat === true;
+  const replyOperationRunState = resolveReplyOperationRunState(opts);
   const traceAttributes = {
     provider: followupRun.run.provider,
     hasSessionKey: Boolean(sessionKey ?? followupRun.run.sessionKey),
@@ -1304,6 +1306,9 @@ export async function runReplyAgent(params: {
   });
 
   if (activeRunQueueAction === "drop") {
+    if (replyOperationRunState) {
+      replyOperationRunState.admission = { status: "skipped", reason: "active-run" };
+    }
     typing.cleanup();
     return undefined;
   }
@@ -1414,6 +1419,9 @@ export async function runReplyAgent(params: {
   let replyOperation: ReplyOperation;
   if (providedReplyOperation) {
     replyOperation = providedReplyOperation;
+    if (replyOperationRunState) {
+      replyOperationRunState.admission = { status: "owned" };
+    }
   } else {
     const replyTurnKind = resolveReplyTurnKind(opts);
     const admission = await admitReplyTurn({
@@ -1424,6 +1432,12 @@ export async function runReplyAgent(params: {
       routeThreadId: replyRouteThreadId,
       upstreamAbortSignal: opts?.abortSignal,
     });
+    if (replyOperationRunState) {
+      replyOperationRunState.admission =
+        admission.status === "owned"
+          ? { status: "owned" }
+          : { status: "skipped", reason: admission.reason };
+    }
     if (admission.status === "skipped") {
       typing.cleanup();
       if (admission.reason !== "active-run" || replyTurnKind !== "visible") {

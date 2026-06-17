@@ -3,6 +3,7 @@ import path from "node:path";
 import { collectConfiguredModelRefs } from "@openclaw/model-catalog-core/configured-model-refs";
 import { isCanonicalDottedDecimalIPv4, isLoopbackIpAddress } from "@openclaw/net-policy/ip";
 import { normalizeLowercaseStringOrEmpty } from "@openclaw/normalization-core/string-coerce";
+import { sanitizeForLog } from "../../packages/terminal-core/src/ansi.js";
 import { resolveAgentWorkspaceDir, resolveDefaultAgentId } from "../agents/agent-scope.js";
 import { isPathInside } from "../infra/path-guards.js";
 import { planManifestModelCatalogSuppressions } from "../model-catalog/index.js";
@@ -43,7 +44,7 @@ import { findDuplicateAgentDirs, formatDuplicateAgentDirError } from "./agent-di
 import { appendAllowedValuesHint, summarizeAllowedValues } from "./allowed-values.js";
 import { GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA } from "./bundled-channel-config-metadata.generated.js";
 import { relaxChannelSchemaFromRegistry } from "./bundled-channel-config-runtime.frankclaw.js";
-import { collectChannelSchemaMetadata } from "./channel-config-metadata.js";
+import { collectChannelSchemaMetadataWithOwnership } from "./channel-config-metadata.js";
 import { shouldSuppressMissingCodexPluginDiagnostics } from "./codex-plugin-diagnostics.js";
 import { materializeRuntimeConfig } from "./materialize.js";
 import type { OpenClawConfig, ConfigValidationIssue } from "./types.js";
@@ -1073,6 +1074,14 @@ function validateConfigObjectWithPluginsBase(
     return `${baseLocal}.${errorPath}`;
   };
 
+  const formatChannelConfigIssueMessage = (message: string, pluginId?: string): string => {
+    const safePluginId = pluginId ? sanitizeForLog(pluginId).trim() : "";
+    if (safePluginId) {
+      return `invalid config for plugin ${safePluginId}: ${message}`;
+    }
+    return formatRawChannelConfigIssueMessage(message);
+  };
+
   type RegistryInfo = {
     registry: PluginManifestRegistry;
     knownIds?: Set<string>;
@@ -1082,6 +1091,7 @@ function validateConfigObjectWithPluginsBase(
       string,
       {
         schema?: Record<string, unknown>;
+        pluginId?: string;
       }
     >;
   };
@@ -1212,6 +1222,7 @@ function validateConfigObjectWithPluginsBase(
     string,
     {
       schema?: Record<string, unknown>;
+      pluginId?: string;
     }
   > => {
     const info = ensureRegistry();
@@ -1221,10 +1232,13 @@ function validateConfigObjectWithPluginsBase(
           (entry) => [entry.channelId, { schema: entry.schema }] as const,
         ),
       );
-      for (const entry of collectChannelSchemaMetadata(info.registry)) {
+      for (const entry of collectChannelSchemaMetadataWithOwnership(info.registry)) {
         const current = info.channelSchemas.get(entry.id);
         if (entry.configSchema) {
-          info.channelSchemas.set(entry.id, { schema: entry.configSchema });
+          info.channelSchemas.set(entry.id, {
+            schema: entry.configSchema,
+            pluginId: entry.schemaPluginOrigin === "bundled" ? undefined : entry.schemaPluginId,
+          });
           continue;
         }
         if (!current) {
@@ -1543,12 +1557,12 @@ function validateConfigObjectWithPluginsBase(
         continue;
       }
 
-      const channelSchema = ensureChannelSchemas().get(trimmed)?.schema;
-      if (!channelSchema) {
+      const channelSchema = ensureChannelSchemas().get(trimmed);
+      if (!channelSchema?.schema) {
         continue;
       }
       const result = validateJsonSchemaValue({
-        schema: channelSchema,
+        schema: channelSchema.schema,
         cacheKey: `channel:${trimmed}`,
         value: config.channels[trimmed],
         applyDefaults: true, // Always apply defaults for AJV schema validation;
@@ -1560,7 +1574,7 @@ function validateConfigObjectWithPluginsBase(
             error.path === "<root>" ? `channels.${trimmed}` : `channels.${trimmed}.${error.path}`;
           issues.push({
             path: pathResult,
-            message: formatRawChannelConfigIssueMessage(error.message),
+            message: formatChannelConfigIssueMessage(error.message, channelSchema.pluginId),
             allowedValues: error.allowedValues,
             allowedValuesHiddenCount: error.allowedValuesHiddenCount,
           });
