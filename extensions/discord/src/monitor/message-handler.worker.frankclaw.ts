@@ -10,11 +10,19 @@
  * deactivation, matching the behavior of the upstream in-memory worker.
  */
 
+import {
+  deferDelivery,
+  DiscordDnrSuppressedError,
+  enforceDiscordDnrWindow,
+  enqueueDelivery,
+} from "openclaw/plugin-sdk/infra-runtime";
+import { captureSubagentCompletionReply } from "../../../../src/agents/subagent-announce-output.js";
 import { createRunStateMachine } from "../../../../src/channels/run-state-machine.js";
 import type { DiscordInboundJob, DiscordInboundJobRuntime } from "./inbound-job.js";
 import {
   createDurableDiscordInboundWorker,
   type DurableDiscordInboundWorkerParams,
+  type UndeliveredFinalReplyContext,
 } from "./inbound-worker.durable.frankclaw.js";
 import type { RuntimeEnv } from "./message-handler.preflight.types.js";
 import type { DiscordMonitorStatusSink } from "./status.js";
@@ -42,6 +50,58 @@ export type FrankclawDurableInboundWorkerParams = {
   resolveRuntime: () => DiscordInboundJobRuntime;
   onDeadLetter?: DurableDiscordInboundWorkerParams["onDeadLetter"];
 };
+
+/**
+ * Last-resort recovery: when a session completes without producing a visible
+ * Discord reply (timeout or missing terminal), read the final assistant text
+ * from the completed transcript and enqueue it for durable delivery. If the
+ * DNR window is active, the delivery is deferred automatically.
+ *
+ * Returns true only when an outbound delivery record was successfully created
+ * so the caller can mark the inbound job as terminal instead of dead-lettering.
+ */
+async function recoverUndeliveredFinalReply(
+  accountId: string,
+  ctx: UndeliveredFinalReplyContext,
+): Promise<boolean> {
+  const channelId = ctx.event.channelId;
+  if (!channelId) return false;
+
+  let replyText: string | undefined;
+  try {
+    replyText = await captureSubagentCompletionReply(ctx.sessionKey, {
+      sessionFile: ctx.sessionFile,
+    });
+  } catch {
+    return false;
+  }
+  if (!replyText?.trim()) return false;
+
+  const target = `channel:${channelId}`;
+  let queueId: string | undefined;
+  try {
+    queueId = await enqueueDelivery({
+      channel: "discord",
+      to: target,
+      payloads: [{ text: replyText }],
+      accountId,
+    });
+  } catch {
+    return false;
+  }
+  if (!queueId) return false;
+
+  // If DNR is active now, defer the freshly-created queue entry.
+  try {
+    enforceDiscordDnrWindow({ channel: "discord", to: target });
+  } catch (dnrErr) {
+    if (dnrErr instanceof DiscordDnrSuppressedError) {
+      await deferDelivery(queueId, dnrErr.nextEligibleAtMs, "discord-dnr-window").catch(() => {});
+    }
+  }
+
+  return true;
+}
 
 /**
  * Create a durable Discord inbound worker wrapped in the standard
@@ -74,6 +134,7 @@ export function createFrankclawDurableInboundWorker(
     stateDir: params.stateDir,
     resolveRuntime: params.resolveRuntime,
     onDeadLetter: params.onDeadLetter,
+    onUndeliveredFinalReply: (ctx) => recoverUndeliveredFinalReply(params.accountId, ctx),
     onProcessStart: () => {
       runState.onRunStart();
     },
