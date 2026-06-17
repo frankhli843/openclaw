@@ -191,16 +191,29 @@ export async function deliverDiscordReply(params: {
     enforceDiscordDnrWindow(dnrCtx);
   } catch (err) {
     if (err instanceof DiscordDnrSuppressedError) {
-      const queueId = await enqueueDelivery({
-        channel: "discord",
-        to: params.target,
-        payloads: params.replies,
-        accountId: params.accountId,
-        replyToId: params.replyToId,
-      }).catch(() => undefined);
-      if (queueId) {
-        await deferDelivery(queueId, err.nextEligibleAtMs, "discord-dnr-window").catch(() => {});
+      // frankclaw: enqueue must succeed before we report dnrSuppressed=true.
+      // A silently swallowed enqueue failure would return false-success (caller
+      // marks delivery complete) while no durable replay record exists.
+      let queueId: string | undefined;
+      try {
+        queueId = await enqueueDelivery({
+          channel: "discord",
+          to: params.target,
+          payloads: params.replies,
+          accountId: params.accountId,
+          replyToId: params.replyToId,
+        });
+      } catch (enqueueErr) {
+        throw new Error(
+          `discord DNR deferral: enqueueDelivery failed for ${params.target}: ${String(enqueueErr)}`,
+        );
       }
+      if (!queueId) {
+        throw new Error(
+          `discord DNR deferral: enqueueDelivery returned no queue ID for ${params.target}`,
+        );
+      }
+      await deferDelivery(queueId, err.nextEligibleAtMs, "discord-dnr-window").catch(() => {});
       return { dnrSuppressed: true };
     }
     throw err;

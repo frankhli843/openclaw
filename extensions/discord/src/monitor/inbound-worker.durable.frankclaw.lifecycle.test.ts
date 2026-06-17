@@ -349,6 +349,148 @@ describe("durable discord worker inbound lifecycle terminals", () => {
     await worker.stop();
   });
 
+  // Recovery tests: onUndeliveredFinalReply callback prevents dead-lettering
+  // when a session completed but the reply was never delivered.
+
+  it("calls onUndeliveredFinalReply and skips dead-letter when recovery succeeds (missing terminal)", async () => {
+    const runtime = makeRuntime();
+    const runtimeRef = makeRuntimeRef(runtime);
+    const onDeadLetter = vi.fn();
+    const onUndeliveredFinalReply = vi.fn(async () => true);
+
+    const worker = createDurableDiscordInboundWorker({
+      accountId: "default",
+      runtime: runtime as never,
+      stateDir: tmpDir,
+      maxAttempts: 1,
+      resolveRuntime: () => runtimeRef as never,
+      onDeadLetter,
+      __testing: {
+        captureSessionProgress: createProgressSequence({}, {}),
+        processDiscordMessage: vi.fn(async () => undefined) as never,
+        onUndeliveredFinalReply,
+      },
+    });
+
+    await worker.start();
+    const job = makeJob();
+    worker.enqueue(job as never);
+
+    await vi.waitFor(
+      () => {
+        expect(onUndeliveredFinalReply).toHaveBeenCalledTimes(1);
+      },
+      { timeout: 10_000, interval: 100 },
+    );
+
+    // Successful recovery must not dead-letter.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(onDeadLetter).not.toHaveBeenCalled();
+
+    // Callback receives the correct context shape.
+    const [ctx] = onUndeliveredFinalReply.mock.calls[0]!;
+    expect(ctx.sessionKey).toBe(job.queueKey);
+    expect(ctx.reason).toBe("missing_terminal");
+    expect(ctx.event.channelId).toBe(job.payload.messageChannelId);
+
+    await worker.stop();
+  });
+
+  it("dead-letters when recovery returns false (missing terminal)", async () => {
+    const runtime = makeRuntime();
+    const runtimeRef = makeRuntimeRef(runtime);
+    const onDeadLetter = vi.fn();
+    const onUndeliveredFinalReply = vi.fn(async () => false);
+
+    const worker = createDurableDiscordInboundWorker({
+      accountId: "default",
+      runtime: runtime as never,
+      stateDir: tmpDir,
+      maxAttempts: 1,
+      resolveRuntime: () => runtimeRef as never,
+      onDeadLetter,
+      __testing: {
+        captureSessionProgress: createProgressSequence({}, {}),
+        processDiscordMessage: vi.fn(async () => undefined) as never,
+        onUndeliveredFinalReply,
+      },
+    });
+
+    await worker.start();
+    worker.enqueue(makeJob() as never);
+
+    await vi.waitFor(
+      () => {
+        expect(onDeadLetter).toHaveBeenCalledTimes(1);
+      },
+      { timeout: 10_000, interval: 100 },
+    );
+
+    expect(onUndeliveredFinalReply).toHaveBeenCalledTimes(1);
+    await worker.stop();
+  });
+
+  it("calls onUndeliveredFinalReply with completed_without_reply reason when session progressed but no reply", async () => {
+    const runtime = makeRuntime();
+    const runtimeRef = makeRuntimeRef(runtime);
+    const onDeadLetter = vi.fn();
+    const onUndeliveredFinalReply = vi.fn(async () => true);
+
+    const worker = createDurableDiscordInboundWorker({
+      accountId: "default",
+      runtime: runtime as never,
+      stateDir: tmpDir,
+      maxAttempts: 1,
+      resolveRuntime: () => runtimeRef as never,
+      onDeadLetter,
+      __testing: {
+        captureSessionProgress: createProgressSequence(
+          {
+            sessionId: "session-abc",
+            sessionFile: "/tmp/session-abc.jsonl",
+            updatedAt: 100,
+            status: "running",
+            transcriptExists: true,
+            transcriptSize: 512,
+            transcriptMtimeMs: 100,
+          },
+          {
+            sessionId: "session-abc",
+            sessionFile: "/tmp/session-abc.jsonl",
+            updatedAt: 200,
+            status: "done",
+            transcriptExists: true,
+            transcriptSize: 2048,
+            transcriptMtimeMs: 200,
+          },
+        ),
+        processDiscordMessage: vi.fn(async () => undefined) as never,
+        onUndeliveredFinalReply,
+      },
+    });
+
+    await worker.start();
+    worker.enqueue(makeJob() as never);
+
+    await vi.waitFor(
+      () => {
+        expect(onUndeliveredFinalReply).toHaveBeenCalledTimes(1);
+      },
+      { timeout: 10_000, interval: 100 },
+    );
+
+    // Recovery succeeded — should not dead-letter.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(onDeadLetter).not.toHaveBeenCalled();
+
+    // Reason should reflect completed session with no visible reply.
+    const [ctx] = onUndeliveredFinalReply.mock.calls[0]!;
+    expect(ctx.reason).toBe("completed_without_reply");
+    expect(ctx.sessionFile).toBe("/tmp/session-abc.jsonl");
+
+    await worker.stop();
+  });
+
   it("logs session metadata exists but transcript missing for partial materialization", async () => {
     const runtime = makeRuntime();
     const runtimeRef = makeRuntimeRef(runtime);

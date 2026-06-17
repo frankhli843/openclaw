@@ -597,7 +597,7 @@ describe("deliverDiscordReply", () => {
     });
 
     expect(result.dnrSuppressed).toBe(true);
-    expect(deliverOutboundPayloadsMock).not.toHaveBeenCalled();
+    expect(sendDurableMessageBatchMock).not.toHaveBeenCalled();
     expect(dnrMocks.enqueueDelivery).toHaveBeenCalledWith(
       expect.objectContaining({
         channel: "discord",
@@ -611,5 +611,56 @@ describe("deliverDiscordReply", () => {
       nextEligibleAtMs,
       "discord-dnr-window",
     );
+  });
+
+  // Regression for false-success bug: enqueueDelivery failure during DNR was
+  // swallowed and returned {dnrSuppressed:true}, meaning the caller considered
+  // delivery done while no durable replay record existed.
+  it("throws when enqueueDelivery fails during DNR suppression", async () => {
+    const nextEligibleAtMs = Date.now() + 60_000;
+    dnrMocks.enforceDiscordDnrWindow.mockImplementation(() => {
+      throw new dnrMocks.DiscordDnrSuppressedError(nextEligibleAtMs);
+    });
+    dnrMocks.enqueueDelivery.mockRejectedValue(new Error("storage unavailable"));
+
+    await expect(
+      deliverDiscordReply({
+        replies: [{ text: "should not be lost" }],
+        target: "channel:999",
+        token: "token",
+        accountId: "default",
+        runtime,
+        cfg,
+        textLimit: 2000,
+        replyToId: "reply-1",
+      }),
+    ).rejects.toThrow("discord DNR deferral: enqueueDelivery failed for channel:999");
+
+    // Must not proceed to real delivery when enqueue fails.
+    expect(sendDurableMessageBatchMock).not.toHaveBeenCalled();
+    expect(dnrMocks.deferDelivery).not.toHaveBeenCalled();
+  });
+
+  it("throws when enqueueDelivery returns no queue ID during DNR suppression", async () => {
+    const nextEligibleAtMs = Date.now() + 60_000;
+    dnrMocks.enforceDiscordDnrWindow.mockImplementation(() => {
+      throw new dnrMocks.DiscordDnrSuppressedError(nextEligibleAtMs);
+    });
+    dnrMocks.enqueueDelivery.mockResolvedValue(undefined as unknown as string);
+
+    await expect(
+      deliverDiscordReply({
+        replies: [{ text: "should not be lost" }],
+        target: "channel:999",
+        token: "token",
+        accountId: "default",
+        runtime,
+        cfg,
+        textLimit: 2000,
+      }),
+    ).rejects.toThrow("discord DNR deferral: enqueueDelivery returned no queue ID for channel:999");
+
+    expect(sendDurableMessageBatchMock).not.toHaveBeenCalled();
+    expect(dnrMocks.deferDelivery).not.toHaveBeenCalled();
   });
 });

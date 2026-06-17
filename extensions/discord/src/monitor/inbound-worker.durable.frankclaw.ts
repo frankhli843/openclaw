@@ -80,6 +80,13 @@ function resolveDiscordDurableLeaseMs(params: {
  */
 const DISCORD_DURABLE_MAX_ATTEMPTS = 3;
 
+export type UndeliveredFinalReplyContext = {
+  event: DurableDiscordInboundEvent;
+  sessionKey: string;
+  sessionFile: string | undefined;
+  reason: "completed_without_reply" | "missing_terminal" | "timeout";
+};
+
 export type DurableDiscordInboundWorkerParams = {
   accountId: string;
   runtime: RuntimeEnv;
@@ -100,9 +107,26 @@ export type DurableDiscordInboundWorkerParams = {
   onProcessStart?: () => void;
   /** Called after each job finishes processing (success or failure, e.g. for RunStateMachine.onRunEnd). */
   onProcessEnd?: () => void;
+  /**
+   * frankclaw: Last-resort recovery hook called before a job is dead-lettered
+   * due to a missing final reply delivery.
+   *
+   * When an inbound job completes (or times out) without the agent delivering a
+   * visible Discord reply, the normal path is to throw and retry until the job
+   * is dead-lettered.  This hook gives the caller a chance to capture the final
+   * assistant reply from the session transcript and enqueue it for durable
+   * Discord delivery (which automatically handles the DNR defer/replay path).
+   *
+   * Return true if a durable delivery was successfully enqueued for the reply.
+   * When true, the job is treated as terminal instead of being retried/dead-lettered.
+   * Return false if recovery failed or was not possible; the job proceeds to dead-letter.
+   */
+  onUndeliveredFinalReply?: (ctx: UndeliveredFinalReplyContext) => Promise<boolean>;
   __testing?: {
     captureSessionProgress?: (sessionKey: string) => Promise<DurableDiscordSessionProgressSnapshot>;
     processDiscordMessage?: typeof processDiscordMessage;
+    /** Override the undelivered final reply recovery hook in tests. */
+    onUndeliveredFinalReply?: (ctx: UndeliveredFinalReplyContext) => Promise<boolean>;
   };
 };
 
@@ -371,14 +395,53 @@ export function createDurableDiscordInboundWorker(
       });
 
       if (didTimeout) {
-        // Throw so the durable queue marks the attempt as failed and applies
-        // backoff / dead-letter logic instead of deleting the job.
-        throw new Error(
-          `discord durable worker timed out after ${formatDurationSeconds(timeoutMs ?? 0, {
-            decimals: 1,
-            unit: "seconds",
-          })}${suffix}`,
-        );
+        // frankclaw: before retrying/dead-lettering a timed-out job, check
+        // whether the session completed after the abort and we can recover the
+        // final reply.  This covers the case where a long agent run (>600s)
+        // finishes after the worker timeout fires — without recovery the reply
+        // would be permanently lost once the job is dead-lettered.
+        const timeoutProgressKey = resolvedSessionKey ?? event.orderingKey;
+        const timeoutProgress = await captureSessionProgress(timeoutProgressKey);
+        const recoveryHook =
+          params.__testing?.onUndeliveredFinalReply ?? params.onUndeliveredFinalReply;
+        if (
+          recoveryHook &&
+          !finalReplyDelivered &&
+          visibleReplyDelivered === undefined &&
+          timeoutProgress.status === "done" &&
+          timeoutProgress.transcriptExists
+        ) {
+          let recovered = false;
+          try {
+            recovered = await recoveryHook({
+              event,
+              sessionKey: timeoutProgressKey,
+              sessionFile: timeoutProgress.sessionFile,
+              reason: "timeout",
+            });
+          } catch {
+            // Recovery failure is non-fatal; still throw below.
+          }
+          if (recovered) {
+            terminalStage = "reply_delivered";
+            await lifecycle.mark({
+              stage: terminalStage,
+              note: "timeout: last-resort reply recovery enqueued for durable delivery",
+              progress: timeoutProgress,
+            });
+            // Skip the throw below — job is terminal.
+          }
+        }
+        if (!terminalStage) {
+          // Throw so the durable queue marks the attempt as failed and applies
+          // backoff / dead-letter logic instead of deleting the job.
+          throw new Error(
+            `discord durable worker timed out after ${formatDurationSeconds(timeoutMs ?? 0, {
+              decimals: 1,
+              unit: "seconds",
+            })}${suffix}`,
+          );
+        }
       }
 
       // Check progress against the resolved session key (auto-thread may have
@@ -476,21 +539,56 @@ export function createDurableDiscordInboundWorker(
             `discord durable worker: session actively running, message queued in context${suffix}`,
           );
         } else {
-          params.runtime.error?.(
-            danger(
-              `discord durable worker missing terminal inbound lifecycle state${suffix}: ` +
-                `before=[${formatDurableSessionProgressSnapshot(beforeProgress)}] ` +
-                `after=[${formatDurableSessionProgressSnapshot(afterProgress)}] ` +
-                `noopReason=${noopReason ?? "-"} finalReplyDelivered=${finalReplyDelivered ? "true" : "false"} ` +
-                `visibleReplyDelivered=${visibleReplyDeliveryLabel} ` +
-                `resolvedSessionKey=${resolvedSessionKey ?? "-"} createdThreadId=${createdThreadId ?? "-"}`,
-            ),
-          );
-          throw new Error(
-            sessionProgressAdvanced
-              ? `discord durable worker completed without visible reply${suffix}`
-              : `discord durable worker missing terminal inbound lifecycle state${suffix}`,
-          );
+          // frankclaw: before dead-lettering, attempt last-resort reply recovery.
+          // The agent may have produced a final reply that wasn't delivered because
+          // the inbound worker timed out or the delivery path failed silently.
+          // Enqueuing the reply via the durable outbound queue ensures DNR
+          // defer/replay applies automatically (no quiet-hours bypass).
+          // Only attempt when no delivery already fired to prevent double-sends.
+          const recoveryHook =
+            params.__testing?.onUndeliveredFinalReply ?? params.onUndeliveredFinalReply;
+          const recoveryReason: UndeliveredFinalReplyContext["reason"] = sessionProgressAdvanced
+            ? "completed_without_reply"
+            : "missing_terminal";
+          if (recoveryHook && !finalReplyDelivered && visibleReplyDelivered === undefined) {
+            let recovered = false;
+            try {
+              recovered = await recoveryHook({
+                event,
+                sessionKey: progressKey,
+                sessionFile: afterProgress.sessionFile,
+                reason: recoveryReason,
+              });
+            } catch {
+              // Recovery failure is non-fatal; proceed to dead-letter below.
+            }
+            if (recovered) {
+              terminalStage = "reply_delivered";
+              await lifecycle.mark({
+                stage: terminalStage,
+                note: `${recoveryReason}: last-resort reply recovery enqueued for durable delivery`,
+                progress: afterProgress,
+              });
+            }
+          }
+
+          if (!terminalStage) {
+            params.runtime.error?.(
+              danger(
+                `discord durable worker missing terminal inbound lifecycle state${suffix}: ` +
+                  `before=[${formatDurableSessionProgressSnapshot(beforeProgress)}] ` +
+                  `after=[${formatDurableSessionProgressSnapshot(afterProgress)}] ` +
+                  `noopReason=${noopReason ?? "-"} finalReplyDelivered=${finalReplyDelivered ? "true" : "false"} ` +
+                  `visibleReplyDelivered=${visibleReplyDeliveryLabel} ` +
+                  `resolvedSessionKey=${resolvedSessionKey ?? "-"} createdThreadId=${createdThreadId ?? "-"}`,
+              ),
+            );
+            throw new Error(
+              sessionProgressAdvanced
+                ? `discord durable worker completed without visible reply${suffix}`
+                : `discord durable worker missing terminal inbound lifecycle state${suffix}`,
+            );
+          }
         }
       }
 
