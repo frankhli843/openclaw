@@ -1689,6 +1689,23 @@ describe("resolveSessionDeliveryTarget — cross-channel reply guard (#24152)", 
 });
 
 describe("resolveHeartbeatDeliveryTarget — isolated session avoids session.lastChannel fallback", () => {
+  // The global beforeEach registers only alpha/beta/forum. These tests route
+  // through real channel ids ("telegram", "discord") so their plugins must be
+  // bootstrapped. Extend the registry here so resolveOutboundChannelPlugin can
+  // return a plugin when called with allowBootstrap:true, matching the
+  // bootstrap-plugin-session-targets contract (#93630).
+  beforeEach(() => {
+    setActivePluginRegistry(
+      createTargetsTestRegistry([
+        createGenericTargetTestPlugin("alpha", "Alpha"),
+        createGenericTargetTestPlugin("beta", "Beta"),
+        createForumTargetTestPlugin(),
+        createGenericTargetTestPlugin("discord", "Discord"),
+        createGenericTargetTestPlugin("telegram", "Telegram"),
+      ]),
+    );
+  });
+
   it("uses exec completion turnSource instead of session.lastChannel for isolated heartbeat", () => {
     // Bug: isolated heartbeat discarded turnSource and fell back to
     // session.lastChannel, causing cross-channel misrouting when only
