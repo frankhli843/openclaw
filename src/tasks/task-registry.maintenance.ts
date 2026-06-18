@@ -1316,8 +1316,3 @@ export function configureTaskRegistryMaintenance(options: {
     configuredRuntimeAuthoritative = options.runtimeAuthoritative;
   }
 }
-
-export function getReconciledTaskById(taskId: string): TaskRecord | undefined {
-  const task = getTaskById(taskId);
-  return task ? reconcileTaskRecordForOperatorInspection(task) : undefined;
-}
