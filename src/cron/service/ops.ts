@@ -1123,6 +1123,28 @@ export async function enqueueRun(state: CronServiceState, id: string, mode?: "du
     async () => {
       laneTaskStarted = true;
       clearTimeout(laneTimeoutHandle);
+      // frankclaw: prepareManualRun already reserved the slot (runningAtMs set
+      // and persisted).  If the service stopped while the task was queued, we
+      // must roll back the marker before returning so the job does not stay
+      // permanently ghost-running.
+      if (state.stopped) {
+        try {
+          await locked(state, async () => {
+            await ensureLoaded(state, { skipRecompute: true });
+            const stoppedJob = state.store?.jobs.find((entry) => entry.id === id);
+            if (stoppedJob && stoppedJob.state.runningAtMs === prepared.startedAt) {
+              stoppedJob.state.runningAtMs = undefined;
+              await persist(state);
+            }
+          });
+        } catch (cleanupErr) {
+          state.deps.log.error(
+            { jobId: id, err: String(cleanupErr) },
+            "cron: failed to clear runningAtMs after stopped-check in enqueue lane",
+          );
+        }
+        return;
+      }
       await finishPreparedManualRun(state, prepared, mode);
     },
     {

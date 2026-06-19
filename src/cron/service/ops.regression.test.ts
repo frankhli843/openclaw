@@ -473,16 +473,21 @@ describe("cron service ops regressions", () => {
     clearCommandLane(CommandLane.Cron);
   });
 
-  it("surfaces prepareManualRun failures immediately instead of silently dropping", async () => {
-    // With the TOCTOU fix, prepareManualRun runs before the lane enqueue.
-    // A persist failure is now surfaced immediately as an exception instead
-    // of returning { enqueued: true } and logging the error asynchronously.
+  it("logs via catch when the enqueue lane rejects a queued run", async () => {
+    // enqueueRun enqueues the actual execution into the cron command lane so
+    // it can return { enqueued: true } immediately.  If the lane rejects the
+    // task (e.g. gateway drain via clearCommandLane), the .catch handler must
+    // log the error and roll back the runningAtMs slot reserved by
+    // prepareManualRun — not silently drop the failure.
     vi.useRealTimers();
     clearCommandLane(CommandLane.Cron);
     setCommandLaneConcurrency(CommandLane.Cron, 1);
 
+    const store = opsRegressionFixtures.makeStorePath();
     const dueAt = Date.parse("2026-02-06T10:05:03.000Z");
     const job = createDueIsolatedJob({ id: "queued-failure", nowMs: dueAt, nextRunAtMs: dueAt });
+    await saveCronStore(store.storePath, { version: 1, jobs: [job] });
+
     const errorLogged = createDeferred<void>();
     const log = {
       ...noopLogger,
@@ -490,17 +495,35 @@ describe("cron service ops regressions", () => {
         errorLogged.resolve();
       }),
     };
-    const badStore = `${opsRegressionFixtures.makeStorePath().storePath}.dir`;
-    await fs.mkdir(badStore, { recursive: true });
-    const state = createRunningCronServiceState({
-      storePath: badStore,
+
+    // Block the lane so the enqueueRun task sits queued rather than executing.
+    const blockerStarted = createDeferred<void>();
+    const releaseBlocker = createDeferred<void>();
+    const blocker = enqueueCommandInLane(CommandLane.Cron, async () => {
+      blockerStarted.resolve();
+      return await releaseBlocker.promise;
+    });
+
+    await blockerStarted.promise;
+
+    const runIsolatedAgentJob = vi.fn(async () => ({ status: "ok" as const }));
+    const state = createCronServiceState({
+      cronEnabled: true,
+      storePath: store.storePath,
       log,
       nowMs: () => dueAt,
-      jobs: [job],
+      enqueueSystemEvent: vi.fn(),
+      requestHeartbeat: vi.fn(),
+      runIsolatedAgentJob,
     });
 
     const result = await enqueueRun(state, job.id, "force");
     expectQueuedRunAck(result);
+
+    // Clear the lane to reject the queued task; the .catch must log the error.
+    clearCommandLane(CommandLane.Cron);
+    releaseBlocker.resolve();
+    await blocker.catch(() => undefined);
 
     await errorLogged.promise;
     expect(log.error).toHaveBeenCalledTimes(1);
@@ -532,7 +555,7 @@ describe("cron service ops regressions", () => {
       payload: { kind: "agentTurn", message: "toctou test" },
       state: { nextRunAtMs: dueAt },
     });
-    await writeCronJobs(store.storePath, [job]);
+    await saveCronStore(store.storePath, { version: 1, jobs: [job] });
 
     const runIsolatedAgentJob = vi.fn(
       async () =>
