@@ -29,7 +29,7 @@
  */
 import { promises as fsp } from "node:fs";
 import { loadSessionStore } from "../../config/sessions/store-load.js";
-import { resolveAllAgentSessionStoreTargets } from "../../config/sessions/targets.js";
+import { resolveAllAgentSessionStoreTargetsSync } from "../../config/sessions/targets.js";
 import { resolveSessionTranscriptFile } from "../../config/sessions/transcript.js";
 import type { SessionEntry } from "../../config/sessions/types.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
@@ -71,7 +71,7 @@ export async function findAcpOrphanCandidates(params: {
   const cfg = params.cfg;
   const now = params.now ?? Date.now();
   const minAgeMs = params.minAgeMs ?? ORPHAN_MIN_AGE_MS;
-  const targets = await resolveAllAgentSessionStoreTargets(
+  const targets = resolveAllAgentSessionStoreTargetsSync(
     cfg,
     params.env ? { env: params.env } : undefined,
   );
