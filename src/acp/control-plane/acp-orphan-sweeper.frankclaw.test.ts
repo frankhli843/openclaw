@@ -15,7 +15,7 @@ const hoisted = vi.hoisted(() => ({
 }));
 
 vi.mock("../../config/sessions/targets.js", () => ({
-  resolveAllAgentSessionStoreTargets: hoisted.resolveAllTargetsMock,
+  resolveAllAgentSessionStoreTargetsSync: hoisted.resolveAllTargetsMock,
 }));
 
 vi.mock("../../config/sessions/store-load.js", () => ({
@@ -57,7 +57,7 @@ function setupTarget(
   targets: SessionStoreTarget[],
   stores: Record<string, Record<string, SessionEntry>>,
 ): void {
-  hoisted.resolveAllTargetsMock.mockResolvedValue(targets);
+  hoisted.resolveAllTargetsMock.mockReturnValue(targets);
   hoisted.loadSessionStoreMock.mockImplementation((storePath: string) => {
     return stores[storePath] ?? {};
   });
