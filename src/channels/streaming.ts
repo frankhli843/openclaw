@@ -329,8 +329,9 @@ function buildNamedProgressLine(
   });
   const display = resolveToolDisplay({ name: normalizedName });
   const prefix = `${display.emoji} ${display.label}`;
+  const displayToolName = normalizeOptionalLowercaseString(display.name) || display.name;
   const compactCommandDetail =
-    (display.name === "exec" || display.name === "bash") && text.startsWith(`${display.emoji} `)
+    isCommandToolName(display.name) && text.startsWith(`${display.emoji} `)
       ? text.slice(display.emoji.length + 1).trim()
       : undefined;
   const compactCommandPrefix =
@@ -348,7 +349,7 @@ function buildNamedProgressLine(
     icon: display.emoji,
     ...(detail ? { detail } : {}),
     ...(fields?.status ? { status: fields.status } : {}),
-    toolName: display.name,
+    toolName: displayToolName,
   };
   setProgressDraftLineCorrelationKey(line, fields?.correlationKey);
   return line;

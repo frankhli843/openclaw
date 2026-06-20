@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { buildChannelProgressDraftLine } from "./streaming.js";
+import {
+  buildChannelProgressDraftLine,
+  mergeChannelProgressDraftLine,
+  normalizeChannelProgressDraftLineIdentity,
+} from "./streaming.js";
 
 describe("buildChannelProgressDraftLine", () => {
   it("omits generic completed status from successful command output with title", () => {
@@ -81,5 +85,66 @@ describe("buildChannelProgressDraftLine", () => {
       status: "exit 2",
     });
     expect(line?.text).not.toContain("command false");
+  });
+
+  it("extracts command details from provider-cased Bash tool starts", () => {
+    const line = buildChannelProgressDraftLine(
+      {
+        event: "tool",
+        toolCallId: "call-bash-1",
+        name: "Bash",
+        phase: "start",
+        args: { command: "git status --short", workdir: "/home/frank/.openclaw/workspace" },
+      },
+      { commandText: "raw", detailMode: "explain" },
+    );
+
+    expect(line).toMatchObject({
+      kind: "tool",
+      id: "tool:call-bash-1",
+      text: "🛠️ check git status (agent)",
+      detail: "check git status (agent)",
+      toolName: "bash",
+    });
+  });
+
+  it("updates the same command progress line when output arrives for provider-cased Bash", () => {
+    const startLine = buildChannelProgressDraftLine(
+      {
+        event: "tool",
+        toolCallId: "call-bash-1",
+        name: "Bash",
+        phase: "start",
+        args: { command: "git status --short", workdir: "/home/frank/.openclaw/workspace" },
+      },
+      { commandText: "raw", detailMode: "explain" },
+    );
+    const endLine = buildChannelProgressDraftLine(
+      {
+        event: "command-output",
+        toolCallId: "call-bash-1",
+        phase: "end",
+        name: "Bash",
+        exitCode: 0,
+      },
+      { commandText: "raw" },
+    );
+    if (!startLine || !endLine) {
+      throw new Error("expected progress lines");
+    }
+
+    const merged = mergeChannelProgressDraftLine([startLine], endLine, { maxLines: 5 });
+
+    expect(merged).toHaveLength(1);
+    expect(merged[0]).toMatchObject({
+      kind: "command-output",
+      id: "call-bash-1",
+      detail: "check git status (agent)",
+      status: "completed",
+      toolName: "bash",
+    });
+    expect(normalizeChannelProgressDraftLineIdentity(merged[0])).toBe(
+      "🛠️ check git status (agent) completed",
+    );
   });
 });
