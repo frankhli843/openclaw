@@ -105,7 +105,7 @@ describe("runCronIsolatedAgentTurn — interim ack retry", () => {
   // and continue with the next batch (fixes 2026-04-23 knowledge-agent failure).
   it("retries after descendants settle so the model can continue orchestration", async () => {
     usePayloadTextExtraction();
-    runEmbeddedPiAgentMock
+    runEmbeddedAgentMock
       .mockResolvedValueOnce({
         payloads: [{ text: "On it, I spawned a subagent and it will auto-announce when done." }],
         meta: { agentMeta: { usage: { input: 10, output: 20 } } },
@@ -124,6 +124,9 @@ describe("runCronIsolatedAgentTurn — interim ack retry", () => {
     mockRunCronFallbackPassthrough();
     // frankclaw: orchestration loop runs a second turn after descendants settle
     await runTurnAndExpectOk(2, 2);
+    // The orchestration loop keys descendant lookups off the agent session key.
+    expect(listDescendantRunsForRequesterMock).toHaveBeenCalledWith("agent:default:cron:test");
+    expect(countActiveDescendantRunsMock).toHaveBeenCalledWith("agent:default:cron:test");
   });
 
   it("does not retry over a fatal structured failure signal", async () => {
@@ -186,28 +189,5 @@ describe("runCronIsolatedAgentTurn — interim ack retry", () => {
     expect(deliveryRequest.deliveryPayloads).toEqual([
       { text: "SYSTEM_RUN_DENIED: approval required", isError: true },
     ]);
-  });
-
-  it("does not retry when descendants were spawned in this run even if they already settled", async () => {
-    usePayloadTextExtraction();
-    runEmbeddedAgentMock.mockResolvedValueOnce({
-      payloads: [{ text: "On it, I spawned a subagent and it will auto-announce when done." }],
-      meta: { agentMeta: { usage: { input: 10, output: 20 } } },
-    });
-    listDescendantRunsForRequesterMock.mockReturnValue([
-      {
-        startedAt: Date.now() + 60_000,
-      },
-    ]);
-    countActiveDescendantRunsMock.mockReturnValue(0);
-
-    mockRunCronFallbackPassthrough();
-    await runTurnAndExpectOk(1, 1);
-    expect(listDescendantRunsForRequesterMock).toHaveBeenCalledWith(
-      "agent:default:cron:test:run:test-session-id",
-    );
-    expect(countActiveDescendantRunsMock).toHaveBeenCalledWith(
-      "agent:default:cron:test:run:test-session-id",
-    );
   });
 });
