@@ -1258,10 +1258,32 @@ function canDeliverTaskToRequesterOrigin(task: TaskRecord): boolean {
   if (shouldRouteCompletionThroughRequesterSession(owner.sessionKey)) {
     return false;
   }
-  const origin = owner.requesterOrigin;
+  return canDeliverToRequesterOrigin(owner.requesterOrigin);
+}
+
+function canDeliverToRequesterOrigin(origin: TaskDeliveryState["requesterOrigin"]): boolean {
   const channel = origin?.channel?.trim();
   const to = origin?.to?.trim();
   return Boolean(channel && to && isDeliverableMessageChannel(channel));
+}
+
+function canDeliverParentReviewTaskToBoundDiscordThread(task: TaskRecord): boolean {
+  if (!shouldUseParentReviewTaskTerminalMessage(task)) {
+    return false;
+  }
+  const owner = resolveTaskDeliveryOwner(task);
+  const origin = owner.requesterOrigin;
+  const channel = origin?.channel?.trim().toLowerCase();
+  const to = origin?.to?.trim().toLowerCase();
+  const threadId = String(origin?.threadId ?? "").trim();
+  // This is a narrow transport exception for explicitly bound Discord threads,
+  // not a general parent-review direct-delivery relaxation.
+  return Boolean(
+    channel === "discord" &&
+    to?.startsWith("channel:") &&
+    threadId &&
+    canDeliverToRequesterOrigin(origin),
+  );
 }
 
 function resolveMissingOwnerDeliveryStatus(task: TaskRecord): TaskDeliveryStatus {
@@ -1347,7 +1369,9 @@ export async function maybeDeliverTaskTerminalUpdate(taskId: string): Promise<Ta
       });
     }
     const shouldRouteParentReview = shouldUseParentReviewTaskTerminalMessage(latest);
-    const canDeliverDirect = canDeliverTaskToRequesterOrigin(latest);
+    const shouldDeliverParentReviewDirect = canDeliverParentReviewTaskToBoundDiscordThread(latest);
+    const canDeliverDirect =
+      canDeliverTaskToRequesterOrigin(latest) || shouldDeliverParentReviewDirect;
     // frankclaw: prepend [Doramon note to self] so the channel sees this as
     // a self-nudge and the agent processes it (summarize, iterate if needed).
     const directEventText = wrapAsNoteToSelf(formatTaskTerminalMessage(latest));
@@ -1355,7 +1379,7 @@ export async function maybeDeliverTaskTerminalUpdate(taskId: string): Promise<Ta
       latest,
       shouldRouteParentReview ? { surface: "parent_session" } : undefined,
     );
-    if (shouldRouteParentReview || !canDeliverDirect) {
+    if ((shouldRouteParentReview && !shouldDeliverParentReviewDirect) || !canDeliverDirect) {
       try {
         queueTaskSystemEvent(latest, sessionEventText);
         if (latest.terminalOutcome === "blocked") {
@@ -1393,7 +1417,7 @@ export async function maybeDeliverTaskTerminalUpdate(taskId: string): Promise<Ta
         to: owner.requesterOrigin?.to ?? "",
         accountId: owner.requesterOrigin?.accountId,
         threadId: owner.requesterOrigin?.threadId,
-        content: directEventText,
+        content: shouldDeliverParentReviewDirect ? sessionEventText : directEventText,
         agentId: requesterAgentId,
         idempotencyKey,
         mirror: {

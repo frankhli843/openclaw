@@ -150,12 +150,6 @@ export function createDiscordDraftPreviewController(params: {
       finalizedViaPreviewMessage = true;
     },
     disableBlockStreamingForDraft: draftStream ? true : undefined,
-    async startProgressDraft() {
-      if (!draftStream || discordStreamMode !== "progress") {
-        return;
-      }
-      await progressDraft.start();
-    },
     async pushToolProgress(
       line?: string | ChannelProgressDraftLine,
       options?: { toolName?: string },

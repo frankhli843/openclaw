@@ -56,6 +56,7 @@ import {
   mergeCronRunDiagnostics,
 } from "../run-diagnostics.js";
 import { resolveCronAbortReasonText } from "../service/execution-errors.js";
+import { resolveCronDeliverySessionKey } from "../session-target.js";
 import type {
   CronAgentExecutionPhaseUpdate,
   CronAgentExecutionStarted,
@@ -375,7 +376,8 @@ function canPromptForMessageTool(params: {
   );
 }
 
-async function resolveCronDeliveryContext(params: {
+/** Exported for #91613 keyless-inherited delivery-context regression coverage. */
+export async function resolveCronDeliveryContext(params: {
   cfg: OpenClawConfig;
   job: CronJob;
   agentId: string;
@@ -421,7 +423,13 @@ async function resolveCronDeliveryContext(params: {
     to: deliveryPlan.to,
     threadId: deliveryPlan.threadId,
     accountId: deliveryPlan.accountId,
-    sessionKey: params.job.sessionKey,
+    // Resolve the job's own session identity (sessionTarget takes precedence over sessionKey, the
+    // same as delivery preview) so a session-scoped cron is not misread as keyless by the #91613
+    // keyless-inherited refusal inside resolveDeliveryTarget. The refusal itself now lives in the
+    // resolver (returns ok:false), so the delivery dispatch !ok gate, the failure-notification
+    // path, and the delivery preview all honor it uniformly (the dispatch gate refuses the send and
+    // never enqueues, so a restart has nothing to replay; the agent turn still runs before that).
+    sessionKey: resolveCronDeliverySessionKey(params.job),
   });
   return {
     deliveryPlan,
