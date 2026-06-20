@@ -1227,13 +1227,21 @@ function updateTask(taskId: string, patch: Partial<TaskRecord>): TaskRecord | nu
 
 function upsertTaskDeliveryState(state: TaskDeliveryState): TaskDeliveryState {
   const current = taskDeliveryStates.get(state.taskId);
+  // Merge with the existing delivery state so a partial update (for example
+  // stamping only lastNotifiedEventAt during terminal delivery) never clobbers a
+  // previously persisted requesterOrigin. Without this, the terminal-delivery
+  // stamp wipes the delivery context, so after a gateway restart (registry reload
+  // from the durable store) a delegated parent-review completion loses its origin
+  // and can no longer be retried.
+  const mergedRequesterOrigin = state.requesterOrigin ?? current?.requesterOrigin;
+  const mergedLastNotifiedEventAt = state.lastNotifiedEventAt ?? current?.lastNotifiedEventAt;
   const next: TaskDeliveryState = {
     taskId: state.taskId,
-    ...(state.requesterOrigin
-      ? { requesterOrigin: normalizeDeliveryContext(state.requesterOrigin) }
+    ...(mergedRequesterOrigin
+      ? { requesterOrigin: normalizeDeliveryContext(mergedRequesterOrigin) }
       : {}),
-    ...(state.lastNotifiedEventAt != null
-      ? { lastNotifiedEventAt: state.lastNotifiedEventAt }
+    ...(mergedLastNotifiedEventAt != null
+      ? { lastNotifiedEventAt: mergedLastNotifiedEventAt }
       : {}),
   };
   if (!next.requesterOrigin && typeof next.lastNotifiedEventAt !== "number" && !current) {

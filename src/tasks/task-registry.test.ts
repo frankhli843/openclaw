@@ -1782,7 +1782,7 @@ describe("task-registry", () => {
       await waitForAssertion(() =>
         expectRecordFields(sentMessageCall(), {
           content:
-            "Background task blocked: ACP background task (run run-bloc). Writable session or apply_patch authorization required.",
+            "[Doramon note to self] Background task blocked: ACP background task (run run-bloc). Writable session or apply_patch authorization required.",
         }),
       );
       expect(peekSystemEvents("agent:main:main")).toEqual([
@@ -3487,7 +3487,7 @@ describe("task-registry", () => {
         channel: "guildchat",
         to: "guildchat:123",
         content:
-          "Background task failed: ACP background task (run run-fail). Permission denied by ACP runtime",
+          "[Doramon note to self] Background task failed: ACP background task (run run-fail). Permission denied by ACP runtime",
       });
       expect(peekSystemEvents("agent:main:main")).toStrictEqual([]);
     });
@@ -3594,7 +3594,8 @@ describe("task-registry", () => {
         expectRecordFields(sentMessageCall(), {
           channel: "notifychat",
           to: "notifychat:123",
-          content: "Background task cancelled: ACP background task (run run-canc).",
+          content:
+            "[Doramon note to self] Background task cancelled: ACP background task (run run-canc).",
         }),
       );
     });
@@ -3645,7 +3646,8 @@ describe("task-registry", () => {
         expectRecordFields(sentMessageCall(), {
           channel: "notifychat",
           to: "notifychat:123",
-          content: "Background task cancelled: Subagent task (run run-canc).",
+          content:
+            "[Doramon note to self] Background task cancelled: Subagent task (run run-canc).",
         }),
       );
     });
@@ -3691,7 +3693,8 @@ describe("task-registry", () => {
         expectRecordFields(sentMessageCall(), {
           channel: "notifychat",
           to: "notifychat:123",
-          content: "Background task cancelled: Investigate issue (run run-canc).",
+          content:
+            "[Doramon note to self] Background task cancelled: Investigate issue (run run-canc).",
         }),
       );
     });

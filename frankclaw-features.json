@@ -1475,7 +1475,8 @@
       ],
       "tests": [
         "src/acp/control-plane/manager.test.ts",
-        "src/tasks/task-registry.maintenance.issue-60299.test.ts"
+        "src/tasks/task-registry.maintenance.issue-60299.test.ts",
+        "src/tasks/task-registry.test.ts"
       ],
       "runtime": [],
       "e2eTests": [
