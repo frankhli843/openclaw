@@ -1,4 +1,5 @@
 // Runtime web-channel plugin helpers expose web-channel tools through activated plugin runtimes.
+import type { OpenClawConfig } from "../../config/types.openclaw.js"; // frankclaw: needed for sendWebChannelMessage
 import {
   getDefaultLocalRoots as getDefaultLocalRootsImpl,
   loadWebMedia as loadWebMediaImpl,
@@ -59,6 +60,24 @@ type WebChannelHeavyRuntimeModule = {
     runtime?: unknown,
     accountId?: string,
   ) => Promise<void>;
+  // frankclaw: sendMessageWhatsApp used by agent-runner-execution.frankclaw.ts for error logging
+  sendMessageWhatsApp: (
+    to: string,
+    body: string,
+    options: {
+      verbose: boolean;
+      cfg?: OpenClawConfig;
+      mediaUrl?: string;
+      mediaAccess?: {
+        localRoots?: readonly string[];
+        readFile?: (filePath: string) => Promise<Buffer>;
+      };
+      mediaLocalRoots?: readonly string[];
+      mediaReadFile?: (filePath: string) => Promise<Buffer>;
+      gifPlayback?: boolean;
+      accountId?: string;
+    },
+  ) => Promise<{ messageId: string; toJid: string }>;
   monitorWebChannel: (...args: unknown[]) => Promise<unknown>;
   monitorWebInbox: (...args: unknown[]) => Promise<unknown>;
   startWebLoginWithQr: (...args: unknown[]) => Promise<unknown>;
@@ -214,6 +233,14 @@ export function webAuthExists(
   ...args: Parameters<WebChannelLightRuntimeModule["webAuthExists"]>
 ): ReturnType<WebChannelLightRuntimeModule["webAuthExists"]> {
   return getLightExport("webAuthExists")(...args);
+}
+
+// frankclaw: restored for use by agent-runner-execution.frankclaw.ts (error logging to logs group)
+/** Sends a web-channel message through the heavy runtime API. */
+export function sendWebChannelMessage(
+  ...args: Parameters<WebChannelHeavyRuntimeModule["sendMessageWhatsApp"]>
+): ReturnType<WebChannelHeavyRuntimeModule["sendMessageWhatsApp"]> {
+  return loadWebChannelHeavyModule().then((loaded) => loaded.sendMessageWhatsApp(...args));
 }
 
 /** Formats a web-channel runtime error through the light runtime API. */
