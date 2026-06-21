@@ -185,7 +185,7 @@ export async function applyGroupGating(params: ApplyGroupGatingParams) {
   params.msg.wasMentioned = mentionDebug.wasMentioned;
   params.replyLogger.debug(
     {
-      conversationId: params.conversationId,
+      conversationId,
       wasMentioned: mentionDebug.wasMentioned,
       ...mentionDebug.details,
     },
@@ -204,14 +204,14 @@ export async function applyGroupGating(params: ApplyGroupGatingParams) {
     channel: (params.channel ?? "whatsapp") as Parameters<
       typeof resolveChannelGroupGateMode
     >[0]["channel"],
-    groupId: params.conversationId,
+    groupId: conversationId,
     accountId: params.accountId,
   }).gateMode;
   if (configuredGateMode !== undefined) {
     const gateModeCheck = resolveWebGroupGateModeCheck({
       cfg: params.cfg,
       channel: params.channel ?? "whatsapp",
-      conversationId: params.conversationId,
+      conversationId,
       msg: params.msg,
       groupHistoryKey: params.groupHistoryKey,
       groupMemberNames: params.groupMemberNames,
@@ -226,10 +226,7 @@ export async function applyGroupGating(params: ApplyGroupGatingParams) {
           groupHistoryLimit: params.groupHistoryLimit,
         }),
     });
-    params.replyLogger.debug(
-      { conversationId: params.conversationId, gateModeCheck },
-      "gateModeCheck result",
-    );
+    params.replyLogger.debug({ conversationId, gateModeCheck }, "gateModeCheck result");
     if (gateModeCheck.shouldDrop) {
       return { shouldProcess: false };
     }
