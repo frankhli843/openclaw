@@ -28,6 +28,7 @@ import {
   clearCronJobActive,
   isCronJobActive,
   markCronJobActive,
+  resetCronActiveJobs,
 } from "../active-jobs.js";
 import * as schedule from "../schedule.js";
 import { loadCronStore, saveCronStore } from "../store.js";
@@ -37,6 +38,11 @@ import type {
   CronAgentExecutionStarted,
   CronJob,
 } from "../types.js";
+// frankclaw: the pre-execution stall watchdog was raised from the upstream 60s
+// cap to 180s (agent-watchdog-override.frankclaw.ts). Tests that drive a stall
+// must advance fake timers past the real threshold, so derive it here instead
+// of hardcoding 60_100ms.
+import { FRANKCLAW_CRON_AGENT_PRE_EXECUTION_WATCHDOG_MS } from "./agent-watchdog-override.frankclaw.js";
 import { computeJobNextRunAtMs } from "./jobs.js";
 import { run as runManualCronJob } from "./ops.js";
 import { createCronServiceState, type CronEvent } from "./state.js";
@@ -146,7 +152,7 @@ describe("cron service timer regressions", () => {
         state: { nextRunAtMs: now - 1 },
       },
     ];
-    await writeCronJobs(store.storePath, jobs);
+    await saveCronStore(store.storePath, { version: 1, jobs });
     const state = createRunningCronServiceState({
       storePath: store.storePath,
       log: noopLogger,
@@ -886,7 +892,11 @@ describe("cron service timer regressions", () => {
       expect(cancelResult.cancelled).toBe(true);
       expect(abortObserved).toBe(true);
 
-      for (let attempt = 0; attempt < 5; attempt += 1) {
+      // frankclaw: onTimer settlement after operator cancellation drains through
+      // the SQLite-backed persistence layer, which defers across many setTimeout(0)
+      // continuations; pump the fake-timer/microtask loop generously (the loop
+      // breaks as soon as onTimer settles, so the cap is only a worst-case bound).
+      for (let attempt = 0; attempt < 200; attempt += 1) {
         if (timerSettled) {
           break;
         }
@@ -1068,7 +1078,11 @@ describe("cron service timer regressions", () => {
       expect(cancelled).toBe(true);
       expect(observedAbortSignal?.aborted).toBe(true);
 
-      for (let attempt = 0; attempt < 5; attempt += 1) {
+      // frankclaw: onTimer settlement after operator cancellation drains through
+      // the SQLite-backed persistence layer, which defers across many setTimeout(0)
+      // continuations; pump the fake-timer/microtask loop generously (the loop
+      // breaks as soon as onTimer settles, so the cap is only a worst-case bound).
+      for (let attempt = 0; attempt < 200; attempt += 1) {
         if (timerSettled) {
           break;
         }
@@ -1084,6 +1098,11 @@ describe("cron service timer regressions", () => {
       expect(job?.state.lastError).toBe("Cancelled by operator.");
     } finally {
       vi.useRealTimers();
+      // This test deliberately leaves a runner hung on new Promise<never>; clear
+      // the process-global cron run/active-job state it registers so it cannot
+      // leak an active marker into later tests (main-session-wrapper flakes).
+      resetActiveCronTaskRunsForTests();
+      resetCronActiveJobs();
     }
   });
 
@@ -1523,9 +1542,12 @@ describe("cron service timer regressions", () => {
 
       const timerPromise = onTimer(state);
       const runId = `cron:main-session-cancel-boundary:${scheduledAt}`;
+      // onTimer dispatch to the main-session wake-now path drains through the
+      // SQLite-backed persistence layer across many setTimeout(0) continuations;
+      // pump generously until runHeartbeatOnce is invoked (loop breaks early).
       for (
         let attempt = 0;
-        attempt < 10 && runHeartbeatOnce.mock.calls.length === 0;
+        attempt < 200 && runHeartbeatOnce.mock.calls.length === 0;
         attempt += 1
       ) {
         await vi.advanceTimersByTimeAsync(0);
@@ -1621,9 +1643,12 @@ describe("cron service timer regressions", () => {
       });
 
       const timerPromise = onTimer(state);
+      // onTimer dispatch to the main-session wake-now path drains through the
+      // SQLite-backed persistence layer across many setTimeout(0) continuations;
+      // pump generously until runHeartbeatOnce is invoked (loop breaks early).
       for (
         let attempt = 0;
-        attempt < 10 && runHeartbeatOnce.mock.calls.length === 0;
+        attempt < 200 && runHeartbeatOnce.mock.calls.length === 0;
         attempt += 1
       ) {
         await vi.advanceTimersByTimeAsync(0);
@@ -2843,6 +2868,7 @@ describe("cron service timer regressions", () => {
       await laneEntered.promise;
 
       const onIsolatedAgentSetupTimeout = vi.fn();
+      const runnerReachedLaneWait = createDeferred<void>();
       const state = createCronServiceState({
         cronEnabled: true,
         storePath: store.storePath,
@@ -2854,6 +2880,7 @@ describe("cron service timer regressions", () => {
         onIsolatedAgentSetupTimeout,
         runIsolatedAgentJob: vi.fn(async ({ onLaneWait }) => {
           onLaneWait?.();
+          runnerReachedLaneWait.resolve();
           return await enqueueCommandInLane(CommandLane.CronNested, async () => {
             return { status: "ok" as const, summary: "lane released" };
           });
@@ -2861,8 +2888,31 @@ describe("cron service timer regressions", () => {
       });
 
       const timerPromise = onTimer(state);
+      let timerSettled = false;
+      void timerPromise.then(
+        () => {
+          timerSettled = true;
+        },
+        () => {
+          timerSettled = true;
+        },
+      );
+      // frankclaw: wait until the runner has actually reached the lane-wait so the
+      // pre-runner setup watchdog is armed at the scheduled time BEFORE we advance
+      // fake time; otherwise the 60s setup timer is armed past the advance window
+      // and never fires (onTimer would hang). Mirrors the custom-session test's
+      // `await started.promise` before advancing.
+      await runnerReachedLaneWait.promise;
+      await Promise.resolve();
       await vi.advanceTimersByTimeAsync(60_100);
       now += 60_100;
+      // After the setup-timeout fires, onTimer settlement drains through the
+      // SQLite-backed persistence layer across many setTimeout(0) continuations;
+      // pump the fake-timer/microtask loop until it settles (breaks early).
+      for (let attempt = 0; attempt < 200 && !timerSettled; attempt += 1) {
+        await vi.advanceTimersByTimeAsync(0);
+        await Promise.resolve();
+      }
       await timerPromise;
 
       expect(onIsolatedAgentSetupTimeout).not.toHaveBeenCalled();
@@ -3001,8 +3051,8 @@ describe("cron service timer regressions", () => {
 
       const timerPromise = onTimer(state);
       await started.promise;
-      await vi.advanceTimersByTimeAsync(60_100);
-      now += 60_100;
+      await vi.advanceTimersByTimeAsync(FRANKCLAW_CRON_AGENT_PRE_EXECUTION_WATCHDOG_MS + 100);
+      now += FRANKCLAW_CRON_AGENT_PRE_EXECUTION_WATCHDOG_MS + 100;
       await timerPromise;
 
       const job = requireJob(state, "isolated-pre-model-timeout-74803");
@@ -3283,8 +3333,8 @@ describe("cron service timer regressions", () => {
 
       const timerPromise = onTimer(state);
       await started.promise;
-      await vi.advanceTimersByTimeAsync(60_100);
-      now += 60_100;
+      await vi.advanceTimersByTimeAsync(FRANKCLAW_CRON_AGENT_PRE_EXECUTION_WATCHDOG_MS + 100);
+      now += FRANKCLAW_CRON_AGENT_PRE_EXECUTION_WATCHDOG_MS + 100;
       await timerPromise;
 
       const job = requireJob(state, "isolated-before-agent-reply-unhandled-82811");

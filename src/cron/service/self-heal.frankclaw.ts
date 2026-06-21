@@ -178,27 +178,47 @@ export function applySelfHealOnError(params: {
       : 1;
 
   if (transient && attempts < selfHealCfg.maxAttemptsPerRun) {
-    const retryAtMs = result.endedAt + selfHealCfg.retryDelayMs;
-    job.state.selfHeal = {
-      originRunAtMs,
-      attempts,
-      retryAtMs,
-    } satisfies CronSelfHealState;
-    job.state.nextRunAtMs = retryAtMs;
-    state.deps.log.warn(
-      {
-        jobId: job.id,
-        jobName: job.name,
+    // #66019: only synthesize a self-heal retry when the cron schedule can still
+    // produce a future run. If the schedule is unresolvable (computeJobNextRunAtMs
+    // returns undefined or throws), fall through so the upstream unresolved-cron
+    // guard clears nextRunAtMs instead of resurrecting a dead schedule with a
+    // self-heal retry window.
+    let scheduleResolvable = false;
+    try {
+      scheduleResolvable = computeJobNextRunAtMs(job, result.endedAt) !== undefined;
+    } catch {
+      scheduleResolvable = false;
+    }
+    if (scheduleResolvable) {
+      const retryAtMs = result.endedAt + selfHealCfg.retryDelayMs;
+      job.state.selfHeal = {
         originRunAtMs,
-        attempt: attempts,
-        maxAttempts: selfHealCfg.maxAttemptsPerRun,
-        retryDelayMs: selfHealCfg.retryDelayMs,
-        nextRunAtMs: job.state.nextRunAtMs,
-        error: result.error,
-      },
-      "cron: scheduling self-heal retry",
-    );
-    return true; // Retry scheduled — caller should skip normal error backoff.
+        attempts,
+        retryAtMs,
+      } satisfies CronSelfHealState;
+      job.state.nextRunAtMs = retryAtMs;
+      state.deps.log.warn(
+        {
+          jobId: job.id,
+          jobName: job.name,
+          originRunAtMs,
+          attempt: attempts,
+          maxAttempts: selfHealCfg.maxAttemptsPerRun,
+          retryDelayMs: selfHealCfg.retryDelayMs,
+          nextRunAtMs: job.state.nextRunAtMs,
+          error: result.error,
+        },
+        "cron: scheduling self-heal retry",
+      );
+      return true; // Retry scheduled — caller should skip normal error backoff.
+    }
+    // Unresolvable schedule: do not synthesize a self-heal retry. Clear stale
+    // self-heal state and hand off to the upstream error path, which applies the
+    // #66019 guard and leaves nextRunAtMs unresolved.
+    if (hasSelfHealState) {
+      job.state.selfHeal = undefined;
+    }
+    return false;
   }
 
   // No retry scheduled.
