@@ -410,7 +410,8 @@
       ],
       "tests": [
         "extensions/whatsapp/src/auto-reply/monitor/group-gating.frankclaw.test.ts",
-        "extensions/whatsapp/src/auto-reply/monitor/group-gating.audio-preflight.test.ts"
+        "extensions/whatsapp/src/auto-reply/monitor/group-gating.audio-preflight.test.ts",
+        "extensions/whatsapp/src/auto-reply/monitor/group-gating.jid-preservation.frankclaw.test.ts"
       ],
       "runtime": [],
       "e2eTests": [
