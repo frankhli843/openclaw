@@ -41,6 +41,7 @@ import { deliverWebReply } from "../deliver-reply.js";
 import { whatsappInboundLog } from "../loggers.js";
 import { elide } from "../util.js";
 import { maybeSendAckReaction } from "./ack-reaction.js";
+import { applyTranscriptReliabilityGate } from "./audio-reliability-gate.frankclaw.js"; // frankclaw: IVR quarantine gate
 import {
   resolveVisibleWhatsAppGroupHistory,
   resolveVisibleWhatsAppReplyContext,
@@ -333,9 +334,14 @@ export async function processMessage(params: {
   // (used by features such as messages.tts.auto: "inbound") still sees this as an
   // audio message. The transcript and transcribed media index are also stored on
   // context so downstream media understanding does not transcribe it again.
+  // frankclaw: screen the transcript for IVR/phone-tree content before injection.
+  // Unreliable transcripts are wrapped with a quarantine prefix that health-channel
+  // scoped prompts recognise; they quarantine the content instead of writing health facts.
+  const screenedTranscript =
+    audioTranscript !== undefined ? applyTranscriptReliabilityGate(audioTranscript) : undefined;
   const msgForAgent: AdmittedWebInboundMessage =
-    audioTranscript !== undefined
-      ? { ...params.msg, payload: { ...params.msg.payload, body: audioTranscript } }
+    screenedTranscript !== undefined
+      ? { ...params.msg, payload: { ...params.msg.payload, body: screenedTranscript } }
       : params.msg;
   const visibleReplyTo = resolveVisibleWhatsAppReplyContext({
     msg: params.msg,
