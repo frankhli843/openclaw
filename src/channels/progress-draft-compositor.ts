@@ -63,6 +63,11 @@ export function createChannelProgressDraftCompositor(params: {
   let lastReasoningLine: string | undefined;
   let finalReplyStarted = false;
   let finalReplyDelivered = false;
+  // Track whether the progress draft gate has ever started (not reset by cancel).
+  // markFinalReplyStarted calls gate.cancel() which resets gate.hasStarted to false,
+  // but hasProgressDraftStarted in message-handler.process.ts checks whether the draft
+  // was ever visible to decide whether to use the preview-edit finalization path.
+  let hasEverStarted = false;
 
   const formatDraftText = (draftLines = lines, options?: { formatted?: boolean }) =>
     formatChannelProgressDraftText({
@@ -95,6 +100,7 @@ export function createChannelProgressDraftCompositor(params: {
 
   const gate = createChannelProgressDraftGate({
     onStart: async () => {
+      hasEverStarted = true;
       await render({ flush: true });
     },
   });
@@ -197,7 +203,7 @@ export function createChannelProgressDraftCompositor(params: {
       return suppressDefaultToolProgressMessages;
     },
     get hasStarted() {
-      return gate.hasStarted;
+      return hasEverStarted;
     },
     markFinalReplyStarted() {
       finalReplyStarted = true;
