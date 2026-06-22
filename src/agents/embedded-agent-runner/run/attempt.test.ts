@@ -3534,54 +3534,63 @@ describe("resolveEmbeddedAgentStreamFn", () => {
     };
   }
 
-  it("wraps the session-managed HTTP stream to inject auth when no override applies", async () => {
+  it("returns the session-managed stream unchanged when no override or boundary transport applies", async () => {
     const currentStreamFn = vi.fn(async () => createFakeStream({ events: [], resultMessage: {} }));
     const authStorage = createAuthStorage();
 
     const resolved = resolveEmbeddedAgentStreamFn({
       currentStreamFn: currentStreamFn as never,
-      shouldUseWebSocketTransport: false,
       sessionId: "session-1",
       model: { provider: "xai" } as never,
       authStorage,
     });
 
+    // A custom session-managed stream owns its own auth; runtime auth injection is reserved for
+    // provider overrides and boundary-aware transports (see the canonical cases above). With no
+    // override, no resolved runtime key, no boundary transport and no prompt-cache key, the stream
+    // is returned by identity and authStorage.getApiKey is never consulted.
+    expect(resolved).toBe(currentStreamFn);
     await resolved({} as never, {} as never, {} as never);
     expect(currentStreamFn).toHaveBeenCalledTimes(1);
-    expect(authStorage.getApiKey).toHaveBeenCalledTimes(1);
+    expect(authStorage.getApiKey).toHaveBeenCalledTimes(0);
   });
 
-  it("wraps the session-managed HTTP stream when websocket auth is unavailable", async () => {
-    const currentStreamFn = vi.fn(async () => createFakeStream({ events: [], resultMessage: {} }));
+  it("invokes authStorage.getApiKey to inject runtime auth on the wrap path", async () => {
+    const providerStreamFn = vi.fn(async () => createFakeStream({ events: [], resultMessage: {} }));
     const authStorage = createAuthStorage();
 
     const resolved = resolveEmbeddedAgentStreamFn({
-      currentStreamFn: currentStreamFn as never,
-      shouldUseWebSocketTransport: true,
-      wsApiKey: undefined,
+      currentStreamFn: undefined,
+      providerStreamFn: providerStreamFn as never,
       sessionId: "session-1",
       model: { provider: "xai" } as never,
       authStorage,
     });
 
+    // The provider override is wrapped so the embedded run can resolve and inject the runtime key.
+    // Invoking the wrapped fn must consult authStorage.getApiKey exactly once and delegate to the
+    // provider stream.
     await resolved({} as never, {} as never, {} as never);
-    expect(currentStreamFn).toHaveBeenCalledTimes(1);
     expect(authStorage.getApiKey).toHaveBeenCalledTimes(1);
+    expect(providerStreamFn).toHaveBeenCalledTimes(1);
   });
 
-  it("prefers a provider-owned stream override when present", () => {
+  it("wraps the provider-owned stream override and delegates to it rather than returning identity", async () => {
     const currentStreamFn = vi.fn();
-    const providerStreamFn = vi.fn();
+    const providerStreamFn = vi.fn(async () => createFakeStream({ events: [], resultMessage: {} }));
 
     const resolved = resolveEmbeddedAgentStreamFn({
       currentStreamFn: currentStreamFn as never,
       providerStreamFn: providerStreamFn as never,
-      shouldUseWebSocketTransport: false,
       sessionId: "session-1",
       model: { provider: "xai" } as never,
     });
 
-    expect(resolved).toBe(providerStreamFn);
+    // Provider overrides are wrapped (not returned by reference) so the embedded run can strip the
+    // system-prompt cache boundary and inject auth; assert delegation behavior, not identity.
+    expect(resolved).not.toBe(providerStreamFn);
+    await resolved({} as never, {} as never, {} as never);
+    expect(providerStreamFn).toHaveBeenCalledTimes(1);
   });
 });
 

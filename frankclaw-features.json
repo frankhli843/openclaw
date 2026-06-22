@@ -931,7 +931,8 @@
         }
       ],
       "tests": [
-        "src/agents/embedded-agent-runner/run/attempt.frankclaw.test.ts"
+        "src/agents/embedded-agent-runner/run/attempt.frankclaw.test.ts",
+        "src/agents/embedded-agent-runner/run/attempt.test.ts"
       ],
       "runtime": [],
       "e2eTests": [

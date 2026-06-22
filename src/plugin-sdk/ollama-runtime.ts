@@ -112,8 +112,12 @@ export function isOllamaCompatProvider(params: {
     return false;
   }
 
+  // WHATWG URL.hostname keeps IPv6 literals bracketed (e.g. "[::1]"), so strip the
+  // brackets before comparing against the bare "::1" loopback form.
   const host = url.hostname;
-  const isLoopback = host === "127.0.0.1" || host === "localhost" || host === "::1";
+  const normalizedHost = host.startsWith("[") && host.endsWith("]") ? host.slice(1, -1) : host;
+  const isLoopback =
+    normalizedHost === "127.0.0.1" || normalizedHost === "localhost" || normalizedHost === "::1";
   if (isLoopback) {
     return true;
   }
