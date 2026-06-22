@@ -228,6 +228,26 @@ function readBody(req: IncomingMessage): Promise<string> {
   });
 }
 
+function parseJsonObjectBody(raw: string): Record<string, unknown> | null {
+  try {
+    const parsed = raw ? (JSON.parse(raw) as unknown) : {};
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeOpenAiMalformedJsonError(res: ServerResponse, label: string) {
+  writeJson(res, 400, {
+    error: {
+      type: "invalid_request_error",
+      message: `Malformed JSON body for ${label} request.`,
+    },
+  });
+}
+
 function transcriptionTextForAudioRequest(rawBody: string) {
   if (rawBody.length >= QA_GROUP_AUDIO_MIN_MULTIPART_BODY_CHARS) {
     return QA_GROUP_AUDIO_TRANSCRIPTION_TEXT;
@@ -1461,6 +1481,16 @@ function buildAssistantText(
       "Follow-up:",
       "- Re-run with a real model for qualitative coverage.",
     ].join("\n");
+  }
+  if (
+    toolOutput &&
+    (QA_TOOL_SEARCH_PROMPT_RE.test(allInputText) ||
+      QA_TOOL_SEARCH_FAILURE_PROMPT_RE.test(allInputText))
+  ) {
+    const targetTool = extractToolSearchTarget(allInputText);
+    if (targetTool && toolOutput.includes(targetTool) && toolOutput.includes("FAKE_PLUGIN_OK")) {
+      return `FAKE_PLUGIN_OK ${targetTool}`;
+    }
   }
   if (toolOutput) {
     const snippet = toolOutput.replace(/\s+/g, " ").trim().slice(0, 220);
@@ -3418,7 +3448,11 @@ export async function startQaMockOpenAiServer(params?: { host?: string; port?: n
       }
       if (req.method === "POST" && url.pathname === "/v1/images/generations") {
         const raw = await readBody(req);
-        const body = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
+        const body = parseJsonObjectBody(raw);
+        if (!body) {
+          writeOpenAiMalformedJsonError(res, "OpenAI Images");
+          return;
+        }
         imageGenerationRequests.push(body);
         if (imageGenerationRequests.length > 20) {
           imageGenerationRequests.splice(0, imageGenerationRequests.length - 20);
@@ -3442,7 +3476,11 @@ export async function startQaMockOpenAiServer(params?: { host?: string; port?: n
       }
       if (req.method === "POST" && url.pathname === "/v1/embeddings") {
         const raw = await readBody(req);
-        const body = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
+        const body = parseJsonObjectBody(raw);
+        if (!body) {
+          writeOpenAiMalformedJsonError(res, "OpenAI Embeddings");
+          return;
+        }
         const inputs = extractEmbeddingInputTexts(body.input);
         writeJson(res, 200, {
           object: "list",
@@ -3464,7 +3502,11 @@ export async function startQaMockOpenAiServer(params?: { host?: string; port?: n
       }
       if (req.method === "POST" && url.pathname === "/v1/responses") {
         const raw = await readBody(req);
-        const body = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
+        const body = parseJsonObjectBody(raw);
+        if (!body) {
+          writeOpenAiMalformedJsonError(res, "OpenAI Responses");
+          return;
+        }
         const input = Array.isArray(body.input) ? (body.input as ResponsesInputItem[]) : [];
         const events = await buildResponsesPayload(body, scenarioState);
         const resolvedModel = typeof body.model === "string" ? body.model : "";
@@ -3502,10 +3544,8 @@ export async function startQaMockOpenAiServer(params?: { host?: string; port?: n
       }
       if (req.method === "POST" && url.pathname === "/v1/messages") {
         const raw = await readBody(req);
-        let body: AnthropicMessagesRequest;
-        try {
-          body = raw ? (JSON.parse(raw) as AnthropicMessagesRequest) : {};
-        } catch {
+        const body = parseJsonObjectBody(raw) as AnthropicMessagesRequest | null;
+        if (!body) {
           writeJson(res, 400, {
             type: "error",
             error: {

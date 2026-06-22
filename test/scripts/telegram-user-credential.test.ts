@@ -15,9 +15,14 @@ import {
   resolvePrivateJsonDirectory,
   writePrivateJson,
 } from "../../scripts/e2e/telegram-user-credential-paths.ts";
+import { resolveWindowsTaskkillPath } from "../../scripts/lib/windows-taskkill.mjs";
 
 const tempDirs: string[] = [];
 const CHUNKED_PAYLOAD_MARKER = "__openclawQaCredentialPayloadChunksV1";
+
+function expectedTaskkillPath(): string {
+  return resolveWindowsTaskkillPath();
+}
 
 function makeTempDir(prefix: string) {
   const dir = mkdtempSync(path.join(tmpdir(), prefix));
@@ -269,6 +274,24 @@ describe("telegram user credential IO", () => {
     );
   });
 
+  it("rejects short flags as credential script option values", async () => {
+    const credentialModule = (await import(
+      `${new URL("../../scripts/e2e/telegram-user-credential.ts", import.meta.url).href}?case=args-${Date.now()}`
+    )) as {
+      parseArgs(argv: string[]): unknown;
+    };
+
+    expect(() =>
+      credentialModule.parseArgs([
+        "node",
+        "scripts/e2e/telegram-user-credential.ts",
+        "restore",
+        "--payload-file",
+        "-h",
+      ]),
+    ).toThrow("Usage:");
+  });
+
   it("fails hung child processes instead of waiting for the outer proof timeout", async () => {
     await expect(
       runCommand(process.execPath, ["-e", "setInterval(() => {}, 1000)"], undefined, {
@@ -418,17 +441,27 @@ setInterval(() => {}, 1000);
       platform: "win32",
       runTaskkill,
     });
-    expect(runTaskkill).toHaveBeenNthCalledWith(1, "taskkill", ["/PID", "12345", "/T"], {
-      stdio: "ignore",
-    });
+    expect(runTaskkill).toHaveBeenNthCalledWith(
+      1,
+      expectedTaskkillPath(),
+      ["/PID", "12345", "/T"],
+      {
+        stdio: "ignore",
+      },
+    );
 
     signalChildProcessTree(child, "SIGKILL", {
       platform: "win32",
       runTaskkill,
     });
-    expect(runTaskkill).toHaveBeenNthCalledWith(2, "taskkill", ["/PID", "12345", "/T", "/F"], {
-      stdio: "ignore",
-    });
+    expect(runTaskkill).toHaveBeenNthCalledWith(
+      2,
+      expectedTaskkillPath(),
+      ["/PID", "12345", "/T", "/F"],
+      {
+        stdio: "ignore",
+      },
+    );
     expect(child.kill).not.toHaveBeenCalled();
   });
 
@@ -447,12 +480,22 @@ setInterval(() => {}, 1000);
       runTaskkill,
     });
 
-    expect(runTaskkill).toHaveBeenNthCalledWith(1, "taskkill", ["/PID", "12345", "/T"], {
-      stdio: "ignore",
-    });
-    expect(runTaskkill).toHaveBeenNthCalledWith(2, "taskkill", ["/PID", "12345", "/T", "/F"], {
-      stdio: "ignore",
-    });
+    expect(runTaskkill).toHaveBeenNthCalledWith(
+      1,
+      expectedTaskkillPath(),
+      ["/PID", "12345", "/T"],
+      {
+        stdio: "ignore",
+      },
+    );
+    expect(runTaskkill).toHaveBeenNthCalledWith(
+      2,
+      expectedTaskkillPath(),
+      ["/PID", "12345", "/T", "/F"],
+      {
+        stdio: "ignore",
+      },
+    );
     expect(child.kill).not.toHaveBeenCalled();
   });
 

@@ -174,6 +174,7 @@ export function isFallbackSummaryError(err: unknown): err is FallbackSummaryErro
 
 export type ModelFallbackRunOptions = {
   allowTransientCooldownProbe?: boolean;
+  isFinalFallbackAttempt?: boolean;
 };
 
 type ModelFallbackRuntimeContext = {
@@ -1697,7 +1698,10 @@ async function runWithModelFallbackInternal<T>(
       run: params.run,
       ...candidate,
       attempts,
-      options: runOptions,
+      options: {
+        ...runOptions,
+        isFinalFallbackAttempt: i + 1 === candidates.length,
+      },
       // Only the outer fallback loop knows another candidate remains. Carry
       // that fact through this attempt so the embedded runner does not freeze
       // the shared lane before the next candidate can run.

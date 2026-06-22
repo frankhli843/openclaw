@@ -44,6 +44,7 @@ import { isMessagingToolSendAction } from "../../agents/embedded-agent-messaging
 import { mergeEmbeddedAgentRunResultForModelFallbackExhaustion } from "../../agents/embedded-agent-runner/result-fallback-classifier.js";
 import { runEmbeddedAgent } from "../../agents/embedded-agent.js";
 import { isFailoverError } from "../../agents/failover-error.js";
+import type { FastModeAutoProgressState } from "../../agents/fast-mode.js";
 import { resolveAgentHarnessPolicy } from "../../agents/harness/policy.js";
 import { ensureSelectedAgentHarnessPlugin } from "../../agents/harness/runtime-plugin.js";
 import { LiveSessionModelSwitchError } from "../../agents/live-model-switch-error.js";
@@ -128,6 +129,7 @@ import {
   buildEmbeddedRunExecutionParams,
   resolveQueuedReplyRuntimeConfig,
   resolveModelFallbackOptions,
+  resolveRunFastModeForFallbackCandidate,
 } from "./agent-runner-utils.js";
 import type { BlockReplyPipeline } from "./block-reply-pipeline.js";
 import {
@@ -2082,7 +2084,9 @@ export async function runAgentTurnWithFallback(params: {
       const sourceRepliesAreToolOnly =
         params.followupRun.run.sourceReplyDeliveryMode === "message_tool_only";
       const shouldSuppressProgressAfterMessageToolDelivery = () =>
-        sourceRepliesAreToolOnly && messageToolOnlyDeliveryCompleted;
+        sourceRepliesAreToolOnly &&
+        messageToolOnlyDeliveryCompleted &&
+        params.opts?.allowProgressCallbacksWhenSourceDeliverySuppressed !== true;
       const onToolResult = params.opts?.onToolResult;
       const outcomePlan = buildAgentRuntimeOutcomePlan();
       const runLane = CommandLane.Main;
@@ -2093,6 +2097,11 @@ export async function runAgentTurnWithFallback(params: {
         params.followupRun.userTurnTranscriptRecorder ?? params.opts?.userTurnTranscriptRecorder;
       const notifyUserMessagePersisted = () => {
         queuedUserMessagePersistedAcrossFallback = true;
+      };
+      const fastModeStartedAtMs = Date.now();
+      const fastModeAutoProgressState: FastModeAutoProgressState = {
+        offAnnounced: false,
+        resetAnnounced: false,
       };
       // Profiler-only milestone: it separates fallback setup from the actual
       // model run without adding extra live logs/snapshots to normal turns.
@@ -2160,6 +2169,13 @@ export async function runAgentTurnWithFallback(params: {
             const suppressAssistantErrorPersistenceForCandidate =
               assistantErrorPersistedAcrossFallback;
             const candidateRun = resolveRunForFallbackCandidate(provider, model);
+            const candidateFastMode = resolveRunFastModeForFallbackCandidate({
+              run: candidateRun,
+              config: runtimeConfig,
+              provider,
+              model,
+              sessionEntry: params.getActiveSessionEntry(),
+            });
             const activeProbe = effectiveRun.autoFallbackPrimaryProbe;
             if (activeProbe && provider === activeProbe.provider && model === activeProbe.model) {
               markAutoFallbackPrimaryProbe({
@@ -2307,14 +2323,17 @@ export async function runAgentTurnWithFallback(params: {
                   },
                   onCommentaryText:
                     params.opts?.commentaryProgressEnabled === true && params.opts.onItemEvent
-                      ? async ({ text, itemId }) => {
+                      ? async (payload) => {
                           await params.opts?.onItemEvent?.({
+                            itemId: payload.itemId,
                             kind: "preamble",
-                            progressText: text,
-                            itemId,
+                            progressText: payload.text,
                           });
                         }
                       : undefined,
+                  onFastModeAutoProgress: async (payload) => {
+                    await params.opts?.onToolResult?.(payload);
+                  },
                   onErrorBeforeLifecycle: async () => {
                     if (!rollbackFallbackCandidateSelection) {
                       return;
@@ -2363,6 +2382,11 @@ export async function runAgentTurnWithFallback(params: {
                     provider: cliExecutionProvider,
                     model,
                     thinkLevel: params.followupRun.run.thinkLevel,
+                    fastMode: candidateFastMode.fastMode,
+                    fastModeStartedAtMs,
+                    fastModeAutoOnSeconds: candidateFastMode.fastModeAutoOnSeconds,
+                    fastModeAutoProgressState,
+                    isFinalFallbackAttempt: runOptions?.isFinalFallbackAttempt,
                     timeoutMs: params.followupRun.run.timeoutMs,
                     runTimeoutOverrideMs: params.followupRun.run.runTimeoutOverrideMs,
                     runId,
@@ -2398,6 +2422,7 @@ export async function runAgentTurnWithFallback(params: {
                     agentAccountId: params.followupRun.run.agentAccountId,
                     senderId: params.followupRun.run.senderId,
                     senderIsOwner: params.followupRun.run.senderIsOwner,
+                    approvalReviewerDeviceId: params.followupRun.run.approvalReviewerDeviceId,
                     toolsAllow: params.opts?.toolsAllow,
                     disableTools: params.opts?.disableTools,
                     abortSignal: runAbortSignal,
@@ -2421,7 +2446,7 @@ export async function runAgentTurnWithFallback(params: {
             }
             const { embeddedContext, senderContext, runBaseParams } =
               buildEmbeddedRunExecutionParams({
-                run: candidateRun,
+                run: { ...candidateRun, ...candidateFastMode },
                 replyRoute: params.followupRun,
                 sessionCtx: params.sessionCtx,
                 hasRepliedRef: params.opts?.hasRepliedRef,
@@ -2495,6 +2520,9 @@ export async function runAgentTurnWithFallback(params: {
                     provider: embeddedRunProvider,
                     agentHarnessId: embeddedRunHarnessOverride,
                     agentHarnessRuntimeOverride: embeddedRunHarnessOverride,
+                    fastModeStartedAtMs,
+                    fastModeAutoProgressState,
+                    isFinalFallbackAttempt: runOptions?.isFinalFallbackAttempt,
                     sandboxSessionKey: params.runtimePolicySessionKey,
                     prompt: params.commandBody,
                     transcriptPrompt: params.transcriptCommandBody,

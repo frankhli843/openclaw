@@ -34,10 +34,7 @@ import {
   shouldWarnOnOrphanedUserRepair,
 } from "./attempt.prompt-helpers.js";
 import { composeSystemPromptWithHookContext } from "./attempt.thread-helpers.js";
-import {
-  decodeHtmlEntitiesInObject,
-  wrapStreamFnRepairMalformedToolCallArguments,
-} from "./attempt.tool-call-argument-repair.js";
+import { wrapStreamFnRepairMalformedToolCallArguments } from "./attempt.tool-call-argument-repair.js";
 import {
   wrapStreamFnSanitizeMalformedToolCalls,
   wrapStreamFnTrimToolCallNames,
@@ -3625,6 +3622,7 @@ describe("decodeHtmlEntitiesInObject", () => {
     expect(decodeHtmlEntitiesInObject("&#x27;world&#x27;")).toBe("'world'");
   });
 });
+
 describe("prependSystemPromptAddition", () => {
   it("prepends context-engine addition to the system prompt", () => {
     const result = prependSystemPromptAddition({

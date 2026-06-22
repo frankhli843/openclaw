@@ -5,10 +5,12 @@ import os from "node:os";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
+import { MAX_TIMER_TIMEOUT_MS } from "@openclaw/normalization-core/number-coercion";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   COMMAND_TIMEOUT_MS,
   createOpenClawGatewaySpawnSpec,
+  parseArgs,
   readLogTail,
   readTelegramUserProofLogTailBytes,
   recordProbeVideo,
@@ -23,9 +25,14 @@ import {
   startLocalSut,
   waitForLog,
 } from "../../scripts/e2e/telegram-user-crabbox-proof.ts";
+import { resolveWindowsTaskkillPath } from "../../scripts/lib/windows-taskkill.mjs";
 
 const tempDirs: string[] = [];
 const posixIt = process.platform === "win32" ? it.skip : it;
+
+function expectedTaskkillPath(): string {
+  return resolveWindowsTaskkillPath();
+}
 
 function makeTempDir(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-telegram-proof-"));
@@ -136,6 +143,24 @@ describe("telegram user Crabbox proof log polling", () => {
     const highMockPort = runProofCli(["--mock-port", "65536", "--dry-run"]);
     expect(highMockPort.status).toBe(1);
     expect(highMockPort.stderr).toContain("--mock-port must be a TCP port from 1 to 65535.");
+  });
+
+  it("rejects short flags as proof option values before dry-run planning", () => {
+    const result = runProofCli(["--output-dir", "-h", "--dry-run"]);
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("Usage:");
+    expect(result.stdout).toBe("");
+  });
+
+  it("keeps hyphen-prefixed free-text proof values", () => {
+    expect(parseArgs(["--text", "-ping"]).text).toBe("-ping");
+  });
+
+  it("clamps proof timeout args before they reach Node timers", () => {
+    expect(parseArgs(["--timeout-ms", String(MAX_TIMER_TIMEOUT_MS + 1)]).timeoutMs).toBe(
+      MAX_TIMER_TIMEOUT_MS,
+    );
   });
 
   it("reads only the requested log tail", () => {
@@ -291,6 +316,22 @@ fs.writeFileSync(process.env.OPENCLAW_TEST_ARGV_PATH, JSON.stringify(process.arg
     expect(JSON.parse(fs.readFileSync(argvPath, "utf8"))).toContain(payload);
   });
 
+  it("clamps oversized command timeouts before arming timers", async () => {
+    const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout");
+
+    await expect(
+      runCommand({
+        args: ["--version"],
+        command: process.execPath,
+        cwd: process.cwd(),
+        timeoutMs: MAX_TIMER_TIMEOUT_MS + 1,
+      }),
+    ).resolves.toMatchObject({ stderr: "" });
+
+    expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), MAX_TIMER_TIMEOUT_MS);
+    setTimeoutSpy.mockRestore();
+  });
+
   posixIt("kills timed-out command process groups when the leader exits first", async () => {
     const root = makeTempDir();
     const scriptPath = path.join(root, "trap-term.mjs");
@@ -364,17 +405,27 @@ setInterval(() => {}, 1000);
       platform: "win32",
       runTaskkill,
     });
-    expect(runTaskkill).toHaveBeenNthCalledWith(1, "taskkill", ["/PID", "12345", "/T"], {
-      stdio: "ignore",
-    });
+    expect(runTaskkill).toHaveBeenNthCalledWith(
+      1,
+      expectedTaskkillPath(),
+      ["/PID", "12345", "/T"],
+      {
+        stdio: "ignore",
+      },
+    );
 
     signalCommandTree(child, "SIGKILL", {
       platform: "win32",
       runTaskkill,
     });
-    expect(runTaskkill).toHaveBeenNthCalledWith(2, "taskkill", ["/PID", "12345", "/T", "/F"], {
-      stdio: "ignore",
-    });
+    expect(runTaskkill).toHaveBeenNthCalledWith(
+      2,
+      expectedTaskkillPath(),
+      ["/PID", "12345", "/T", "/F"],
+      {
+        stdio: "ignore",
+      },
+    );
     expect(child.kill).not.toHaveBeenCalled();
   });
 
@@ -393,12 +444,22 @@ setInterval(() => {}, 1000);
       runTaskkill,
     });
 
-    expect(runTaskkill).toHaveBeenNthCalledWith(1, "taskkill", ["/PID", "12345", "/T"], {
-      stdio: "ignore",
-    });
-    expect(runTaskkill).toHaveBeenNthCalledWith(2, "taskkill", ["/PID", "12345", "/T", "/F"], {
-      stdio: "ignore",
-    });
+    expect(runTaskkill).toHaveBeenNthCalledWith(
+      1,
+      expectedTaskkillPath(),
+      ["/PID", "12345", "/T"],
+      {
+        stdio: "ignore",
+      },
+    );
+    expect(runTaskkill).toHaveBeenNthCalledWith(
+      2,
+      expectedTaskkillPath(),
+      ["/PID", "12345", "/T", "/F"],
+      {
+        stdio: "ignore",
+      },
+    );
     expect(child.kill).not.toHaveBeenCalled();
   });
 
