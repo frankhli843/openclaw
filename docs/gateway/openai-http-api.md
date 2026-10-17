@@ -350,7 +350,7 @@ Provider failures use the same error mapping as chat completions: missing provid
 
 If provider cleanup fails, the Gateway logs restart guidance and blocks further embeddings requests for that agent/provider until restart. Other agent/provider scopes remain available.
 
-For models that support it, a positive integer `dimensions` requests the output vector size. It overrides the selected agent's active `memory.search.outputDimensionality` and also applies when memory search is disabled. Omitting it keeps the configured or provider default size.
+For models that support it, a positive integer `dimensions` requests the output vector size. It overrides the selected agent's active `memory.search.outputDimensionality` and also applies when memory search is disabled. Omitting it keeps the configured or provider default size. When the memory provider uses the OpenAI-compatible embeddings transport (such as `openai-compatible` or `omlx`), a backend that returns a different vector size fails the request with `500 api_error` instead of returning vectors of the wrong size.
 
 ## Related
 

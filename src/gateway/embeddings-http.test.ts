@@ -387,7 +387,7 @@ describe("OpenAI-compatible embeddings HTTP API (e2e)", () => {
             inputType: "default",
             queryInputType: "query",
             documentInputType: "document",
-            outputDimensionality: 768,
+            outputDimensionality: 2,
             remote: { baseUrl: genericEmbeddingServer.baseUrl },
           },
         },
@@ -403,11 +403,31 @@ describe("OpenAI-compatible embeddings HTTP API (e2e)", () => {
       expect(json.usage).toEqual({ prompt_tokens: 777, total_tokens: 778 });
       expect(genericEmbeddingServer.requests.at(-1)?.body).toMatchObject({
         model: override ?? model,
-        dimensions: 768,
+        dimensions: 2,
         input_type: "document",
       });
     },
   );
+
+  it("does not serve vectors when the configured provider ignores requested dimensions", async () => {
+    await writeEmbeddingConfig({
+      memory: {
+        search: {
+          provider: "openai-compatible",
+          model: "nomic-embed-text",
+          outputDimensionality: 768,
+          remote: { baseUrl: genericEmbeddingServer.baseUrl },
+        },
+      },
+    });
+
+    const res = await post({ input: ["a", "b"] });
+    expect(res.status).toBe(500);
+    const json = (await res.json()) as { data?: unknown; error?: unknown };
+    expect(json.data).toBeUndefined();
+    expect(json.error).toEqual({ type: "api_error", message: "internal error" });
+    expect(genericEmbeddingServer.requests.at(-1)?.body).toMatchObject({ dimensions: 768 });
+  });
 
   it("rejects disallowed x-openclaw-model provider overrides", async () => {
     registerEmbeddingProvider({

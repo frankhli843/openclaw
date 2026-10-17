@@ -113,6 +113,28 @@ function normalizeDimensions(value: number): number {
   return value;
 }
 
+// Servers that ignore `dimensions` return the model's native size instead of failing.
+// Accepting those vectors would index them under an identity that records the requested size.
+function assertRequestedDimensions(
+  vectors: number[][],
+  dimensions: number | undefined,
+  errorPrefix: string,
+): void {
+  if (dimensions === undefined) {
+    return;
+  }
+  const index = vectors.findIndex((vector) => vector.length !== dimensions);
+  if (index === -1) {
+    return;
+  }
+  throw Object.assign(
+    new Error(
+      `${errorPrefix}: expected ${dimensions} dimensions, got ${vectors[index]?.length} at index ${index}; the endpoint did not honor the requested dimensions`,
+    ),
+    { code: "INVALID_EMBEDDING_RESPONSE" },
+  );
+}
+
 function resolveRequestInputType(
   client: OpenAICompatibleEmbeddingClient,
   kind: EmbeddingProviderCallOptions["inputType"] | undefined,
@@ -392,6 +414,7 @@ async function postEmbeddingRequest(params: {
             input.length,
             context,
           );
+          assertRequestedDimensions(vectors, client.dimensions, context);
           callOptions?.onUsage?.(extractEmbeddingUsage(payload));
           return vectors;
         } catch (error) {
