@@ -127,11 +127,16 @@ function assertRequestedDimensions(
   if (index === -1) {
     return;
   }
+  const actual = vectors[index]?.length;
   throw Object.assign(
     new Error(
-      `${errorPrefix}: expected ${dimensions} dimensions, got ${vectors[index]?.length} at index ${index}; the endpoint did not honor the requested dimensions`,
+      `${errorPrefix}: expected ${dimensions} dimensions, got ${actual} at index ${index}; the endpoint did not honor the requested dimensions`,
     ),
-    { code: "INVALID_EMBEDDING_RESPONSE" },
+    {
+      code: "INVALID_EMBEDDING_RESPONSE",
+      expectedDimensions: dimensions,
+      actualDimensions: actual,
+    },
   );
 }
 

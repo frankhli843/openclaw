@@ -409,25 +409,37 @@ describe("OpenAI-compatible embeddings HTTP API (e2e)", () => {
     },
   );
 
-  it("does not serve vectors when the configured provider ignores requested dimensions", async () => {
-    await writeEmbeddingConfig({
-      memory: {
-        search: {
-          provider: "openai-compatible",
-          model: "nomic-embed-text",
-          outputDimensionality: 768,
-          remote: { baseUrl: genericEmbeddingServer.baseUrl },
+  it.each([
+    { name: "configured", body: { input: ["a", "b"] }, requested: 768 },
+    { name: "requested", body: { input: ["a", "b"], dimensions: 512 }, requested: 512 },
+  ])(
+    "reports $name dimensions the provider ignores without serving vectors",
+    async ({ body, requested }) => {
+      await writeEmbeddingConfig({
+        memory: {
+          search: {
+            provider: "openai-compatible",
+            model: "nomic-embed-text",
+            outputDimensionality: 768,
+            remote: { baseUrl: genericEmbeddingServer.baseUrl },
+          },
         },
-      },
-    });
+      });
 
-    const res = await post({ input: ["a", "b"] });
-    expect(res.status).toBe(500);
-    const json = (await res.json()) as { data?: unknown; error?: unknown };
-    expect(json.data).toBeUndefined();
-    expect(json.error).toEqual({ type: "api_error", message: "internal error" });
-    expect(genericEmbeddingServer.requests.at(-1)?.body).toMatchObject({ dimensions: 768 });
-  });
+      const res = await post(body);
+      expect(res.status).toBe(400);
+      const json = (await res.json()) as { data?: unknown; error?: unknown };
+      expect(json.data).toBeUndefined();
+      expect(json.error).toEqual({
+        type: "invalid_request_error",
+        code: "embedding_dimensions_mismatch",
+        message: `The embedding provider returned 2 dimensions, but ${requested} were requested. Omit \`dimensions\` and \`memory.search.outputDimensionality\`, or use a model and server that support them.`,
+      });
+      expect(genericEmbeddingServer.requests.at(-1)?.body).toMatchObject({
+        dimensions: requested,
+      });
+    },
+  );
 
   it("rejects disallowed x-openclaw-model provider overrides", async () => {
     registerEmbeddingProvider({

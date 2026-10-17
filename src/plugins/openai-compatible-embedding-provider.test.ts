@@ -635,6 +635,8 @@ describe("openai-compatible generic embedding provider", () => {
 
     await expect(provider.embed("hello", { inputType: "query" })).rejects.toMatchObject({
       code: "INVALID_EMBEDDING_RESPONSE",
+      expectedDimensions: 2,
+      actualDimensions: 3,
       message:
         "openai-compatible embeddings failed (model: text-embedding-bge-m3, batch size: 1): expected 2 dimensions, got 3 at index 0; the endpoint did not honor the requested dimensions",
     });
