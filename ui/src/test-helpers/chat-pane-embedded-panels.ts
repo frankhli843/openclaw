@@ -73,7 +73,6 @@ export async function renderPanelFixture(
   await Promise.all(
     [...mount.querySelectorAll("openclaw-chat-detail-panel")].map((panel) => panel.updateComplete),
   );
-  await mount.querySelector("openclaw-panel-loading-skeleton")?.updateComplete;
 }
 
 export function sidebarPanelFixtureParams(
@@ -135,11 +134,7 @@ export function createReviewFixture() {
   });
   const mount = document.body.appendChild(document.createElement("div"));
   const context = { ...createInitializationContext(), sessions };
-  const state = createPageState(
-    context,
-    { invalidate: vi.fn(), afterCommit: () => () => {} },
-    mount,
-  );
+  const state = createPageState(context, { afterCommit: () => () => {} }, mount);
   state.client = createGatewayBrowserClientFixture();
   state.connected = true;
   state.connectionEpoch = 1;
