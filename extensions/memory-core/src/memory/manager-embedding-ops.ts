@@ -126,25 +126,15 @@ export abstract class MemoryManagerEmbeddingOps extends MemoryManagerEmbeddingCa
       cacheKeyData: runtime?.cacheKeyData,
       aliases: runtime?.indexIdentityAliases,
     });
-    const providerKey = expectDefined(
-      identities.at(0),
-      "primary memory provider identity",
-    ).providerKey;
-    const database = this.database;
     const generation = {
-      database,
+      database: this.database,
       cacheWritesInvalidated: false,
-      providerKey,
+      providerKey: expectDefined(identities.at(0), "primary memory provider identity").providerKey,
       identities,
+      ...(provider ? { embeddingDimensions: provider.dimensions } : {}),
     };
     this.syncProviderGeneration = provider
-      ? {
-          ...generation,
-          kind: "semantic",
-          provider,
-          embeddingDimensions: provider.dimensions,
-          ...(runtime ? { runtime } : {}),
-        }
+      ? { ...generation, kind: "semantic", provider, ...(runtime ? { runtime } : {}) }
       : { ...generation, kind: "fts-only", provider: null };
     this.syncProviderGenerationRelease = provider ? this.acquireProviderUse(provider) : null;
     this.syncProviderGenerationOwners = 1;

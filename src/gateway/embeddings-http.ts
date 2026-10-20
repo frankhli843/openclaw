@@ -66,6 +66,8 @@ function resolveEmbeddingDimensionsError(err: unknown): OpenAiCompatError | unde
   const actual = record?.actualDimensions;
   if (
     record?.code !== "INVALID_EMBEDDING_RESPONSE" ||
+    typeof expected !== "number" ||
+    typeof actual !== "number" ||
     !Number.isSafeInteger(expected) ||
     !Number.isSafeInteger(actual)
   ) {
