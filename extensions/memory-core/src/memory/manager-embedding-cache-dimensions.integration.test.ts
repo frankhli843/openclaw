@@ -130,7 +130,9 @@ it("regenerates cached vectors that disagree with the provider's declared dimens
     );
   } finally {
     server.closeAllConnections();
-    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await new Promise<void>((resolve) => {
+      server.close(() => resolve());
+    });
     await claim.release();
   }
 });
